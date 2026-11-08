@@ -1,43 +1,58 @@
 #include "mod/MyMod.h"
 
 #include "ll/api/memory/Hook.h"
+#include "ll/api/memory/Memory.h"
 #include "ll/api/mod/RegisterHelper.h"
-#include "mc/gamecore/pc/AppPlatform_GameCorePC.h"
+#include "ll/api/service/TargetedBedrock.h"
+#include "mc/deps/application/AppPlatform.h"
 
 namespace my_mod {
 
-// The PC platform class overrides this to return false; force splitscreen on.
-LL_TYPE_INSTANCE_HOOK(
-    AllowSplitScreenHook,
-    ll::memory::HookPriority::Normal,
-    AppPlatform_GameCorePC,
-    &AppPlatform_GameCorePC::$allowSplitScreen,
-    bool
-) {
-    return true;
-}
+// LeviLamina exports no address for AppPlatform_GameCorePC::allowSplitScreen in this game build,
+// so we read the real one from the live platform object's vtable and hook that.
+static ll::memory::FuncPtr gTarget  = nullptr;
+static ll::memory::FuncPtr gOrigin  = nullptr;
+
+static bool allowSplitScreenDetour(AppPlatform*) { return true; }
 
 MyMod& MyMod::getInstance() {
     static MyMod instance;
     return instance;
 }
 
-bool MyMod::load() {
-    getSelf().getLogger().debug("Loading...");
-    // Code for loading the mod goes here.
-    return true;
-}
+bool MyMod::load() { return true; }
 
 bool MyMod::enable() {
-    ll::memory::HookRegistrar<AllowSplitScreenHook>::hook();
-    getSelf().getLogger().info("Splitscreen forced on");
-    // Code for enabling the mod goes here.
+    auto& logger   = getSelf().getLogger();
+    auto  platform = ll::service::getAppPlatform();
+    if (!platform) {
+        logger.error("AppPlatform not available yet; splitscreen not enabled");
+        return false;
+    }
+    auto index = ll::memory::getVtableIndex(&AppPlatform::allowSplitScreen);
+    if (!index) {
+        logger.error("Could not find allowSplitScreen vtable slot");
+        return false;
+    }
+    auto vtable = *reinterpret_cast<ll::memory::FuncPtr**>(platform.as_ptr());
+    gTarget     = vtable[*index];
+    if (ll::memory::hook(
+            gTarget,
+            reinterpret_cast<ll::memory::FuncPtr>(&allowSplitScreenDetour),
+            &gOrigin,
+            ll::memory::HookPriority::Normal
+        )
+        != 0) {
+        logger.error("Hooking allowSplitScreen failed");
+        return false;
+    }
+    logger.info("Splitscreen forced on (vtable slot {})", *index);
     return true;
 }
 
 bool MyMod::disable() {
-    ll::memory::HookRegistrar<AllowSplitScreenHook>::unhook();
-    // Code for disabling the mod goes here.
+    if (gTarget) ll::memory::unhook(gTarget, reinterpret_cast<ll::memory::FuncPtr>(&allowSplitScreenDetour));
+    gTarget = nullptr;
     return true;
 }
 
