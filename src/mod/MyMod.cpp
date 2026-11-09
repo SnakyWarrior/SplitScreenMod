@@ -761,6 +761,9 @@ static bool tryGetSubIdDetour(void* game, int controllerId, SubClientId& out, bo
 
 // "SnakyWarrior (2)": the game names local players after the gamertag without its number suffix.
 static std::string localName(ClientMap const& clients, int sub) {
+    if (sub == 0)
+        if (auto it = clients.find(SubClientId::PrimaryClient); it != clients.end() && it->second && it->second->getLocalPlayer())
+            return it->second->getLocalPlayer()->getRealName();
     std::string base;
     for (auto& [id, client] : clients) {
         if (!client || !client->getLocalPlayer()) continue;
