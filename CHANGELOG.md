@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- A menu in the middle of the screen asks who plays with a new controller before anyone joins: player 1, a saved local player with their own inventory, or a player who lost their controller.
+- F7 chooses a horizontal or vertical split.
+- With three players, player 1 gets half of the screen and the other two share the other half.
+
+### Changed
+
+- In a world, controllers no longer go to player 1 by themselves.
+
+### Fixed
+
+- Leaving and re-entering a world after playing split-screen crashed (LeviLamina kept a pointer to a player that had left).
+- Reconnecting controllers could open more than four controller slots and crash.
+
 ## [1.1.1] - 2026-11-09
 
 ### Added
