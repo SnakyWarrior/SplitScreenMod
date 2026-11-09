@@ -405,6 +405,10 @@ static std::atomic_bool gInWorld = false; // refreshed on the client thread, rea
 static std::set<int> gAskLater; // client thread only
 static void          askBeforeJoin(IMinecraftGame& game, int slot);
 static void          openSettings();
+struct ViewRect {
+    float x, y, width, height; // fractions of the window
+};
+static ViewRect* viewportDetour(void* self, ViewRect* out, SubClientId id, uint64_t count, int direction);
 
 static std::atomic<int> gSecondsLeft = -1; // shown in the "controller lost" prompt; -1 when nobody is leaving
 
@@ -518,10 +522,21 @@ static void pollTrigger() {
         askBeforeJoin(client->getMinecraftGame(), slot);
     }
     // the pause menu of any player gets a "Split screen" button
-    bool paused = false;
-    if (client && gInWorld)
-        for (auto& [sub, other] : client->getMinecraftGame().getClientInstanceMap())
-            if (other && other->getTopScreenName().find("pause") != std::string::npos) paused = true;
+    bool     paused = false;
+    ViewRect where{0, 0, 1, 1};
+    if (client && gInWorld) {
+        auto clients = client->getMinecraftGame().getClientInstanceMap();
+        for (auto& [sub, other] : clients)
+            if (other && !paused && other->getTopScreenName().find("pause") != std::string::npos) {
+                paused = true;
+                viewportDetour(other.get(), &where, sub, clients.size(), int(client->getOptions().getSplitscreenDirection()));
+            }
+    }
+    static ViewRect shownAt{};
+    if (paused && std::memcmp(&where, &shownAt, sizeof where)) {
+        overlay::moveButton(where.x, where.y, where.width, where.height);
+        shownAt = where;
+    }
     static std::string lastScreen; // logged so the pause check can be fixed if the game renames its screens
     if (auto top = client ? client->getTopScreenName() : std::string(); top != lastScreen) note("screen: {}", lastScreen = top);
     static bool wasPaused = false;
@@ -1186,17 +1201,17 @@ LL_AUTO_TYPE_INSTANCE_HOOK(
 }
 
 // ---- Split-screen layout: IClientInstance::calculateViewPortModifiers gives each player its part of the screen ----
-struct ViewRect {
-    float x, y, width, height; // fractions of the window
-};
 // Instance methods return structs through a hidden pointer passed after `this`.
 using ViewportFn = ViewRect* (*)(void*, ViewRect*, SubClientId, uint64_t, int);
 
 static std::atomic<ll::memory::FuncPtr> gViewportOriginal = nullptr; // read on the render thread: not through gCfg
+static std::atomic_bool                 gThree = false; // the last layout asked for was for three players
+static ViewRect                         gRects[4]{};    // each player's part with three players
 
 static ViewRect* viewportDetour(void* self, ViewRect* out, SubClientId id, uint64_t count, int direction) {
     auto original = reinterpret_cast<ViewportFn>(gViewportOriginal.load());
     original(self, out, id, count, direction);
+    gThree = count == 3;
     if (count != 3) return out;
     // With three players the game uses quarters and leaves one black. Give player 1 half of the screen and let the
     // other two share the other half. Which player is which comes from the game's quarter: top-left, top-right,
@@ -1206,6 +1221,26 @@ static ViewRect* viewportDetour(void* self, ViewRect* out, SubClientId id, uint6
     if (slot == 0) *out = vertical ? ViewRect{0, 0, 0.5f, 1} : ViewRect{0, 0, 1, 0.5f};
     else if (vertical) *out = {0.5f, slot == 1 ? 0.f : 0.5f, 0.5f, 0.5f};
     else *out = {slot == 1 ? 0.f : 0.5f, 0.5f, 0.5f, 0.5f};
+    gRects[int(id) & 3] = *out;
+    return out;
+}
+
+// The HUD sizes itself from IClientInstance::getNormalizedViewportSize, which has its own idea of the 3-player
+// layout; give it the part of the screen chosen above.
+struct Size2 {
+    float x, y;
+};
+static std::atomic<ll::memory::FuncPtr> gNormSizeOriginal = nullptr;
+
+static Size2* normSizeDetour(IClientInstance* self, Size2* out) {
+    reinterpret_cast<Size2* (*)(IClientInstance*, Size2*)>(gNormSizeOriginal.load())(self, out);
+    if (!gThree) return out;
+    int  sub  = int(self->getClientSubId()) & 3;
+    auto rect = gRects[sub];
+    static std::atomic<int> logged = 0;
+    if (!(logged.fetch_or(1 << sub) & (1 << sub)))
+        note("hud size: player {} game {} {}, now {} {}", sub + 1, out->x, out->y, rect.width, rect.height);
+    if (rect.width > 0) *out = {rect.width, rect.height};
     return out;
 }
 
@@ -1269,6 +1304,12 @@ bool MyMod::enable() {
         ll::memory::hook(*slot, fn(&viewportDetour), reinterpret_cast<ll::memory::FuncPtr*>(&gViewportOriginal),
                          ll::memory::HookPriority::Normal);
         note("viewport at rva {:X}", reinterpret_cast<uintptr_t>(*slot) - gameBase());
+    }
+    if (auto slot = findSlot(static_cast<IClientInstance*>(client.as_ptr()), &IClientInstance::getNormalizedViewportSize,
+                             "getNormalizedViewportSize")) {
+        ll::memory::hook(*slot, fn(&normSizeDetour), reinterpret_cast<ll::memory::FuncPtr*>(&gNormSizeOriginal),
+                         ll::memory::HookPriority::Normal);
+        note("hud size at rva {:X}", reinterpret_cast<uintptr_t>(*slot) - gameBase());
     }
     if (hooks.contains("isSplitscreenJoinEnabled"))
         hookSlot(&game, &IMinecraftGame::isSplitscreenJoinEnabled, fn(&joinEnabledDetour), "isSplitscreenJoinEnabled");

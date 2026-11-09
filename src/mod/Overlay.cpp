@@ -335,6 +335,7 @@ namespace {
 std::atomic_bool      gButtonWanted = false, gButtonRunning = false, gHover = false;
 std::mutex            gButtonLock;
 std::function<void()> gButtonClick;
+float                 gArea[4]{0, 0, 1, 1}; // under gButtonLock
 
 int buttonUnit(HWND game) {
     RECT r{};
@@ -416,7 +417,12 @@ void buttonRun() {
         POINT origin{0, 0};
         ClientToScreen(game, &origin);
         int  width = 110 * u, height = 22 * u;
-        RECT want{origin.x + client.right - width - 8 * u, origin.y + 8 * u, 0, 0};
+        float area[4];
+        {
+            std::lock_guard lock(gButtonLock);
+            std::copy(gArea, gArea + 4, area);
+        }
+        RECT want{origin.x + LONG((area[0] + area[2]) * client.right) - width - 8 * u, origin.y + LONG(area[1] * client.bottom) + 8 * u, 0, 0};
         want.right  = want.left + width;
         want.bottom = want.top + height;
         if (visible != shown || !EqualRect(&want, &placed)) {
@@ -449,5 +455,10 @@ void showButton(std::function<void()> click) {
 }
 
 void hideButton() { gButtonWanted = false; }
+
+void moveButton(float x, float y, float width, float height) {
+    std::lock_guard lock(gButtonLock);
+    gArea[0] = x, gArea[1] = y, gArea[2] = width, gArea[3] = height;
+}
 
 } // namespace overlay
