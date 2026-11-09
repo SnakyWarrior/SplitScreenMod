@@ -29,6 +29,7 @@
 #include "ll/api/service/TargetedBedrock.h"
 #include "ll/api/utils/StacktraceUtils.h"
 #include "mc/client/game/ClientInstance.h"
+#include "mc/client/game/ClientInstanceArguments.h"
 #include "mc/client/game/IClientInstance.h"
 #include "mc/client/game/IMinecraftGame.h"
 #include "mc/client/input/MinecraftInputHandler.h"
@@ -830,8 +831,45 @@ static void deviceCallbackDetour(uint64_t token, void* context, void* device, ui
     }
 }
 
+// LeviLamina remembers the *last* ClientInstance created as "the" client. Players 2-4 get ClientInstances too, so
+// after one joined it pointed at that player, and once the player left it pointed at freed memory: leaving and
+// re-entering a world then crashed inside LeviLamina (and this mod used the same stale pointer). Keep it on player 1.
+static std::atomic<ClientInstance*>* gLlClient = nullptr;
+
+// LeviLamina's getClientInstance() is "mov rax, [rip+x]; ret" around that variable; find x.
+static std::atomic<ClientInstance*>* findLlClientVar() {
+    auto code = reinterpret_cast<uint8_t const*>(&ll::service::getClientInstance);
+    for (int i = 0; i < 4; ++i) { // through jmp stubs
+        if (code[0] == 0xE9) code += 5 + *reinterpret_cast<int32_t const*>(code + 1);
+        else if (code[0] == 0xFF && code[1] == 0x25)
+            code = *reinterpret_cast<uint8_t const* const*>(code + 6 + *reinterpret_cast<int32_t const*>(code + 2));
+        else break;
+    }
+    for (int p = 0; p < 48; ++p) // mov r64, [rip+disp32]
+        if ((code[p] & 0xFB) == 0x48 && code[p + 1] == 0x8B && (code[p + 2] & 0xC7) == 0x05)
+            return reinterpret_cast<std::atomic<ClientInstance*>*>(
+                const_cast<uint8_t*>(code + p + 7 + *reinterpret_cast<int32_t const*>(code + p + 3))
+            );
+    return nullptr;
+}
+
+LL_AUTO_TYPE_INSTANCE_HOOK(
+    KeepPrimaryClient,
+    ll::memory::HookPriority::Highest, // outside LeviLamina's own hook, so this runs after it
+    ClientInstance,
+    &ClientInstance::$ctor,
+    void*,
+    ClientInstanceArguments&& args
+) {
+    ClientInstance* primary = gLlClient ? gLlClient->load() : nullptr;
+    auto            result  = origin(std::move(args));
+    if (primary) gLlClient->store(primary);
+    return result;
+}
+
 bool MyMod::load() {
     note("SplitScreenMod loading");
+    gLlClient = findLlClientVar(); // checked in enable(), once the client exists
     readConfig(gWanted);
     if (auto cb = findDeviceCallback()) {
         ll::memory::hook(reinterpret_cast<ll::memory::FuncPtr>(cb), reinterpret_cast<ll::memory::FuncPtr>(&deviceCallbackDetour),
@@ -855,6 +893,10 @@ bool MyMod::load() {
 
 bool MyMod::enable() {
     note("SplitScreenMod enabling");
+    if (!gLlClient || !ll::service::getClientInstance() || gLlClient->load() != ll::service::getClientInstance().as_ptr()) {
+        note("LeviLamina client pointer not found: leaving a world with several players may crash");
+        gLlClient = nullptr;
+    }
     auto& hooks  = gWanted;
     hookPlatform();
     auto client = ll::service::getClientInstance();
