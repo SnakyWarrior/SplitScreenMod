@@ -64,6 +64,7 @@ static uintptr_t gameBase() { return reinterpret_cast<uintptr_t>(GetModuleHandle
 // Per-hook behaviour from splitscreen.cfg: "trace" keeps the game's answer and logs each new caller,
 // "force" returns true everywhere, "force <rva>..." returns true only for those call sites.
 struct HookCfg {
+    bool                    autoSites = false; // pick the call sites by what the calling code does (see autoAllow)
     bool                    force = false;
     std::set<uintptr_t>     only;
     std::set<uintptr_t>     seen;
@@ -71,12 +72,41 @@ struct HookCfg {
 };
 static std::map<std::string, HookCfg> gCfg;
 
+static uintptr_t gJoinFn = 0; // IMinecraftGame::isSplitscreenJoinEnabled, read from the game's vtable in enable()
+
+// True if the code contains "test ..., 0x40000" (GameInputKindGamepad): the code that hands new gamepads to players.
+static bool testsGamepadKind(uint8_t const* body, size_t n) {
+    for (size_t p = 6; p + 4 <= n; ++p)
+        if (std::memcmp(body + p, "\x00\x00\x04\x00", 4) == 0
+            && (body[p - 2] == 0xF7 || body[p - 3] == 0xF7 || body[p - 6] == 0xF7))
+            return true;
+    return false;
+}
+
+// Version-independent choice of which allowSplitScreen callers get "true": the splitscreen join check, and the
+// GameInput code that would otherwise give every gamepad to player 1. Everything else keeps the PC answer,
+// since forcing those callers broke the game.
+static bool autoAllow(void* ret) {
+    static std::map<void*, bool> verdict; // callers run often; decide() holds the lock
+    if (auto it = verdict.find(ret); it != verdict.end()) return it->second;
+    DWORD64 base = 0;
+    auto    fn   = RtlLookupFunctionEntry(reinterpret_cast<DWORD64>(ret), &base, nullptr);
+    if (!fn) return false;
+    auto begin = base + fn->BeginAddress;
+    bool yes   = begin == gJoinFn
+            || testsGamepadKind(reinterpret_cast<uint8_t const*>(begin), fn->EndAddress - fn->BeginAddress);
+    if (gJoinFn) verdict[ret] = yes; // before enable() the join function is not known yet
+    return yes;
+}
+
 static bool decide(char const* name, void* ret, bool original) {
     static std::mutex m;
     std::lock_guard   lock(m);
     auto& c   = gCfg[name];
     auto  rva = reinterpret_cast<uintptr_t>(ret) - gameBase();
-    bool  res = c.force && (c.only.empty() || c.only.contains(rva)) ? true : original;
+    bool  res = c.autoSites ? autoAllow(ret) || original
+              : c.force && (c.only.empty() || c.only.contains(rva)) ? true
+                                                                     : original;
     if (c.seen.insert(rva).second) note("{} called from {:X}: game said {}, returning {}", name, rva, original, res);
     return res;
 }
@@ -115,7 +145,7 @@ static std::optional<uint> thunkSlot(uint8_t const* code) {
 }
 
 template <class F>
-static ll::memory::FuncPtr* hookSlot(void* object, F method, ll::memory::FuncPtr detour, char const* name) {
+static ll::memory::FuncPtr* findSlot(void* object, F method, char const* name) {
     struct Raw {
         uint8_t const* code;
         int32_t        adjust; // only present in 16-byte member pointers
@@ -127,29 +157,32 @@ static ll::memory::FuncPtr* hookSlot(void* object, F method, ll::memory::FuncPtr
         return nullptr;
     }
     auto self = static_cast<char*>(object) + (sizeof(method) > 8 ? raw.adjust : 0);
-    auto slot = *reinterpret_cast<ll::memory::FuncPtr**>(self) + *index;
+    return *reinterpret_cast<ll::memory::FuncPtr**>(self) + *index;
+}
+
+template <class F>
+static ll::memory::FuncPtr* hookSlot(void* object, F method, ll::memory::FuncPtr detour, char const* name) {
+    auto slot = findSlot(object, method, name);
+    if (!slot) return nullptr;
     if (*slot == detour) return slot;
     Hooked h{slot, *slot};
     gCfg[name].origin = h.original; // detours read this, so set it before the slot goes live
     ll::memory::modify(slot, sizeof(*slot), [&] { *slot = detour; });
     gHooks.push_back(h);
-    note("Hooked {} (vtable slot {}, original rva {:X})", name, *index, reinterpret_cast<uintptr_t>(h.original) - gameBase());
+    note("Hooked {} (original rva {:X})", name, reinterpret_cast<uintptr_t>(h.original) - gameBase());
     return slot;
 }
 
 // splitscreen.cfg lets tests switch hooks and resolve crash addresses without rebuilding:
+//   hook <name> auto           allowSplitScreen only: the default, call sites chosen by autoAllow
 //   hook <name> trace          log every call site, keep the game's answer
 //   hook <name> force [rva..]  return true (only at those call sites, if given)
 //   lookup <hex rva>   log the game function at that offset from Minecraft.Windows.exe
 static void readConfig(std::set<std::string>& hooks) {
     std::ifstream in(MyMod::getInstance().getSelf().getModDir() / "splitscreen.cfg");
     if (!in) {
-        // Default: allow splitscreen only where MinecraftGame::isSplitscreenJoinEnabled asks for it. Forcing every
-        // caller breaks other PC code paths.
-        // shortcut: call-site RVA is for game 1.26.60 only, re-find it with "trace" when the game updates.
-        hooks = {"allowSplitScreen"};
-        gCfg["allowSplitScreen"].force = true;
-        gCfg["allowSplitScreen"].only  = {0x876204};
+        hooks                              = {"allowSplitScreen"};
+        gCfg["allowSplitScreen"].autoSites = true;
         return;
     }
     for (std::string line; std::getline(in, line);) {
@@ -160,7 +193,8 @@ static void readConfig(std::set<std::string>& hooks) {
             hooks.insert(arg);
             std::string mode, rva;
             words >> mode;
-            gCfg[arg].force = mode == "force";
+            gCfg[arg].force     = mode == "force";
+            gCfg[arg].autoSites = mode == "auto";
             while (words >> rva) gCfg[arg].only.insert(std::stoull(rva, nullptr, 16));
         }
         if (cmd == "lookup" && !arg.empty()) {
@@ -269,6 +303,8 @@ bool MyMod::enable() {
         return false;
     }
     IMinecraftGame& game = client->getMinecraftGame();
+    if (auto slot = findSlot(&game, &IMinecraftGame::isSplitscreenJoinEnabled, "isSplitscreenJoinEnabled"))
+        gJoinFn = reinterpret_cast<uintptr_t>(*slot);
     if (hooks.contains("isSplitscreenJoinEnabled"))
         hookSlot(&game, &IMinecraftGame::isSplitscreenJoinEnabled, fn(&joinEnabledDetour), "isSplitscreenJoinEnabled");
     if (hooks.contains("canAddSplitscreenSubClient"))
