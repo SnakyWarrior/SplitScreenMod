@@ -1,5 +1,7 @@
 #include "mod/MyMod.h"
 
+#include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstring>
 #include <filesystem>
@@ -113,7 +115,7 @@ static std::optional<uint> thunkSlot(uint8_t const* code) {
 }
 
 template <class F>
-static bool hookSlot(void* object, F method, ll::memory::FuncPtr detour, char const* name) {
+static ll::memory::FuncPtr* hookSlot(void* object, F method, ll::memory::FuncPtr detour, char const* name) {
     struct Raw {
         uint8_t const* code;
         int32_t        adjust; // only present in 16-byte member pointers
@@ -122,16 +124,17 @@ static bool hookSlot(void* object, F method, ll::memory::FuncPtr detour, char co
     auto index = thunkSlot(raw.code);
     if (!index) {
         note("ERROR: could not find the vtable slot for {} (thunk bytes {:02X})", name, fmt::join(raw.code, raw.code + 16, " "));
-        return false;
+        return nullptr;
     }
     auto self = static_cast<char*>(object) + (sizeof(method) > 8 ? raw.adjust : 0);
     auto slot = *reinterpret_cast<ll::memory::FuncPtr**>(self) + *index;
+    if (*slot == detour) return slot;
     Hooked h{slot, *slot};
     gCfg[name].origin = h.original; // detours read this, so set it before the slot goes live
     ll::memory::modify(slot, sizeof(*slot), [&] { *slot = detour; });
     gHooks.push_back(h);
     note("Hooked {} (vtable slot {}, original rva {:X})", name, *index, reinterpret_cast<uintptr_t>(h.original) - gameBase());
-    return true;
+    return slot;
 }
 
 // splitscreen.cfg lets tests switch hooks and resolve crash addresses without rebuilding:
@@ -219,30 +222,37 @@ MyMod& MyMod::getInstance() {
 }
 
 static std::set<std::string> gWanted;
-static bool                  gPlatformHooked = false;
+static std::atomic_bool      gPlatformHooked = false;
 static auto fn(auto f) { return reinterpret_cast<ll::memory::FuncPtr>(f); }
 
 // Gamepads are sorted into players when they connect, which happens before enable(), so hook as early as possible.
+// While AppPlatform is being constructed its vtable pointer still moves from base to derived class, so re-hook
+// whenever the slot no longer holds our detour, and put the base class slot back.
 static void hookPlatform() {
-    static std::mutex m;
-    std::lock_guard   lock(m);
-    auto platform = ll::service::getAppPlatform();
-    if (gPlatformHooked || !platform || !gWanted.contains("allowSplitScreen")) return;
-    gPlatformHooked =
-        hookSlot(platform.as_ptr(), &AppPlatform::allowSplitScreen, fn(&allowSplitScreenDetour), "allowSplitScreen");
+    static std::mutex                 m;
+    static ll::memory::FuncPtr*       hooked = nullptr;
+    std::lock_guard                   lock(m);
+    auto                              platform = ll::service::getAppPlatform();
+    if (!platform || !gWanted.contains("allowSplitScreen")) return;
+    auto slot = hookSlot(platform.as_ptr(), &AppPlatform::allowSplitScreen, fn(&allowSplitScreenDetour), "allowSplitScreen");
+    if (slot && slot != hooked && hooked) {
+        auto old = std::find_if(gHooks.begin(), gHooks.end(), [](auto& h) { return h.slot == hooked; });
+        if (old != gHooks.end()) {
+            ll::memory::modify(old->slot, sizeof(*old->slot), [&] { *old->slot = old->original; });
+            gHooks.erase(old);
+        }
+    }
+    if (slot) hooked = slot;
+    gPlatformHooked = slot != nullptr;
 }
 
 bool MyMod::load() {
     note("SplitScreenMod loading");
     readConfig(gWanted);
-    // AppPlatform does not exist yet at load; catch it as soon as it does, before gamepads are enumerated.
+    // AppPlatform does not exist yet at load; follow it from creation until the game is up.
     std::thread([] {
-        for (int i = 0; i < 60000 && !gPlatformHooked; ++i) {
-            if (ll::service::getAppPlatform()) {
-                hookPlatform();
-                note("load: platform hooked after {} ms", i);
-                return;
-            }
+        for (int i = 0; i < 60000; ++i) {
+            if (ll::service::getAppPlatform()) hookPlatform();
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
     }).detach();
@@ -255,7 +265,7 @@ bool MyMod::enable() {
     hookPlatform();
     auto client = ll::service::getClientInstance();
     if (!gPlatformHooked && hooks.contains("allowSplitScreen") || !client) {
-        note("ERROR: game not ready (platform hooked: {}, client: {})", gPlatformHooked, bool(client));
+        note("ERROR: game not ready (platform hooked: {}, client: {})", gPlatformHooked.load(), bool(client));
         return false;
     }
     IMinecraftGame& game = client->getMinecraftGame();
