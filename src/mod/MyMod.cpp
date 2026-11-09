@@ -217,22 +217,36 @@ MyMod& MyMod::getInstance() {
     return instance;
 }
 
-bool MyMod::load() { return true; }
+static std::set<std::string> gWanted;
+static bool                  gPlatformHooked = false;
+static auto fn(auto f) { return reinterpret_cast<ll::memory::FuncPtr>(f); }
+
+// Gamepads are sorted into players when they connect, which happens before enable(), so hook as early as possible.
+static void hookPlatform() {
+    auto platform = ll::service::getAppPlatform();
+    if (gPlatformHooked || !platform || !gWanted.contains("allowSplitScreen")) return;
+    gPlatformHooked =
+        hookSlot(platform.as_ptr(), &AppPlatform::allowSplitScreen, fn(&allowSplitScreenDetour), "allowSplitScreen");
+}
+
+bool MyMod::load() {
+    note("SplitScreenMod loading");
+    readConfig(gWanted);
+    hookPlatform();
+    note("load: platform {}", gPlatformHooked ? "hooked" : "not ready yet");
+    return true;
+}
 
 bool MyMod::enable() {
     note("SplitScreenMod enabling");
-    std::set<std::string> hooks;
-    readConfig(hooks);
-    auto platform = ll::service::getAppPlatform();
-    auto client   = ll::service::getClientInstance();
-    if (!platform || !client) {
-        note("ERROR: game not ready (platform: {}, client: {})", bool(platform), bool(client));
+    auto& hooks  = gWanted;
+    hookPlatform();
+    auto client = ll::service::getClientInstance();
+    if (!gPlatformHooked && hooks.contains("allowSplitScreen") || !client) {
+        note("ERROR: game not ready (platform hooked: {}, client: {})", gPlatformHooked, bool(client));
         return false;
     }
     IMinecraftGame& game = client->getMinecraftGame();
-    auto            fn   = [](auto f) { return reinterpret_cast<ll::memory::FuncPtr>(f); };
-    if (hooks.contains("allowSplitScreen"))
-        hookSlot(platform.as_ptr(), &AppPlatform::allowSplitScreen, fn(&allowSplitScreenDetour), "allowSplitScreen");
     if (hooks.contains("isSplitscreenJoinEnabled"))
         hookSlot(&game, &IMinecraftGame::isSplitscreenJoinEnabled, fn(&joinEnabledDetour), "isSplitscreenJoinEnabled");
     if (hooks.contains("canAddSplitscreenSubClient"))
@@ -245,6 +259,7 @@ bool MyMod::enable() {
 bool MyMod::disable() {
     for (auto& h : gHooks) ll::memory::modify(h.slot, sizeof(*h.slot), [&] { *h.slot = h.original; });
     gHooks.clear();
+    gPlatformHooked = false;
     return true;
 }
 
