@@ -16,6 +16,10 @@
 #include <fmt/format.h>
 #include <fmt/ranges.h>
 
+#include "ll/api/command/CommandHandle.h"
+#include "ll/api/command/CommandRegistrar.h"
+#include "ll/api/event/EventBus.h"
+#include "ll/api/event/command/ClientCommandRegisterEvent.h"
 #include "ll/api/memory/Hook.h"
 #include "ll/api/memory/Memory.h"
 #include "ll/api/mod/RegisterHelper.h"
@@ -24,6 +28,7 @@
 #include "mc/client/game/ClientInstance.h"
 #include "mc/client/game/IMinecraftGame.h"
 #include "mc/deps/application/AppPlatform.h"
+#include "mc/server/commands/CommandOutput.h"
 
 namespace my_mod {
 
@@ -162,6 +167,39 @@ static void readConfig(std::set<std::string>& hooks) {
     }
 }
 
+// Test commands, so a second player can be added without a second physical controller:
+//   /splitjoin <controller>  asks the game to add a splitscreen player for that controller id
+//   /splitinfo               reports the splitscreen state
+struct JoinParam {
+    int controller;
+};
+
+static void registerCommands() {
+    auto& reg = ll::command::CommandRegistrar::getClientInstance();
+    reg.getOrCreateCommand("splitjoin", "Add a splitscreen player for a controller id")
+        .overload<JoinParam>()
+        .required("controller")
+        .execute([](CommandOrigin const&, CommandOutput& out, JoinParam const& p) {
+            auto client = ll::service::getClientInstance();
+            if (!client) return out.error("no client instance");
+            auto& game = client->getMinecraftGame();
+            note("/splitjoin {}: canAdd={} joinEnabled={}", p.controller,
+                 game.canAddSplitscreenSubClient(p.controller), game.isSplitscreenJoinEnabled());
+            game.addSubClientInstanceAndAssociateToUser(p.controller);
+            note("/splitjoin {}: addSubClientInstanceAndAssociateToUser returned, count={}", p.controller,
+                 client->getSplitScreenCount());
+            out.success("splitjoin {} sent", p.controller);
+        });
+    reg.getOrCreateCommand("splitinfo", "Show splitscreen state").overload().execute([](CommandOrigin const&, CommandOutput& out) {
+        auto client = ll::service::getClientInstance();
+        if (!client) return out.error("no client instance");
+        auto line = fmt::format("active={} count={}", client->isSplitScreenActive(), client->getSplitScreenCount());
+        note("/splitinfo: {}", line);
+        out.success(line);
+    });
+    note("Registered /splitjoin and /splitinfo");
+}
+
 MyMod& MyMod::getInstance() {
     static MyMod instance;
     return instance;
@@ -187,6 +225,9 @@ bool MyMod::enable() {
         hookSlot(&game, &IMinecraftGame::isSplitscreenJoinEnabled, fn(&joinEnabledDetour), "isSplitscreenJoinEnabled");
     if (hooks.contains("canAddSplitscreenSubClient"))
         hookSlot(&game, &IMinecraftGame::canAddSplitscreenSubClient, fn(&canAddSubClientDetour), "canAddSplitscreenSubClient");
+    static auto listener = ll::event::EventBus::getInstance().emplaceListener<ll::event::ClientCommandRegisterEvent>(
+        [](ll::event::ClientCommandRegisterEvent&) { registerCommands(); }
+    );
     note("SplitScreenMod enabled ({} hooks)", gHooks.size());
     return true;
 }
