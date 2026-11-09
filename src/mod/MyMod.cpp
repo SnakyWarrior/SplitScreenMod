@@ -306,6 +306,14 @@ static void runTrigger(std::string const& cmd, int arg) {
         game.addSubClientInstanceAndAssociateToUser(arg);
     }
     if (cmd == "pads") dumpPlayers(game);
+    // test commands: "leave N" (the player's own Save & Leave), "remove N" (queueSubclientRemoval)
+    if (cmd == "leave" || cmd == "remove")
+        for (auto& [sub, other] : game.getClientInstanceMap())
+            if (other && int(sub) + 1 == arg) {
+                note("{} player {}", cmd, arg);
+                if (cmd == "leave") other->requestLeaveGameAsync();
+                else game.queueSubclientRemoval(sub);
+            }
 }
 
 // A second player whose controller stays disconnected is removed, so their half of the screen does not stay frozen.
@@ -342,7 +350,8 @@ static void checkControllers(IMinecraftGame& game) {
         if (lost != gMissingSince.end() && now - lost->second > kRemoveAfter) {
             note("player {}: no controller for {} s, removed", int(sub) + 1, kRemoveAfter.count());
             gMissingSince.erase(lost);
-            game.queueSubclientRemoval(sub);
+            client->requestLeaveGameAsync(); // what the player's own "Save & Leave" does
+
         }
     }
 }
