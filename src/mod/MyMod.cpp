@@ -477,9 +477,51 @@ static void hookPlatform() {
     gPlatformHooked = slot != nullptr;
 }
 
+// The game's GameInput device-status callback hands new controllers to players. Found without addresses: it is the
+// function that tests GameInputKindGamepad and directly calls another function that does too (adding the device).
+static uintptr_t findDeviceCallback() {
+    auto mod = gameBase();
+    auto nt  = reinterpret_cast<IMAGE_NT_HEADERS const*>(mod + reinterpret_cast<IMAGE_DOS_HEADER const*>(mod)->e_lfanew);
+    auto sec = IMAGE_FIRST_SECTION(nt);
+    std::map<uintptr_t, size_t> gamepadFns; // begin -> size
+    for (int i = 0; i < nt->FileHeader.NumberOfSections; ++i, ++sec) {
+        if (!(sec->Characteristics & IMAGE_SCN_MEM_EXECUTE)) continue;
+        auto text = reinterpret_cast<uint8_t const*>(mod + sec->VirtualAddress);
+        for (size_t p = 6; p + 4 <= sec->Misc.VirtualSize; ++p) {
+            if (text[p + 2] != 0x04 || text[p] != 0 || text[p + 1] != 0 || text[p + 3] != 0) continue;
+            if (text[p - 2] != 0xF7 && text[p - 3] != 0xF7 && text[p - 6] != 0xF7) continue;
+            uintptr_t begin = 0;
+            if (auto fn = functionAt(reinterpret_cast<uintptr_t>(text + p), begin))
+                gamepadFns[begin] = fn->EndAddress - fn->BeginAddress;
+        }
+    }
+    for (auto& [begin, size] : gamepadFns) {
+        auto body = reinterpret_cast<uint8_t const*>(begin);
+        for (size_t p = 0; p + 5 <= size; ++p)
+            if (body[p] == 0xE8) {
+                auto target = begin + p + 5 + *reinterpret_cast<int32_t const*>(body + p + 1);
+                if (target != begin && gamepadFns.contains(target)) return begin;
+            }
+    }
+    return 0;
+}
+
+using DeviceCallback = void (*)(uint64_t, void*, void*, uint64_t, uint32_t, uint32_t);
+static DeviceCallback gDeviceCallback = nullptr;
+
+static void deviceCallbackDetour(uint64_t token, void* context, void* device, uint64_t time, uint32_t now, uint32_t before) {
+    note("device {}: status {:X} (was {:X})", device ? deviceName(device) : "?", now, before);
+    gDeviceCallback(token, context, device, time, now, before);
+}
+
 bool MyMod::load() {
     note("SplitScreenMod loading");
     readConfig(gWanted);
+    if (auto cb = findDeviceCallback()) {
+        ll::memory::hook(reinterpret_cast<ll::memory::FuncPtr>(cb), reinterpret_cast<ll::memory::FuncPtr>(&deviceCallbackDetour),
+                         reinterpret_cast<ll::memory::FuncPtr*>(&gDeviceCallback), ll::memory::HookPriority::Normal);
+        note("device callback at rva {:X}", cb - gameBase());
+    } else note("device callback not found");
     // AppPlatform does not exist yet at load; follow it from creation until the game is up.
     std::thread([] {
         for (int i = 0; i < 60000; ++i) {
