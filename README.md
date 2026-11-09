@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/logo.png" alt="Bedrock Splitscreen" width="640"></p>
+
 # SplitScreenMod
 
 Local split-screen for **Minecraft Bedrock on Windows**: up to 4 players on one PC, each with their own controller.
