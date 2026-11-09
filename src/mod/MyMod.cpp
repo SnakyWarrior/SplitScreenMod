@@ -114,18 +114,61 @@ static bool buildsJoinListener(uint8_t const* body, size_t n) {
 // setup that creates the "press a button to join" listener, and the GameInput code that would otherwise give every
 // gamepad to player 1. Everything else keeps the PC answer,
 // since forcing those callers broke the game.
-static bool autoAllow(void* ret) {
-    static std::map<void*, bool> verdict; // callers run often; decide() holds the lock
-    if (auto it = verdict.find(ret); it != verdict.end()) return it->second;
+static RUNTIME_FUNCTION* functionAt(uintptr_t addr, uintptr_t& begin) {
     DWORD64 base = 0;
-    auto    fn   = RtlLookupFunctionEntry(reinterpret_cast<DWORD64>(ret), &base, nullptr);
-    if (!fn) return false;
-    auto begin = base + fn->BeginAddress;
-    auto body  = reinterpret_cast<uint8_t const*>(begin);
-    auto size  = fn->EndAddress - fn->BeginAddress;
-    bool yes   = begin == gJoinFn || testsGamepadKind(body, size) || buildsJoinListener(body, size);
-    if (gJoinFn) verdict[ret] = yes; // before enable() the join function is not known yet
-    return yes;
+    auto    fn   = RtlLookupFunctionEntry(addr, &base, nullptr);
+    begin        = fn ? base + fn->BeginAddress : 0;
+    return fn;
+}
+
+// The add-a-device-to-this-player function asks allowSplitScreen too, and "true" makes it refuse gamepads. That is
+// wanted on its first use in the device callback (adding to the player of the signed-in user, which on PC would get
+// every gamepad), but not when the callback reuses a free player slot, e.g. for a reconnected controller.
+static bool reusesPlayerSlot(void* ret) {
+    void* frames[24];
+    auto  n = RtlCaptureStackBackTrace(0, 24, frames, nullptr);
+    int   i = 0;
+    while (i < n && frames[i] != ret) ++i;
+    if (i + 1 >= n) return false;
+    auto      outer = reinterpret_cast<uintptr_t>(frames[i + 1]);
+    static std::map<uintptr_t, bool> cache; // decide() holds the lock
+    if (auto it = cache.find(outer); it != cache.end()) return it->second;
+    uintptr_t inner = 0, caller = 0;
+    auto      innerFn = functionAt(reinterpret_cast<uintptr_t>(ret), inner);
+    auto      outerFn = functionAt(outer, caller);
+    bool      reuse   = false;
+    if (innerFn && outerFn) {
+        auto body = reinterpret_cast<uint8_t const*>(caller);
+        auto size = outerFn->EndAddress - outerFn->BeginAddress;
+        if (testsGamepadKind(body, size)) {
+            uintptr_t firstCall = 0; // address after the first direct call to the inner function
+            for (size_t p = 0; p + 5 <= size && !firstCall; ++p)
+                if (body[p] == 0xE8 && caller + p + 5 + *reinterpret_cast<int32_t const*>(body + p + 1) == inner)
+                    firstCall = caller + p + 5;
+            reuse = firstCall && outer != firstCall;
+        }
+    }
+    note("gamepad add from {:X}: {}", outer - gameBase(), reuse ? "free player slot, allow" : "keep separate");
+    return cache[outer] = reuse;
+}
+
+static bool autoAllow(void* ret) {
+    enum Kind { Unknown, No, Yes, Gamepad };
+    static std::map<void*, Kind> kinds; // callers run often; decide() holds the lock
+    auto                         kind = kinds.contains(ret) ? kinds[ret] : Unknown;
+    if (kind == Unknown) {
+        uintptr_t begin = 0;
+        auto      fn    = functionAt(reinterpret_cast<uintptr_t>(ret), begin);
+        if (!fn) return false;
+        auto body = reinterpret_cast<uint8_t const*>(begin);
+        auto size = fn->EndAddress - fn->BeginAddress;
+        kind      = begin == gJoinFn || buildsJoinListener(body, size) ? Yes
+                  : testsGamepadKind(body, size)                      ? Gamepad
+                                                                      : No;
+        if (kind == No && !gJoinFn) return false; // may be the join function, which is found in enable()
+        kinds[ret] = kind;
+    }
+    return kind == Yes || (kind == Gamepad && !reusesPlayerSlot(ret));
 }
 
 static bool decide(char const* name, void* ret, bool original) {
