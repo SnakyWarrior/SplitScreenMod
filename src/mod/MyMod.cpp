@@ -316,6 +316,12 @@ static void runTrigger(std::string const& cmd, int arg) {
     if (cmd == "pads") dumpPlayers(game);
     // prototype: "form N" shows a test form to the Nth server-side player; "swap A B" swaps the gamepads of two
     // controller ids in the game's table.
+    if (cmd == "who")
+        if (auto level = ll::service::getLevel())
+            level->forEachPlayer([](Player& player) {
+                note("who: '{}' sub {} uuid {}", player.getRealName(), int(player.getClientSubId()), player.getUuid().asString());
+                return true;
+            });
     if (cmd == "form") {
         auto level = ll::service::getLevel();
         if (!level) return note("form: no level");
