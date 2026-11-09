@@ -1,6 +1,9 @@
 #include "mod/MyMod.h"
 
+#include <fstream>
 #include <vector>
+
+#include <fmt/format.h>
 
 #include "ll/api/memory/Hook.h"
 #include "ll/api/memory/Memory.h"
@@ -19,28 +22,44 @@ struct Hooked {
 };
 static std::vector<Hooked> gHooks;
 
+// LeviLamina's own log file is not written in this setup, so keep our own next to the mod.
+template <class... Args>
+static void note(fmt::format_string<Args...> f, Args&&... args) {
+    auto        line = fmt::format(f, std::forward<Args>(args)...);
+    auto&       self = MyMod::getInstance().getSelf();
+    static auto out  = std::ofstream(self.getModDir() / "splitscreen.log", std::ios::trunc);
+    self.getLogger().info("{}", line);
+    out << line << std::endl;
+}
+
 static bool returnTrue(void*) { return true; }
 
+static bool joinEnabledDetour(void*) {
+    static bool logged = false;
+    if (!logged) note("isSplitscreenJoinEnabled called by the game");
+    logged = true;
+    return true;
+}
+
 static bool canAddSubClientDetour(void*, int controllerId) {
-    MyMod::getInstance().getSelf().getLogger().info("Splitscreen join requested by controller {}", controllerId);
+    note("Splitscreen join requested by controller {}", controllerId);
     return true;
 }
 
 template <class F>
 static bool hookSlot(void* object, F method, ll::memory::FuncPtr detour, char const* name) {
-    auto& logger = MyMod::getInstance().getSelf().getLogger();
-    auto  index  = ll::memory::getVtableIndex(method);
+    auto index = ll::memory::getVtableIndex(method);
     if (!index) {
-        logger.error("Could not find the vtable slot for {}", name);
+        note("ERROR: could not find the vtable slot for {}", name);
         return false;
     }
     Hooked h{(*static_cast<ll::memory::FuncPtr**>(object))[*index], detour, nullptr};
     if (ll::memory::hook(h.target, h.detour, &h.origin, ll::memory::HookPriority::Normal) != 0) {
-        logger.error("Hooking {} failed", name);
+        note("ERROR: hooking {} failed", name);
         return false;
     }
     gHooks.push_back(h);
-    logger.info("Hooked {} (vtable slot {})", name, *index);
+    note("Hooked {} (vtable slot {})", name, *index);
     return true;
 }
 
@@ -52,17 +71,17 @@ MyMod& MyMod::getInstance() {
 bool MyMod::load() { return true; }
 
 bool MyMod::enable() {
-    auto& logger   = getSelf().getLogger();
+    note("SplitScreenMod enabling");
     auto  platform = ll::service::getAppPlatform();
     auto  client   = ll::service::getClientInstance();
     if (!platform || !client) {
-        logger.error("Game not ready (platform: {}, client: {}); splitscreen not enabled", bool(platform), bool(client));
+        note("ERROR: game not ready (platform: {}, client: {})", bool(platform), bool(client));
         return false;
     }
     IMinecraftGame& game = client->getMinecraftGame();
     auto            fn   = [](auto f) { return reinterpret_cast<ll::memory::FuncPtr>(f); };
     bool            ok   = hookSlot(platform.as_ptr(), &AppPlatform::allowSplitScreen, fn(&returnTrue), "allowSplitScreen")
-              && hookSlot(&game, &IMinecraftGame::isSplitscreenJoinEnabled, fn(&returnTrue), "isSplitscreenJoinEnabled")
+              && hookSlot(&game, &IMinecraftGame::isSplitscreenJoinEnabled, fn(&joinEnabledDetour), "isSplitscreenJoinEnabled")
               && hookSlot(
                   &game,
                   &IMinecraftGame::canAddSplitscreenSubClient,
