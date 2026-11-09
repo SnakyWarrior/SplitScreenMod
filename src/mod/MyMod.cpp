@@ -35,7 +35,7 @@
 #include "mc/client/game/IClientInstance.h"
 #include "mc/client/options/IOptionRegistry.h"
 #include "mc/deps/renderer/ViewportInfo.h"
-#include "mc/math/Vec2.h"
+#include "mc/common/Globals.h"
 #include "mc/client/game/IMinecraftGame.h"
 #include "mc/client/input/MinecraftInputHandler.h"
 #include "mc/deps/application/gamecore/Platform_GameCore.h"
