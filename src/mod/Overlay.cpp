@@ -169,6 +169,30 @@ XInputGetStateFn xinput() {
 
 enum class Key { None, Up, Down, Accept, Cancel };
 
+// While a menu is open its keys are taken before the game sees them; otherwise Enter would also open the chat and Esc
+// the pause menu.
+std::atomic<int> gHookKey  = 0;
+HWND             gHookGame = nullptr;
+HHOOK            gHook     = nullptr; // menu thread only
+
+LRESULT CALLBACK keyHook(int code, WPARAM wp, LPARAM lp) {
+    if (code == HC_ACTION && GetForegroundWindow() == gHookGame) {
+        Key key;
+        switch (reinterpret_cast<KBDLLHOOKSTRUCT*>(lp)->vkCode) {
+        case VK_UP: key = Key::Up; break;
+        case VK_DOWN: key = Key::Down; break;
+        case VK_RETURN: key = Key::Accept; break;
+        case VK_ESCAPE: key = Key::Cancel; break;
+        default: key = Key::None;
+        }
+        if (key != Key::None) {
+            if (wp == WM_KEYDOWN) gHookKey = int(key);
+            return 1;
+        }
+    }
+    return CallNextHookEx(nullptr, code, wp, lp);
+}
+
 // Edge-detected input from every controller and, while the game has focus, the keyboard.
 Key poll(HWND game) {
     static WORD  last[4]{};
@@ -191,7 +215,8 @@ Key poll(HWND game) {
             if (pressed & 0x1000) key = Key::Accept; // A
             if (pressed & 0x2000) key = Key::Cancel; // B
         }
-    if (GetForegroundWindow() == game) {
+    if (int hooked = gHookKey.exchange(0)) key = Key(hooked);
+    if (!gHook && GetForegroundWindow() == game) {
         int  vks[4]{VK_UP, VK_DOWN, VK_RETURN, VK_ESCAPE};
         Key  map[4]{Key::Up, Key::Down, Key::Accept, Key::Cancel};
         for (int i = 0; i < 4; ++i) {
@@ -279,6 +304,9 @@ void run(Menu menu) {
         nullptr
     );
     SetWindowLongPtrW(w, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(&menu));
+    gHookGame = game;
+    gHookKey  = 0;
+    gHook     = SetWindowsHookExW(WH_KEYBOARD_LL, keyHook, GetModuleHandleW(nullptr), 0); // this loop pumps its messages
     int  result = -1;
     bool done   = false;
     RECT placed{};
@@ -312,6 +340,7 @@ void run(Menu menu) {
         }
         InvalidateRect(w, nullptr, FALSE);
     }
+    if (gHook) UnhookWindowsHookEx(gHook), gHook = nullptr;
     DestroyWindow(w);
     gOpen = false;
     ll::thread::ClientThreadExecutor::getDefault().execute([done = menu.done, result] { done(result); });
