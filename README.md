@@ -10,11 +10,13 @@ Minecraft Bedrock already contains split-screen (it is used on Xbox), but the Wi
 
 ## Features
 
-- **Choose who plays.** Press start on a free controller and a menu opens in the middle of the screen: play as player 1, as one of your saved local players (each keeps their own inventory), or take over a player whose controller was lost. Nobody joins until you choose.
+- **Choose who plays.** Press start on a free controller and a menu opens in the middle of the screen: play as player 1, as one of your saved local players (each keeps their own inventory), or take over a player whose controller was lost. Every player is shown with the face of their skin. Nobody joins until you choose.
+- **Asks again in every world.** Controllers do not keep their player from the last world: after you enter a world, each controller asks who is playing.
 - **One controller per player.** A controller that reconnects takes the place of a player who lost theirs and asks who should play.
 - **Player 1 keeps keyboard and mouse.** In a world, a controller only controls player 1 when you pick player 1 in the menu.
 - **Players leave on their own:** a player (2 to 4) whose controller stays disconnected for 20 seconds is removed. The game's "Controller lost connection" prompt counts down the seconds.
-- **Layouts:** press **F7** to choose a horizontal (top and bottom) or vertical (side by side) split. With three players, player 1 gets half of the screen and the other two share the other half.
+- **Split screen menu:** a **Split screen** button in the pause menu (or **Y** on a controller, or **F7**) switches between top-and-bottom and side-by-side, and removes players.
+- **Three players fill the screen:** three equal parts instead of four quarters with one left black.
 - **Made to survive updates.** The mod finds the places it needs by the shape of the game code, not by fixed addresses, so a new game version normally needs only a rebuild against the matching LeviLamina.
 
 ## Requirements
@@ -37,9 +39,9 @@ Minecraft Bedrock already contains split-screen (it is used on Xbox), but the Wi
 1. Start the game and enter a world (with keyboard and mouse, or a controller).
 2. Press start on another controller. A menu opens in the middle of the screen: pick who plays with it. Use the D-pad or stick and **A**, the arrow keys and **Enter**, or the mouse. **B** or **Esc** closes it.
 3. Repeat for players 3 and 4.
-4. Press **F7** to switch between a horizontal and a vertical split.
+4. In the pause menu, click **Split screen** (or press **Y** on a controller, or **F7**) to switch the split or remove a player.
 
-To leave, unplug or switch off that controller: the "Controller lost connection" prompt counts down, and after 20 seconds the player is removed. Plug a controller back in before that to pick up a player again.
+To leave, remove the player in the Split screen menu, or unplug or switch off that controller: the "Controller lost connection" prompt counts down, and after 20 seconds the player is removed. Plug a controller back in before that to pick up a player again.
 
 ## Troubleshooting
 
