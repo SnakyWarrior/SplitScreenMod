@@ -260,12 +260,13 @@ static ll::memory::FuncPtr* findSlot(void* object, F method, char const* name) {
 }
 
 template <class F>
-static ll::memory::FuncPtr* hookSlot(void* object, F method, ll::memory::FuncPtr detour, char const* name) {
+static ll::memory::FuncPtr* hookSlot(void* object, F method, ll::memory::FuncPtr detour, char const* name, void* originOut = nullptr) {
     auto slot = findSlot(object, method, name);
     if (!slot) return nullptr;
     if (*slot == detour) return slot;
     Hooked h{slot, *slot};
     gCfg[name].origin = h.original; // detours read this, so set it before the slot goes live
+    if (originOut) *static_cast<std::atomic<ll::memory::FuncPtr>*>(originOut) = h.original;
     ll::memory::modify(slot, sizeof(*slot), [&] { *slot = detour; });
     gHooks.push_back(h);
     note("Hooked {} (original rva {:X})", name, reinterpret_cast<uintptr_t>(h.original) - gameBase());
@@ -1080,8 +1081,10 @@ struct ViewRect {
 // Instance methods return structs through a hidden pointer passed after `this`.
 using ViewportFn = ViewRect* (*)(void*, ViewRect*, SubClientId, uint64_t, int);
 
+static std::atomic<ll::memory::FuncPtr> gViewportOriginal = nullptr; // read on the render thread: not through gCfg
+
 static ViewRect* viewportDetour(void* self, ViewRect* out, SubClientId id, uint64_t count, int direction) {
-    auto original = reinterpret_cast<ViewportFn>(gCfg["calculateViewPortModifiers"].origin);
+    auto original = reinterpret_cast<ViewportFn>(gViewportOriginal.load());
     original(self, out, id, count, direction);
     static std::set<std::tuple<int, uint64_t, int>> seen;
     static std::mutex                               m;
@@ -1145,7 +1148,7 @@ bool MyMod::enable() {
     hookSlot(&game, &IMinecraftGame::addSubClientInstanceAndAssociateToUser, fn(&joinRequestDetour),
              "addSubClientInstanceAndAssociateToUser");
     hookSlot(static_cast<IClientInstance*>(client.as_ptr()), &IClientInstance::calculateViewPortModifiers, fn(&viewportDetour),
-             "calculateViewPortModifiers");
+             "calculateViewPortModifiers", &gViewportOriginal);
     if (hooks.contains("isSplitscreenJoinEnabled"))
         hookSlot(&game, &IMinecraftGame::isSplitscreenJoinEnabled, fn(&joinEnabledDetour), "isSplitscreenJoinEnabled");
     if (hooks.contains("canAddSplitscreenSubClient"))
