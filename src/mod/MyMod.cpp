@@ -314,6 +314,7 @@ static void readConfig(std::set<std::string>& hooks) {
 // write "join <controller>" or "info" lines into trigger.txt next to the mod; it is run on the client thread and deleted.
 static void dumpPlayers(IMinecraftGame& game);
 static void offerPicker(SubClientId owner, bool fresh);
+static std::atomic<int>  gFix     = 0;
 static std::atomic_bool gLayout3 = true; // "layout 0" trigger: the game's own quarters, for comparing
 static std::set<int> gNoMenuFor; // sub ids that just joined through the menu itself (client thread only)
 static thread_local bool tOurJoin = false; // joins the mod makes itself go through unchanged
@@ -329,6 +330,7 @@ static void runTrigger(std::string const& cmd, int arg) {
     }
     if (cmd == "pads") dumpPlayers(game);
     if (cmd == "layout") gLayout3 = arg != 0;
+    if (cmd == "fix") gFix = arg;
     if (cmd == "vp") // each player's viewport as the renderer and HUD see it
         for (auto& [sub, other] : game.getClientInstanceMap())
             if (other) {
@@ -1243,6 +1245,12 @@ static ViewRect* viewportDetour(void* self, ViewRect* out, SubClientId id, uint6
     else if (vertical) *out = {0.5f, slot == 1 ? 0.f : 0.5f, 0.5f, 0.5f};
     else *out = {slot == 1 ? 0.f : 0.5f, 0.5f, 0.5f, 0.5f};
     gRects[int(id) & 3] = *out;
+    // experiment: "fix N" makes the unsplit axis 1 for caller A (bit 1) / B (bit 2)
+    auto at = reinterpret_cast<uintptr_t>(_ReturnAddress()) - gameBase();
+    if (int f = gFix; (f & 1 && at == 0x65AAABA) || (f & 2 && at == 0xE9A3B9)) {
+        if (vertical) out->y = 0, out->height = 1;
+        else out->x = 0, out->width = 1;
+    }
     return out;
 }
 
