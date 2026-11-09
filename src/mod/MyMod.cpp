@@ -371,13 +371,27 @@ static std::vector<void*> gamepadsOf(GameCorePlayerInput& input) {
     return out;
 }
 
+// "vid:pid" of a GameInput device (IGameInputDevice::GetDeviceInfo, vtable slot 3; the info starts with vendor and
+// product id).
+static std::string deviceName(void* device) {
+    using GetInfo     = long (*)(void*, uint16_t const**);
+    uint16_t const* info = nullptr;
+    auto            fn   = reinterpret_cast<GetInfo>((*reinterpret_cast<void***>(device))[3]);
+    if (fn(device, &info) < 0 || !info) return fmt::format("{}", device);
+    return fmt::format("{:04X}:{:04X}", info[0], info[1]);
+}
+
 static void dumpPlayers(IMinecraftGame& game) {
     if (auto handler = controllerHandler()) {
         std::unique_lock lock(*handler->mPlayerInputsLock, std::try_to_lock);
         if (!lock) return note("pads: table busy, try again");
         for (auto& [id, input] : *handler->mPlayerInputs)
             note("pads: controller {}: state {}, gamepads {}, keyboard {}, mouse {}", id,
-                 int(input.mConnectionState), fmt::join(gamepadsOf(input), " "), bool(input.mKeyboardSupport),
+                 int(input.mConnectionState), [&] {
+                     std::vector<std::string> names;
+                     for (auto d : gamepadsOf(input)) names.push_back(deviceName(d));
+                     return fmt::format("{}", fmt::join(names, " "));
+                 }(), bool(input.mKeyboardSupport),
                  bool(input.mMouseSupport));
     } else note("pads: controller table not found");
     for (auto& [sub, client] : game.getClientInstanceMap())
