@@ -29,6 +29,7 @@
 #include "ll/api/utils/StacktraceUtils.h"
 #include "mc/client/game/ClientInstance.h"
 #include "mc/client/game/IMinecraftGame.h"
+#include "mc/client/input/MinecraftInputHandler.h"
 #include "mc/deps/application/AppPlatform.h"
 
 namespace my_mod {
@@ -73,6 +74,18 @@ struct HookCfg {
 static std::map<std::string, HookCfg> gCfg;
 
 static uintptr_t gJoinFn = 0; // IMinecraftGame::isSplitscreenJoinEnabled, read from the game's vtable in enable()
+static uintptr_t gInputFn = 0; // MinecraftInputHandler::_registerInputHandlers, set in load()
+
+// Follow jmp rel32 / jmp [rip+x] stubs to the real function.
+static uintptr_t followJumps(uintptr_t a) {
+    for (int i = 0; i < 4; ++i) {
+        auto c = reinterpret_cast<uint8_t const*>(a);
+        if (c[0] == 0xE9) a += 5 + *reinterpret_cast<int32_t const*>(c + 1);
+        else if (c[0] == 0xFF && c[1] == 0x25) a = *reinterpret_cast<uintptr_t const*>(a + 6 + *reinterpret_cast<int32_t const*>(c + 2));
+        else break;
+    }
+    return a;
+}
 
 // True if the code contains "test ..., 0x40000" (GameInputKindGamepad): the code that hands new gamepads to players.
 static bool testsGamepadKind(uint8_t const* body, size_t n) {
@@ -83,8 +96,9 @@ static bool testsGamepadKind(uint8_t const* body, size_t n) {
     return false;
 }
 
-// Version-independent choice of which allowSplitScreen callers get "true": the splitscreen join check, and the
-// GameInput code that would otherwise give every gamepad to player 1. Everything else keeps the PC answer,
+// Version-independent choice of which allowSplitScreen callers get "true": the splitscreen join check, the input
+// setup that creates the "press a button to join" listener, and the GameInput code that would otherwise give every
+// gamepad to player 1. Everything else keeps the PC answer,
 // since forcing those callers broke the game.
 static bool autoAllow(void* ret) {
     static std::map<void*, bool> verdict; // callers run often; decide() holds the lock
@@ -93,7 +107,7 @@ static bool autoAllow(void* ret) {
     auto    fn   = RtlLookupFunctionEntry(reinterpret_cast<DWORD64>(ret), &base, nullptr);
     if (!fn) return false;
     auto begin = base + fn->BeginAddress;
-    bool yes   = begin == gJoinFn
+    bool yes   = begin == gJoinFn || begin == gInputFn
             || testsGamepadKind(reinterpret_cast<uint8_t const*>(begin), fn->EndAddress - fn->BeginAddress);
     if (gJoinFn) verdict[ret] = yes; // before enable() the join function is not known yet
     return yes;
@@ -285,6 +299,13 @@ static void hookPlatform() {
 bool MyMod::load() {
     note("SplitScreenMod loading");
     readConfig(gWanted);
+    {
+        auto     method = &MinecraftInputHandler::$_registerInputHandlers;
+        uintptr_t code;
+        std::memcpy(&code, &method, sizeof(code));
+        gInputFn = followJumps(code);
+        note("registerInputHandlers at rva {:X}", gInputFn - gameBase());
+    }
     // AppPlatform does not exist yet at load; follow it from creation until the game is up.
     std::thread([] {
         for (int i = 0; i < 60000; ++i) {
