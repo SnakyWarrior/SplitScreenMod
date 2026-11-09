@@ -2,6 +2,8 @@
 
 #include <cstring>
 #include <fstream>
+#include <map>
+#include <mutex>
 #include <optional>
 #include <set>
 #include <sstream>
@@ -9,6 +11,7 @@
 #include <vector>
 
 #include <Windows.h>
+#include <intrin.h>
 
 #include <fmt/format.h>
 #include <fmt/ranges.h>
@@ -34,6 +37,8 @@ static std::vector<Hooked> gHooks;
 // LeviLamina's own log file is not written in this setup, so keep our own next to the mod.
 // One stream for all note() instantiations; a static inside the template would reopen (and truncate) per type.
 static void writeLine(std::string const& line) {
+    static std::mutex m;
+    std::lock_guard   lock(m);
     auto&       self = MyMod::getInstance().getSelf();
     static auto out  = std::ofstream(self.getModDir() / "splitscreen.log", std::ios::trunc);
     self.getLogger().info("{}", line);
@@ -45,18 +50,43 @@ static void note(fmt::format_string<Args...> f, Args&&... args) {
     writeLine(fmt::format(f, std::forward<Args>(args)...));
 }
 
-static bool returnTrue(void*) { return true; }
+static uintptr_t gameBase() { return reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr)); }
 
-static bool joinEnabledDetour(void*) {
-    static bool logged = false;
-    if (!logged) note("isSplitscreenJoinEnabled called by the game");
-    logged = true;
-    return true;
+// Per-hook behaviour from splitscreen.cfg: "trace" keeps the game's answer and logs each new caller,
+// "force" returns true everywhere, "force <rva>..." returns true only for those call sites.
+struct HookCfg {
+    bool                    force = false;
+    std::set<uintptr_t>     only;
+    std::set<uintptr_t>     seen;
+    ll::memory::FuncPtr     origin = nullptr;
+};
+static std::map<std::string, HookCfg> gCfg;
+
+static bool decide(char const* name, void* ret, bool original) {
+    static std::mutex m;
+    std::lock_guard   lock(m);
+    auto& c   = gCfg[name];
+    auto  rva = reinterpret_cast<uintptr_t>(ret) - gameBase();
+    bool  res = c.force && (c.only.empty() || c.only.contains(rva)) ? true : original;
+    if (c.seen.insert(rva).second) note("{} called from {:X}: game said {}, returning {}", name, rva, original, res);
+    return res;
 }
 
-static bool canAddSubClientDetour(void*, int controllerId) {
-    note("Splitscreen join requested by controller {}", controllerId);
-    return true;
+static bool allowSplitScreenDetour(void* self) {
+    auto orig = reinterpret_cast<bool (*)(void*)>(gCfg["allowSplitScreen"].origin)(self);
+    return decide("allowSplitScreen", _ReturnAddress(), orig);
+}
+
+static bool joinEnabledDetour(void* self) {
+    auto orig = reinterpret_cast<bool (*)(void*)>(gCfg["isSplitscreenJoinEnabled"].origin)(self);
+    return decide("isSplitscreenJoinEnabled", _ReturnAddress(), orig);
+}
+
+static bool canAddSubClientDetour(void* self, int controllerId) {
+    auto orig = reinterpret_cast<bool (*)(void*, int)>(gCfg["canAddSplitscreenSubClient"].origin)(self, controllerId);
+    note("canAddSplitscreenSubClient(controller {}) from {:X}: game said {}", controllerId,
+         reinterpret_cast<uintptr_t>(_ReturnAddress()) - gameBase(), orig);
+    return decide("canAddSplitscreenSubClient", _ReturnAddress(), orig);
 }
 
 // LeviLamina's getVtableIndex rejects 16-byte member pointers (classes with several bases, like AppPlatform)
@@ -75,8 +105,6 @@ static std::optional<uint> thunkSlot(uint8_t const* code) {
     return static_cast<uint>(disp / 8);
 }
 
-static uintptr_t gameBase() { return reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr)); }
-
 template <class F>
 static bool hookSlot(void* object, F method, ll::memory::FuncPtr detour, char const* name) {
     struct Raw {
@@ -91,7 +119,8 @@ static bool hookSlot(void* object, F method, ll::memory::FuncPtr detour, char co
     }
     auto self = static_cast<char*>(object) + (sizeof(method) > 8 ? raw.adjust : 0);
     Hooked h{(*reinterpret_cast<ll::memory::FuncPtr**>(self))[*index], detour, nullptr};
-    if (ll::memory::hook(h.target, h.detour, &h.origin, ll::memory::HookPriority::Normal) != 0) {
+    // Detours read their original from gCfg, so the hook must fill it before any game call can arrive.
+    if (ll::memory::hook(h.target, h.detour, &gCfg[name].origin, ll::memory::HookPriority::Normal) != 0) {
         note("ERROR: hooking {} failed", name);
         return false;
     }
@@ -101,19 +130,29 @@ static bool hookSlot(void* object, F method, ll::memory::FuncPtr detour, char co
 }
 
 // splitscreen.cfg lets tests switch hooks and resolve crash addresses without rebuilding:
-//   hook <name>        apply one of the hooks below
+//   hook <name> trace          log every call site, keep the game's answer
+//   hook <name> force [rva..]  return true (only at those call sites, if given)
 //   lookup <hex rva>   log the game function at that offset from Minecraft.Windows.exe
 static void readConfig(std::set<std::string>& hooks) {
     std::ifstream in(MyMod::getInstance().getSelf().getModDir() / "splitscreen.cfg");
     if (!in) {
-        hooks = {"allowSplitScreen", "isSplitscreenJoinEnabled", "canAddSplitscreenSubClient"};
+        for (auto n : {"allowSplitScreen", "isSplitscreenJoinEnabled", "canAddSplitscreenSubClient"}) {
+            hooks.insert(n);
+            gCfg[n].force = true;
+        }
         return;
     }
     for (std::string line; std::getline(in, line);) {
         std::istringstream words(line);
         std::string        cmd, arg;
         words >> cmd >> arg;
-        if (cmd == "hook") hooks.insert(arg);
+        if (cmd == "hook") {
+            hooks.insert(arg);
+            std::string mode, rva;
+            words >> mode;
+            gCfg[arg].force = mode == "force";
+            while (words >> rva) gCfg[arg].only.insert(std::stoull(rva, nullptr, 16));
+        }
         if (cmd == "lookup" && !arg.empty()) {
             auto rva  = std::stoull(arg, nullptr, 16);
             auto addr = reinterpret_cast<void*>(gameBase() + rva);
@@ -142,7 +181,7 @@ bool MyMod::enable() {
     IMinecraftGame& game = client->getMinecraftGame();
     auto            fn   = [](auto f) { return reinterpret_cast<ll::memory::FuncPtr>(f); };
     if (hooks.contains("allowSplitScreen"))
-        hookSlot(platform.as_ptr(), &AppPlatform::allowSplitScreen, fn(&returnTrue), "allowSplitScreen");
+        hookSlot(platform.as_ptr(), &AppPlatform::allowSplitScreen, fn(&allowSplitScreenDetour), "allowSplitScreen");
     if (hooks.contains("isSplitscreenJoinEnabled"))
         hookSlot(&game, &IMinecraftGame::isSplitscreenJoinEnabled, fn(&joinEnabledDetour), "isSplitscreenJoinEnabled");
     if (hooks.contains("canAddSplitscreenSubClient"))
