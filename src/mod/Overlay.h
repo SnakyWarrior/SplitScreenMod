@@ -26,7 +26,8 @@ void show(
 // runs `click` on the client thread. Hidden while a menu is open.
 void showButton(std::function<void()> click);
 void hideButton();
-// Where the button goes: the top-right corner of this part of the game window (fractions of it).
+// Where the button goes: the top-right corner of this part of the game window (fractions of it), under the pause
+// menu's own corner button.
 void moveButton(float x, float y, float width, float height);
 
 bool isOpen();

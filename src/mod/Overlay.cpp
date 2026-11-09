@@ -422,7 +422,7 @@ void buttonRun() {
             std::lock_guard lock(gButtonLock);
             std::copy(gArea, gArea + 4, area);
         }
-        RECT want{origin.x + LONG((area[0] + area[2]) * client.right) - width - 8 * u, origin.y + LONG(area[1] * client.bottom) + 8 * u, 0, 0};
+        RECT want{origin.x + LONG((area[0] + area[2]) * client.right) - width - 8 * u, origin.y + LONG(area[1] * client.bottom) + 34 * u, 0, 0};
         want.right  = want.left + width;
         want.bottom = want.top + height;
         if (visible != shown || !EqualRect(&want, &placed)) {
