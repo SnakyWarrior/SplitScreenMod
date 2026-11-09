@@ -12,6 +12,7 @@
 #include <set>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -29,7 +30,6 @@
 #include "ll/api/utils/StacktraceUtils.h"
 #include "mc/client/game/ClientInstance.h"
 #include "mc/client/game/IMinecraftGame.h"
-#include "mc/client/input/MinecraftInputHandler.h"
 #include "mc/deps/application/AppPlatform.h"
 
 namespace my_mod {
@@ -74,26 +74,30 @@ struct HookCfg {
 static std::map<std::string, HookCfg> gCfg;
 
 static uintptr_t gJoinFn = 0; // IMinecraftGame::isSplitscreenJoinEnabled, read from the game's vtable in enable()
-static uintptr_t gInputFn = 0; // MinecraftInputHandler::_registerInputHandlers, set in load()
 
-// Follow jmp rel32 / jmp [rip+x] stubs to the real function.
-static uintptr_t followJumps(uintptr_t a) {
-    for (int i = 0; i < 4; ++i) {
-        auto c = reinterpret_cast<uint8_t const*>(a);
-        if (c[0] == 0x48 && c[1] == 0xFF && c[2] == 0x25) ++a, ++c; // rex.w jmp [rip+x]
-        if (c[0] == 0xE9) a += 5 + *reinterpret_cast<int32_t const*>(c + 1);
-        else if (c[0] == 0xFF && c[1] == 0x25) a = *reinterpret_cast<uintptr_t const*>(a + 6 + *reinterpret_cast<int32_t const*>(c + 2));
-        else break;
-    }
-    return a;
-}
-
-// True if the code contains "test ..., 0x40000" (GameInputKindGamepad): the code that hands new gamepads to players.
-static bool testsGamepadKind(uint8_t const* body, size_t n) {
-    for (size_t p = 6; p + 4 <= n; ++p)
-        if (std::memcmp(body + p, "\x00\x00\x04\x00", 4) == 0
-            && (body[p - 2] == 0xF7 || body[p - 3] == 0xF7 || body[p - 6] == 0xF7))
+// True if the code builds the std::function of SplitscreenJoinListener::registerInputHandlers ("press a button to
+// join"). Found by RTTI name, which survives updates: the function loads a vtable whose _Target_type entry
+// (slot 3, "lea rax,[type_info]; ret") returns a type whose name mentions SplitscreenJoinListener.
+static bool buildsJoinListener(uint8_t const* body, size_t n) {
+    auto mod   = gameBase();
+    auto nt    = reinterpret_cast<IMAGE_NT_HEADERS const*>(mod + reinterpret_cast<IMAGE_DOS_HEADER const*>(mod)->e_lfanew);
+    auto end   = mod + nt->OptionalHeader.SizeOfImage;
+    auto inMod = [&](uintptr_t a, size_t len) { return a >= mod && a + len <= end; };
+    for (size_t p = 0; p + 7 <= n; ++p) {
+        // lea r64, [rip+disp32]
+        if ((body[p] & 0xFB) != 0x48 || body[p + 1] != 0x8D || (body[p + 2] & 0xC7) != 0x05) continue;
+        auto vt = reinterpret_cast<uintptr_t>(body + p + 7) + *reinterpret_cast<int32_t const*>(body + p + 3);
+        if (!inMod(vt, 32)) continue;
+        auto fn = reinterpret_cast<uintptr_t const*>(vt)[3];
+        if (!inMod(fn, 8)) continue;
+        auto c = reinterpret_cast<uint8_t const*>(fn);
+        if (c[0] != 0x48 || c[1] != 0x8D || c[2] != 0x05 || c[7] != 0xC3) continue;
+        auto ti = fn + 7 + *reinterpret_cast<int32_t const*>(c + 3);
+        if (!inMod(ti + 16, 256)) continue;
+        auto name = reinterpret_cast<char const*>(ti + 16);
+        if (std::string_view(name, strnlen(name, 256)).find("@SplitscreenJoinListener@@") != std::string_view::npos)
             return true;
+    }
     return false;
 }
 
@@ -108,8 +112,9 @@ static bool autoAllow(void* ret) {
     auto    fn   = RtlLookupFunctionEntry(reinterpret_cast<DWORD64>(ret), &base, nullptr);
     if (!fn) return false;
     auto begin = base + fn->BeginAddress;
-    bool yes   = begin == gJoinFn || begin == gInputFn
-            || testsGamepadKind(reinterpret_cast<uint8_t const*>(begin), fn->EndAddress - fn->BeginAddress);
+    auto body  = reinterpret_cast<uint8_t const*>(begin);
+    auto size  = fn->EndAddress - fn->BeginAddress;
+    bool yes   = begin == gJoinFn || testsGamepadKind(body, size) || buildsJoinListener(body, size);
     if (gJoinFn) verdict[ret] = yes; // before enable() the join function is not known yet
     return yes;
 }
@@ -300,14 +305,6 @@ static void hookPlatform() {
 bool MyMod::load() {
     note("SplitScreenMod loading");
     readConfig(gWanted);
-    {
-        auto     method = &MinecraftInputHandler::$_registerInputHandlers;
-        uintptr_t code;
-        std::memcpy(&code, &method, sizeof(code));
-        gInputFn = followJumps(code);
-        note("registerInputHandlers at rva {:X} (stub {:02X})", gInputFn - gameBase(),
-             fmt::join(reinterpret_cast<uint8_t const*>(code), reinterpret_cast<uint8_t const*>(code) + 16, " "));
-    }
     // AppPlatform does not exist yet at load; follow it from creation until the game is up.
     std::thread([] {
         for (int i = 0; i < 60000; ++i) {
