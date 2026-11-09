@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-11-09
+
 ### Added
 
 - The "Controller lost connection" prompt shows how many seconds are left before that player is removed.
@@ -48,7 +50,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Each controller gets its own player.
 - Call sites are detected by code pattern, not fixed addresses.
 
-[Unreleased]: https://github.com/SnakyWarrior/SplitScreenMod/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/SnakyWarrior/SplitScreenMod/compare/v1.1.1...HEAD
+[1.1.1]: https://github.com/SnakyWarrior/SplitScreenMod/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/SnakyWarrior/SplitScreenMod/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/SnakyWarrior/SplitScreenMod/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/SnakyWarrior/SplitScreenMod/releases/tag/v1.0.0
