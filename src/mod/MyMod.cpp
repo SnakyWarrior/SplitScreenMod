@@ -156,8 +156,6 @@ static AddPath addPath(void* ret) {
             if (firstCall) path = outer == firstCall ? AddPath::UserPlayer : AddPath::FreeSlot;
         }
     }
-    note("gamepad add from {:X}: {}", outer - gameBase(),
-         path == AddPath::FreeSlot ? "free player slot" : path == AddPath::UserPlayer ? "user's player" : "direct");
     return cache[outer] = path;
 }
 
@@ -186,7 +184,6 @@ static bool autoAllow(void* ret) {
         static bool firstGiven = false;
         yes = std::exchange(firstGiven, true);
     }
-    note("gamepad decision at {:X} (path {}): {}", reinterpret_cast<uintptr_t>(ret) - gameBase(), int(path), yes);
     return yes;
 }
 
@@ -305,12 +302,10 @@ static void runTrigger(std::string const& cmd, int arg) {
     if (!client) return note("trigger {}: no client instance", cmd);
     auto& game = client->getMinecraftGame();
     if (cmd == "join") {
-        note("join {}: canAdd={} joinEnabled={}", arg, game.canAddSplitscreenSubClient(arg), game.isSplitscreenJoinEnabled());
+        note("adding player on controller {}", arg);
         game.addSubClientInstanceAndAssociateToUser(arg);
-        note("join {}: addSubClientInstanceAndAssociateToUser returned", arg);
     }
     if (cmd == "pads") dumpPlayers(game);
-    note("info: active={} count={}", client->isSplitScreenActive(), client->getSplitScreenCount());
 }
 
 // A second player whose controller stays disconnected is removed, so their half of the screen does not stay frozen.
@@ -379,21 +374,6 @@ static std::string deviceName(void* device) {
     auto            fn   = reinterpret_cast<GetInfo>((*reinterpret_cast<void***>(device))[3]);
     if (fn(device, &info) < 0 || !info) return fmt::format("{}", device);
     return fmt::format("{:04X}:{:04X}", info[0], info[1]);
-}
-
-// The user handle is the first field of XsapiHandle (the game's own code tests it there).
-static void dumpTable(GameControllerHandler_GameCore* handler, char const* when) {
-    std::unique_lock lock(*handler->mPlayerInputsLock, std::try_to_lock);
-    if (!lock) return note("pads {}: table busy", when);
-    note("pads {}: {} players (map at +{:X}, qword at +188 = {})", when, handler->mPlayerInputs->size(),
-         reinterpret_cast<uintptr_t>(&*handler->mPlayerInputs) - reinterpret_cast<uintptr_t>(handler),
-         *reinterpret_cast<uint64_t const*>(reinterpret_cast<uintptr_t>(handler) + 0x188));
-    for (auto& [id, input] : *handler->mPlayerInputs) {
-        std::vector<std::string> names;
-        for (auto d : gamepadsOf(input)) names.push_back(deviceName(d));
-        note("pads {}: controller {}: state {}, user {}, gamepads [{}], mouse {}", when, id, int(input.mConnectionState),
-             *reinterpret_cast<void* const*>(&input.mMappedUser) != nullptr, fmt::join(names, " "), bool(input.mMouseSupport));
-    }
 }
 
 static void dumpPlayers(IMinecraftGame& game) {
@@ -579,12 +559,9 @@ static DeviceCallback gDeviceCallback = nullptr;
 static void deviceCallbackDetour(uint64_t token, void* context, void* device, uint64_t time, uint32_t now, uint32_t before) {
     bool pad = device && gFindUser && asPureGamepad(device);
     note("device {}: status {:X} (was {:X}){}", device ? deviceName(device) : "?", now, before, pad ? ", gamepad" : "");
-    auto handler = static_cast<GameControllerHandler_GameCore*>(context);
-    if (pad && handler) dumpTable(handler, "before");
     tHideUser = pad;
     gDeviceCallback(token, context, device, time, now, before);
     tHideUser = false;
-    if (pad && handler) dumpTable(handler, "after");
 }
 
 bool MyMod::load() {

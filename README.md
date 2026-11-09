@@ -8,10 +8,12 @@ Minecraft Bedrock already contains split-screen (it is used on Xbox), but the Wi
 
 ## Features
 
-- Press **F8** in a world to add a player. The screen splits, just like on console.
-- Every controller gets its own player. Player 1 can keep using keyboard and mouse.
-- Nothing else in the game is changed. The mod only answers "yes" where the game asks whether split-screen is allowed for joining and for assigning controllers.
-- It finds those places by the shape of the game code, not by fixed addresses, so a new game version normally needs only a rebuild against the matching LeviLamina, not code changes.
+- **Press a button on a free controller to join**, just like on Xbox: the game shows its join prompt and the screen splits.
+- **One controller per player.** A controller that is plugged in takes the place of a player who lost theirs; otherwise it gets a new player.
+- **Players leave on their own:** a player (2 to 4) whose controller stays disconnected for 20 seconds is removed.
+- **F8** adds a player from the keyboard.
+- Player 1 can keep using keyboard and mouse.
+- Nothing else in the game is changed. The mod finds the places it needs by the shape of the game code, not by fixed addresses, so a new game version normally needs only a rebuild against the matching LeviLamina, not code changes.
 
 ## Requirements
 
@@ -30,16 +32,15 @@ Minecraft Bedrock already contains split-screen (it is used on Xbox), but the Wi
 
 ## How to play
 
-1. Connect all controllers **before you start the game**, then start it.
-2. Enter a world.
-3. Press **F8** on the keyboard. Player 2 joins and the screen splits. Press F8 again for players 3 and 4.
-4. Pick up controller 2 and play.
+1. Start the game and enter a world with the first controller (or keyboard and mouse).
+2. Press a button on another controller and confirm the join prompt. The screen splits.
+3. Repeat for players 3 and 4. You can also press **F8** on the keyboard to add a player.
 
-If a controller still moves player 1, unplug it and plug it back in (or switch it off and on) while you are in the world.
+To leave, just unplug or switch off that controller: after 20 seconds the player is removed. Plug a controller back in before that and it takes the player over again.
 
 ## Troubleshooting
 
-The mod writes a log to `mods\SplitScreenMod\splitscreen.log`. Please attach it when you [report a problem](../../issues/new/choose).
+The mod writes a log to `mods\SplitScreenMod\splitscreen.log`. If controllers go to the wrong player, press **F9** in the game first: it writes which controller belongs to which player into the log. Please attach the log when you [report a problem](../../issues/new/choose).
 
 <details>
 <summary>Advanced: splitscreen.cfg</summary>

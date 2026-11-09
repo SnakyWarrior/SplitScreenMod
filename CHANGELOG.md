@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-11-09
+
+### Added
+
+- Press a button on a free controller to join (the game's own join prompt), as on Xbox.
+- A player whose controller stays disconnected for 20 seconds is removed.
+- F9 writes the controller-to-player table to the log.
+
+### Fixed
+
+- Controllers that also report mouse or keyboard input (e.g. 8BitDo, GameSir) were all given to player 1.
+- A reconnected controller takes back the free player instead of being ignored.
+- F8 adds the player on the first free controller slot.
+
 ## [1.0.1] - 2026-11-09
 
 ### Fixed
@@ -22,6 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Each controller gets its own player.
 - Call sites are detected by code pattern, not fixed addresses.
 
-[Unreleased]: https://github.com/SnakyWarrior/SplitScreenMod/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/SnakyWarrior/SplitScreenMod/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/SnakyWarrior/SplitScreenMod/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/SnakyWarrior/SplitScreenMod/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/SnakyWarrior/SplitScreenMod/releases/tag/v1.0.0
