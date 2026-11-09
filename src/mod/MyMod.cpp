@@ -664,6 +664,15 @@ static void moveController(IMinecraftGame& game, int from, int to) {
 static void newPlayerFor(IMinecraftGame& game, int from, void* device) {
     auto handler = controllerHandler();
     if (!handler || !gLastConnect.context) return;
+    std::set<int> players;
+    {
+        std::lock_guard idsLock(gPlayerIdsLock);
+        players = gPlayerIds;
+    }
+    // The game hands a connecting controller to the first slot that has an Xbox user and no controller (player 1's
+    // slot, or the one it just left). Hide every user during the reconnect, and lend player 1's to an empty slot
+    // without a player if there is one, so the controller lands there or in a new slot.
+    std::vector<std::pair<void**, void*>> hidden;
     {
         std::lock_guard lock(*handler->mPlayerInputsLock);
         auto&           inputs = *handler->mPlayerInputs;
@@ -672,10 +681,27 @@ static void newPlayerFor(IMinecraftGame& game, int from, void* device) {
         // a few bytes and one device reference per "New player" choice.
         (void)inputs.at(from).mGamepadSupport.release();
         inputs.at(from).mConnectionState = PlayerInputConnectionState::Disconnected;
+        void* user = nullptr;
+        for (auto& [id, input] : inputs) {
+            auto u = reinterpret_cast<void**>(&input.mMappedUser);
+            if (id == 0) user = *u;
+            if (*u) hidden.emplace_back(u, *u), *u = nullptr;
+        }
+        for (auto& [id, input] : inputs)
+            if (id != from && user && !players.contains(id) && gamepadsOf(input).empty()) {
+                auto u = reinterpret_cast<void**>(&input.mMappedUser);
+                hidden.emplace_back(u, nullptr);
+                *u = user;
+                break;
+            }
     }
     tHideUser = true;
     gDeviceCallback(gLastConnect.token, gLastConnect.context, device, gLastConnect.time, 1, 0); // connect it again
     tHideUser = false;
+    {
+        std::lock_guard lock(*handler->mPlayerInputsLock);
+        for (auto& [u, value] : hidden) *u = value;
+    }
     note("picker: controller left slot {} for a new player", from);
     auto clients = game.getClientInstanceMap();
     if (auto c = clientWithController(clients, from)) fireConnection(*c, false, from);
@@ -691,7 +717,7 @@ static int slotOfDevice(void* device) {
     return -1;
 }
 
-static void offerPicker(void* device) {
+static void offerPicker(void* device, bool joined = false) {
     auto client = ll::service::getClientInstance();
     auto level  = ll::service::getLevel();
     int  slot   = slotOfDevice(device); // also proves the device is still in the game's table
@@ -721,7 +747,22 @@ static void offerPicker(void* device) {
             players.insert(players.begin(), {name, id});
         } else if (!withPad.contains(id)) players.push_back({name, id});
     }
-    if (owner.empty()) return; // the controller has no player yet: the game's own join prompt handles it
+    level->forEachPlayer([](Player& player) {
+        note("picker: player {} sub {} xuid '{}' uuid {}", player.getRealName(), int(player.getClientSubId()),
+             player.getXuid(), player.getUuid().asString());
+        return true;
+    });
+    if (owner.empty()) {
+        // A controller without a player: let it join, then offer the menu on its own screen.
+        if (joined || clients.size() >= 4) return;
+        note("picker: controller in slot {} joins as a new player", slot);
+        game.addSubClientInstanceAndAssociateToUser(slot);
+        ll::thread::ClientThreadExecutor::getDefault().executeAfter(
+            [device] { offerPicker(device, true); },
+            std::chrono::seconds(5)
+        );
+        return;
+    }
     bool canAddPlayer = clients.size() < 4;
     if (players.size() < 2 && !canAddPlayer) return; // nothing to choose
 
