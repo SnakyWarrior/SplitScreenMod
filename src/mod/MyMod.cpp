@@ -1,4 +1,5 @@
 #include "mod/MyMod.h"
+#include "mod/Overlay.h"
 
 #include <algorithm>
 #include <atomic>
@@ -390,6 +391,8 @@ static void watchConnections(IClientInstance& client) {
 static std::mutex    gPlayerIdsLock;
 static std::set<int> gPlayerIds; // controller ids that have a player, refreshed once a second on the client thread
 
+static std::atomic_bool gInWorld = false; // refreshed on the client thread, read on GameInput's thread
+
 static std::atomic<int> gSecondsLeft = -1; // shown in the "controller lost" prompt; -1 when nobody is leaving
 
 static void checkControllers(IMinecraftGame& game) {
@@ -486,6 +489,7 @@ static void dumpPlayers(IMinecraftGame& game) {
 static void pollTrigger() {
     static int tick   = 0;
     auto       client = ll::service::getClientInstance();
+    gInWorld          = client && ll::service::getLevel();
     auto       window = GetForegroundWindow();
     DWORD      pid    = 0;
     GetWindowThreadProcessId(window, &pid);
@@ -811,8 +815,6 @@ static void offerPicker(SubClientId owner, bool fresh) {
     auto  clients = game.getClientInstanceMap();
     if (!clients.contains(owner) || !clients.at(owner)) return;
     int controller = clients.at(owner)->getControllerId();
-    auto target    = serverPlayer(owner);
-    if (!target) return note("picker: player {} not in the world yet", int(owner) + 1);
 
     std::set<int> withPad;
     if (auto handler = controllerHandler()) {
@@ -826,26 +828,25 @@ static void offerPicker(SubClientId owner, bool fresh) {
         int         value; // controller id (TakeOver) or sub id (Offline)
         SubClientId sub;
     };
-    std::vector<Choice> choices{{Kind::Keep, 0, owner}};
-    ll::form::SimpleForm form("Bedrock Splitscreen", "Who is playing with this controller?");
-    form.appendButton(fmt::format("{} (keep)", localName(clients, int(owner))));
+    std::vector<Choice>      choices{{Kind::Keep, 0, owner}};
+    std::vector<std::string> buttons{fmt::format("{} (keep)", localName(clients, int(owner)))};
     for (auto& [sub, other] : clients) // players in the game without a controller
         if (sub != owner && other && !withPad.contains(other->getControllerId())) {
             choices.push_back({Kind::TakeOver, other->getControllerId(), sub});
-            form.appendButton(fmt::format("{}\nplaying, no controller", localName(clients, int(sub))));
+            buttons.push_back(fmt::format("{} - playing, no controller", localName(clients, int(sub))));
         }
     for (int sub = 1; sub <= 3; ++sub) // saved players not in the game
         if (!clients.contains(SubClientId(sub))) {
             choices.push_back({Kind::Offline, sub, SubClientId(sub)});
-            form.appendButton(fmt::format("{}\nnot playing", localName(clients, sub)));
+            buttons.push_back(fmt::format("{} - not playing", localName(clients, sub)));
         }
     if (!fresh && clients.size() < 4) {
         choices.push_back({Kind::NewPlayer, 0, owner});
-        form.appendButton("New player");
+        buttons.push_back("New player");
     }
     if (choices.size() < 2) return;
     note("picker: menu for player {} ({} choices)", int(owner) + 1, choices.size());
-    form.sendTo(*target, [=](Player&, int pick, ll::form::FormCancelReason) {
+    overlay::show("Bedrock Splitscreen", "A controller was connected. Who is playing with it?", buttons, [=](int pick) {
         auto client = ll::service::getClientInstance();
         if (!client || pick <= 0 || pick >= int(choices.size())) return; // closed, or kept
         auto& game   = client->getMinecraftGame();
@@ -911,18 +912,10 @@ static void offerPicker(SubClientId owner, bool fresh) {
 
 static int               gAsking  = -1;    // controller slot whose menu is open (client thread only)
 
-static void swapPads(int a, int b) {
-    auto handler = controllerHandler();
-    if (!handler) return;
-    std::lock_guard lock(*handler->mPlayerInputsLock);
-    auto&           inputs = *handler->mPlayerInputs;
-    if (inputs.contains(a) && inputs.contains(b)) std::swap(inputs.at(a).mGamepadSupport, inputs.at(b).mGamepadSupport);
-}
+static std::chrono::steady_clock::time_point gAskedAt; // presses that close the menu must not open it again
 
 static void askBeforeJoin(IMinecraftGame& game, int slot) {
     auto clients = game.getClientInstanceMap();
-    auto first   = serverPlayer(SubClientId::PrimaryClient);
-    if (!first || clients.size() >= 4) return;
 
     std::set<int> withPad;
     if (auto handler = controllerHandler()) {
@@ -934,25 +927,30 @@ static void askBeforeJoin(IMinecraftGame& game, int slot) {
         bool takeOver; // take over a playing player (value = its controller) or join as saved player (value = sub)
         int  value;
     };
-    std::vector<Choice>  choices;
-    ll::form::SimpleForm form("Bedrock Splitscreen", "Who is playing with this controller?");
-    for (auto& [sub, other] : clients)
-        if (sub != SubClientId::PrimaryClient && other && !withPad.contains(other->getControllerId())) {
+    std::vector<Choice>      choices;
+    std::vector<std::string> buttons;
+    for (auto& [sub, other] : clients) // playing players without a controller, player 1 included
+        if (other && !withPad.contains(other->getControllerId())) {
             choices.push_back({true, other->getControllerId()});
-            form.appendButton(fmt::format("{}\nplaying, no controller", localName(clients, int(sub))));
+            buttons.push_back(fmt::format(
+                "{} - {}",
+                localName(clients, int(sub)),
+                sub == SubClientId::PrimaryClient ? "player 1" : "playing, no controller"
+            ));
         }
-    for (int sub = 1; sub <= 3; ++sub)
-        if (!clients.contains(SubClientId(sub))) {
-            choices.push_back({false, sub});
-            form.appendButton(fmt::format("{}\njoin", localName(clients, sub)));
-        }
+    if (clients.size() < 4)
+        for (int sub = 1; sub <= 3; ++sub)
+            if (!clients.contains(SubClientId(sub))) {
+                choices.push_back({false, sub});
+                buttons.push_back(fmt::format("{} - join", localName(clients, sub)));
+            }
+    if (choices.empty()) return;
     gAsking = slot;
-    swapPads(0, slot); // the new controller now drives player 1's screen
     note("picker: controller {} asks who joins ({} choices)", slot, choices.size());
-    form.sendTo(*first, [choices, slot](Player&, int pick, ll::form::FormCancelReason) {
-        swapPads(0, slot); // controllers back to their own players
-        gAsking      = -1;
-        auto client  = ll::service::getClientInstance();
+    overlay::show("Bedrock Splitscreen", "Who is playing with this controller?", buttons, [choices, slot](int pick) {
+        gAsking  = -1;
+        gAskedAt = std::chrono::steady_clock::now();
+        auto client = ll::service::getClientInstance();
         if (!client || pick < 0 || pick >= int(choices.size())) return note("picker: no one joins");
         auto& game   = client->getMinecraftGame();
         auto& choice = choices[pick];
@@ -965,7 +963,8 @@ static void askBeforeJoin(IMinecraftGame& game, int slot) {
 static void joinRequestDetour(void* self, int controllerId) {
     auto original = reinterpret_cast<void (*)(void*, int)>(gCfg["addSubClientInstanceAndAssociateToUser"].origin);
     if (tOurJoin || !ll::service::getLevel()) return original(self, controllerId);
-    if (gAsking >= 0) return; // a menu is open already
+    if (gAsking >= 0 || overlay::isOpen()) return; // a menu is open already
+    if (std::chrono::steady_clock::now() - gAskedAt < std::chrono::seconds(1)) return;
     askBeforeJoin(*static_cast<IMinecraftGame*>(self), controllerId);
 }
 
@@ -989,6 +988,7 @@ static void deviceCallbackDetour(uint64_t token, void* context, void* device, ui
     // it ran past the 4 controllers it supports and crashed. Lend player 1's user to the lowest empty slot meanwhile.
     auto       handler = static_cast<GameControllerHandler_GameCore*>(context);
     void**     lentTo  = nullptr;
+    void**     hiddenFirst = nullptr;
     void*      user    = nullptr;
     bool const connecting = pad && handler && (now & 1) && !(before & 1); // GameInputDeviceConnected
     if (connecting) {
@@ -997,6 +997,11 @@ static void deviceCallbackDetour(uint64_t token, void* context, void* device, ui
         // The user handle is the first field of XsapiHandle (the game's own code tests it there).
         auto userOf = [](GameCorePlayerInput& in) { return reinterpret_cast<void**>(&in.mMappedUser); };
         if (inputs.contains(0)) user = *userOf(inputs.at(0));
+        // In a world player 1 keeps keyboard and mouse; a controller only becomes theirs if picked in the menu.
+        if (gInWorld && user && inputs.contains(0)) {
+            hiddenFirst = userOf(inputs.at(0));
+            *hiddenFirst = nullptr;
+        }
         std::set<int> players;
         {
             std::lock_guard idsLock(gPlayerIdsLock);
@@ -1015,9 +1020,10 @@ static void deviceCallbackDetour(uint64_t token, void* context, void* device, ui
     tHideUser = pad;
     gDeviceCallback(token, context, device, time, now, before);
     tHideUser = false;
-    if (lentTo) {
+    if (lentTo || hiddenFirst) {
         std::lock_guard lock(*handler->mPlayerInputsLock);
-        if (*lentTo == user) *lentTo = nullptr;
+        if (lentTo && *lentTo == user) *lentTo = nullptr;
+        if (hiddenFirst && !*hiddenFirst) *hiddenFirst = user;
     }
     if (connecting) {
         gLastConnect = {token, time, context};

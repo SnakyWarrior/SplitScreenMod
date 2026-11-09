@@ -43,7 +43,7 @@ target("SplitScreenMod")
         set_toolchains("clang-cl")
     end
     add_packages("levilamina")
-    add_syslinks("user32")
+    add_syslinks("user32", "gdi32")
     set_kind("shared")
     set_languages("c++20")
     set_symbols("debug")
