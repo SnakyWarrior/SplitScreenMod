@@ -174,15 +174,16 @@ static bool autoAllow(void* ret) {
         kinds[ret] = kind;
     }
     if (kind != Gamepad) return kind == Yes;
-    switch (addPath(ret)) {
-    case AddPath::FreeSlot: return false; // let the controller take the slot
-    case AddPath::UserPlayer: {
+    bool yes = true;
+    auto path = addPath(ret);
+    if (path == AddPath::FreeSlot) yes = false; // let the controller take the slot
+    if (path == AddPath::UserPlayer) {
         // The first gamepad belongs to player 1; every later one must get a player of its own.
         static bool firstGiven = false;
-        return std::exchange(firstGiven, true);
+        yes = std::exchange(firstGiven, true);
     }
-    default: return true;
-    }
+    note("gamepad decision at {:X} (path {}): {}", reinterpret_cast<uintptr_t>(ret) - gameBase(), int(path), yes);
+    return yes;
 }
 
 static bool decide(char const* name, void* ret, bool original) {
