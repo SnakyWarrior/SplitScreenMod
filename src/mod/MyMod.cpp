@@ -551,19 +551,33 @@ static uintptr_t findUserLookup(uintptr_t callback) {
     return 0;
 }
 
-// GameInputDeviceInfo::supportedInput (offset as used by the game's own code) has GameInputKindGamepad.
-static bool isGamepad(void* device) {
+// GameInputDeviceInfo::supportedInput, at the offset the game's own code reads it.
+static uint32_t* supportedInput(void* device) {
     using GetInfo     = long (*)(void*, uint8_t const**);
     uint8_t const* info = nullptr;
     auto           fn   = reinterpret_cast<GetInfo>((*reinterpret_cast<void***>(device))[3]);
-    return fn(device, &info) >= 0 && info && (*reinterpret_cast<uint32_t const*>(info + 0x60) & 0x40000);
+    return fn(device, &info) >= 0 && info ? const_cast<uint32_t*>(reinterpret_cast<uint32_t const*>(info + 0x60)) : nullptr;
+}
+
+constexpr uint32_t kKindKeyboardMouse = 0x30, kKindGamepad = 0x40000;
+
+// Some gamepads (e.g. 8BitDo) also report mouse input. The game always gives keyboard/mouse devices to player 1,
+// so such a pad could never get a player of its own. Treat a gamepad as a gamepad only.
+static bool asPureGamepad(void* device) {
+    auto kinds = supportedInput(device);
+    if (!kinds || !(*kinds & kKindGamepad)) return false;
+    if (*kinds & kKindKeyboardMouse) {
+        note("device {}: gamepad also reports keyboard/mouse ({:X}), ignoring that", deviceName(device), *kinds);
+        ll::memory::modify(kinds, sizeof(*kinds), [&] { *kinds &= ~kKindKeyboardMouse; });
+    }
+    return true;
 }
 
 using DeviceCallback = void (*)(uint64_t, void*, void*, uint64_t, uint32_t, uint32_t);
 static DeviceCallback gDeviceCallback = nullptr;
 
 static void deviceCallbackDetour(uint64_t token, void* context, void* device, uint64_t time, uint32_t now, uint32_t before) {
-    bool pad = device && gFindUser && isGamepad(device);
+    bool pad = device && gFindUser && asPureGamepad(device);
     note("device {}: status {:X} (was {:X}){}", device ? deviceName(device) : "?", now, before, pad ? ", gamepad" : "");
     auto handler = static_cast<GameControllerHandler_GameCore*>(context);
     if (pad && handler) dumpTable(handler, "before");
