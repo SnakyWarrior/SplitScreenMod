@@ -32,13 +32,17 @@ struct Hooked {
 static std::vector<Hooked> gHooks;
 
 // LeviLamina's own log file is not written in this setup, so keep our own next to the mod.
-template <class... Args>
-static void note(fmt::format_string<Args...> f, Args&&... args) {
-    auto        line = fmt::format(f, std::forward<Args>(args)...);
+// One stream for all note() instantiations; a static inside the template would reopen (and truncate) per type.
+static void writeLine(std::string const& line) {
     auto&       self = MyMod::getInstance().getSelf();
     static auto out  = std::ofstream(self.getModDir() / "splitscreen.log", std::ios::trunc);
     self.getLogger().info("{}", line);
     out << line << std::endl;
+}
+
+template <class... Args>
+static void note(fmt::format_string<Args...> f, Args&&... args) {
+    writeLine(fmt::format(f, std::forward<Args>(args)...));
 }
 
 static bool returnTrue(void*) { return true; }
