@@ -29,7 +29,10 @@
 #include "ll/api/service/TargetedBedrock.h"
 #include "ll/api/utils/StacktraceUtils.h"
 #include "mc/client/game/ClientInstance.h"
+#include "mc/client/game/IClientInstance.h"
 #include "mc/client/game/IMinecraftGame.h"
+#include "mc/client/input/MinecraftInputHandler.h"
+#include "mc/deps/input/InputHandler.h"
 #include "mc/deps/application/AppPlatform.h"
 
 namespace my_mod {
@@ -291,17 +294,68 @@ static void runTrigger(std::string const& cmd, int arg) {
     note("info: active={} count={}", client->isSplitScreenActive(), client->getSplitScreenCount());
 }
 
+// A second player whose controller stays disconnected is removed, so their half of the screen does not stay frozen.
+// The game reports controller (dis)connects through each client's InputHandler; we chain onto that callback.
+static constexpr auto                                kRemoveAfter = std::chrono::seconds(20);
+static std::map<int, std::chrono::steady_clock::time_point> gMissingSince; // controller id -> when it disconnected
+static std::set<void*>                               gWatched;            // InputHandlers already chained
+
+static void onControllerConnection(bool connected, int id) {
+    note("controller {} {}", id, connected ? "connected" : "disconnected");
+    if (connected) gMissingSince.erase(id);
+    else gMissingSince.try_emplace(id, std::chrono::steady_clock::now());
+}
+
+static void watchConnections(IClientInstance& client) {
+    auto input = client.getMinecraftInput();
+    if (!input || !input->mInputHandler.get()) return;
+    auto& handler = *input->mInputHandler.get();
+    if (!gWatched.insert(&handler).second) return;
+    auto& callback = handler.mControllerConnectionStateChangeHandler.get();
+    callback       = [old = std::move(callback)](IClientInstance& c, bool connected, int id) {
+        if (old) old(c, connected, id);
+        onControllerConnection(connected, id);
+    };
+}
+
+static void checkControllers(IMinecraftGame& game) {
+    auto now = std::chrono::steady_clock::now();
+    for (auto& [sub, client] : game.getClientInstanceMap()) {
+        if (!client) continue;
+        watchConnections(*client);
+        if (sub == SubClientId::PrimaryClient) continue;
+        auto lost = gMissingSince.find(client->getControllerId());
+        if (lost != gMissingSince.end() && now - lost->second > kRemoveAfter) {
+            note("player {}: no controller for {} s, removed", int(sub) + 1, kRemoveAfter.count());
+            gMissingSince.erase(lost);
+            game.queueSubclientRemoval(sub);
+        }
+    }
+}
+
+// F8 adds a player on the lowest controller id (1..3) that no player uses.
+static void joinNextFree(IMinecraftGame& game) {
+    std::set<int> used;
+    for (auto& [sub, client] : game.getClientInstanceMap())
+        if (client) used.insert(client->getControllerId());
+    for (int id = 1; id <= 3; ++id)
+        if (!used.contains(id)) return runTrigger("join", id);
+    note("F8: already 4 players");
+}
+
 static void pollTrigger() {
     // F8 in the game window adds the next splitscreen player (controller ids 1..3).
     // Edge-detect the key: the "pressed since last call" bit of GetAsyncKeyState fired several joins for one press.
-    static int  nextController = 1;
-    static bool wasDown        = false;
+    static bool wasDown = false;
+    static int  tick    = 0;
+    auto        client  = ll::service::getClientInstance();
     auto        window         = GetForegroundWindow();
     DWORD       pid            = 0;
     GetWindowThreadProcessId(window, &pid);
     bool down = (GetAsyncKeyState(VK_F8) & 0x8000) && pid == GetCurrentProcessId();
-    if (down && !wasDown && nextController <= 3) runTrigger("join", nextController++);
+    if (down && !wasDown && client) joinNextFree(client->getMinecraftGame());
     wasDown = down;
+    if (++tick % 20 == 0 && client) checkControllers(client->getMinecraftGame()); // once a second
     auto path = MyMod::getInstance().getSelf().getModDir() / "trigger.txt";
     if (std::filesystem::exists(path)) {
         std::vector<std::pair<std::string, int>> cmds;
