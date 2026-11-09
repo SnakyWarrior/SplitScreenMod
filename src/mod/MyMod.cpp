@@ -820,9 +820,9 @@ static Player* serverPlayer(SubClientId sub) {
 // A player's face from their skin: the 8x8 front of the head with the hat layer on top. Remembered on disk per local
 // player, so players who are not in the world show their last face too.
 static overlay::Icon faceOf(Player& player) {
-    auto ref = (*player.mSkin).get();
-    if (!ref || !*ref->mSkinImpl) return {};
-    mce::Image const& image = *(*ref->mSkinImpl)->mObject.mSkinImage;
+    auto ref = player.mSkin.get();
+    if (!ref || !ref->mSkinImpl) return {};
+    mce::Image const& image = *ref->mSkinImpl->mObject.mSkinImage;
     uint32_t          w = image.mWidth, h = image.mHeight;
     auto              bytes = image.mImageBytes.data();
     if (w < 64 || h < 32 || !bytes || image.mImageBytes.size() < size_t(w) * h * 4) return {};
