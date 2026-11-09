@@ -17,6 +17,7 @@ struct Menu {
     std::wstring              title, text;
     std::vector<std::wstring> buttons;
     std::function<void(int)>  done;
+    std::vector<Icon>         icons;
     int                       selected = 0;
 };
 
@@ -80,7 +81,7 @@ Layout layoutFor(Menu const& m, RECT const& game) {
     l.titleH  = 16 * l.unit;
     l.textH   = 18 * l.unit;
     l.buttonH = 22 * l.unit;
-    l.width   = 200 * l.unit;
+    l.width   = 220 * l.unit;
     l.height  = l.titleH + l.textH + l.pad * 2 + int(m.buttons.size()) * (l.buttonH + l.gap);
     return l;
 }
@@ -96,6 +97,15 @@ void frame(HDC dc, RECT r, COLORREF c, int t) {
     fill(dc, {r.left, r.bottom - t, r.right, r.bottom}, c);
     fill(dc, {r.left, r.top, r.left + t, r.bottom}, c);
     fill(dc, {r.right - t, r.top, r.right, r.bottom}, c);
+}
+
+// An 8x8 face, drawn pixel by pixel with a dark outline.
+void drawIcon(HDC dc, Icon const& icon, int left, int top, int size, int unit) {
+    if (icon.size() != 64) return;
+    fill(dc, {left - unit, top - unit, left + size + unit, top + size + unit}, RGB(30, 30, 31));
+    for (int y = 0; y < 8; ++y)
+        for (int x = 0; x < 8; ++x)
+            fill(dc, {left + x * size / 8, top + y * size / 8, left + (x + 1) * size / 8, top + (y + 1) * size / 8}, icon[y * 8 + x]);
 }
 
 void paint(HDC dc, Menu const& m, Layout const& l) {
@@ -125,7 +135,15 @@ void paint(HDC dc, Menu const& m, Layout const& l) {
         RECT label = r;
         label.bottom -= 2 * l.unit;
         auto lines = m.buttons[i];
-        DrawTextW(dc, lines.c_str(), -1, &label, DT_CENTER | DT_VCENTER | (lines.find(L'\n') == std::wstring::npos ? DT_SINGLELINE : 0));
+        UINT align = DT_CENTER;
+        if (!m.icons.empty()) { // faces on the left, names next to them
+            int size = 14 * l.unit;
+            if (i < int(m.icons.size()))
+                drawIcon(dc, m.icons[i], r.left + 5 * l.unit, r.top + (label.bottom - r.top - size) / 2, size, l.unit);
+            label.left += 26 * l.unit;
+            align = DT_LEFT;
+        }
+        DrawTextW(dc, lines.c_str(), -1, &label, align | DT_VCENTER | (lines.find(L'\n') == std::wstring::npos ? DT_SINGLELINE : 0));
     }
     SelectObject(dc, old);
     DeleteObject(big);
@@ -301,14 +319,135 @@ void run(Menu menu) {
 
 } // namespace
 
-void show(std::string title, std::string text, std::vector<std::string> buttons, std::function<void(int)> done) {
+void show(std::string title, std::string text, std::vector<std::string> buttons, std::function<void(int)> done, std::vector<Icon> icons) {
     if (buttons.empty() || gOpen.exchange(true)) return;
-    Menu menu{widen(title), widen(text), {}, std::move(done)};
+    bool any = std::any_of(icons.begin(), icons.end(), [](Icon const& i) { return !i.empty(); });
+    Menu menu{widen(title), widen(text), {}, std::move(done), any ? std::move(icons) : std::vector<Icon>{}};
     for (auto& b : buttons) menu.buttons.push_back(widen(b));
     poll(nullptr); // forget presses made before the menu opened
     std::thread(run, std::move(menu)).detach();
 }
 
 bool isOpen() { return gOpen; }
+
+// ---- the pause-menu button ----
+namespace {
+std::atomic_bool      gButtonWanted = false, gButtonRunning = false, gHover = false;
+std::mutex            gButtonLock;
+std::function<void()> gButtonClick;
+
+int buttonUnit(HWND game) {
+    RECT r{};
+    GetClientRect(game, &r);
+    return std::max(1L, r.bottom / 360);
+}
+
+LRESULT CALLBACK buttonProc(HWND w, UINT msg, WPARAM wp, LPARAM lp) {
+    switch (msg) {
+    case WM_MOUSEACTIVATE: return MA_NOACTIVATE;
+    case WM_LBUTTONDOWN: PostMessageW(w, WM_APP, 0, 0); return 0;
+    case WM_ERASEBKGND: return 1;
+    case WM_PAINT: {
+        PAINTSTRUCT ps;
+        HDC         dc = BeginPaint(w, &ps);
+        RECT        r{};
+        GetClientRect(w, &r);
+        int  u   = buttonUnit(GetWindow(w, GW_OWNER));
+        bool sel = gHover;
+        fill(dc, r, sel ? RGB(60, 133, 39) : RGB(208, 209, 212));
+        fill(dc, {r.left, r.bottom - 2 * u, r.right, r.bottom}, sel ? RGB(29, 77, 19) : RGB(88, 88, 90));
+        frame(dc, r, sel ? RGB(255, 255, 255) : RGB(30, 30, 31), u);
+        // two little screens side by side as the icon
+        int      s = 12 * u, top = (r.bottom - 2 * u - s) / 2, left = 5 * u;
+        COLORREF ink = sel ? RGB(255, 255, 255) : RGB(49, 50, 51);
+        frame(dc, {left, top, left + s, top + s}, ink, u);
+        fill(dc, {left + s / 2 - u / 2, top, left + s / 2 - u / 2 + u, top + s}, ink);
+        HFONT font = CreateFontW(-8 * u, 0, 0, 0, FW_NORMAL, 0, 0, 0, DEFAULT_CHARSET, 0, 0, NONANTIALIASED_QUALITY, 0, fontFace().c_str());
+        auto  old  = SelectObject(dc, font);
+        SetBkMode(dc, TRANSPARENT);
+        SetTextColor(dc, ink);
+        RECT label{left + s + 5 * u, 0, r.right - 5 * u, r.bottom - 2 * u};
+        DrawTextW(dc, L"Split screen", -1, &label, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+        DrawTextW(dc, L"(Y)", -1, &label, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
+        SelectObject(dc, old);
+        DeleteObject(font);
+        EndPaint(w, &ps);
+        return 0;
+    }
+    }
+    return DefWindowProcW(w, msg, wp, lp);
+}
+
+void buttonRun() {
+    HWND game = gameWindow();
+    static ATOM cls = [] {
+        WNDCLASSW wc{};
+        wc.lpfnWndProc   = buttonProc;
+        wc.hInstance     = GetModuleHandleW(nullptr);
+        wc.hCursor       = LoadCursor(nullptr, IDC_HAND);
+        wc.lpszClassName = L"SplitScreenModButton";
+        return RegisterClassW(&wc);
+    }();
+    (void)cls;
+    HWND w = game ? CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, L"SplitScreenModButton", L"", WS_POPUP,
+                                    0, 0, 1, 1, game, nullptr, GetModuleHandleW(nullptr), nullptr)
+                  : nullptr;
+    WORD last[4]{0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF}; // a Y already held when the pause menu opened does not count
+    RECT placed{};
+    bool shown = false;
+    while (w && gButtonWanted && IsWindow(game)) {
+        bool clicked = false;
+        MSG  msg;
+        while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
+            if (msg.message == WM_APP) clicked = true;
+            DispatchMessageW(&msg);
+        }
+        bool visible = !gOpen && !IsIconic(game);
+        if (auto get = xinput())
+            for (DWORD i = 0; i < 4; ++i) {
+                PadState s{};
+                WORD     now = get(i, &s) == ERROR_SUCCESS ? s.buttons : 0;
+                if (visible && (now & ~last[i] & 0x8000)) clicked = true; // Y
+                last[i] = now;
+            }
+        int   u = buttonUnit(game);
+        RECT  client{};
+        GetClientRect(game, &client);
+        POINT origin{0, 0};
+        ClientToScreen(game, &origin);
+        int  width = 110 * u, height = 22 * u;
+        RECT want{origin.x + client.right - width - 8 * u, origin.y + 8 * u, 0, 0};
+        want.right  = want.left + width;
+        want.bottom = want.top + height;
+        if (visible != shown || !EqualRect(&want, &placed)) {
+            SetWindowPos(w, HWND_TOPMOST, want.left, want.top, width, height,
+                         SWP_NOACTIVATE | (visible ? SWP_SHOWWINDOW : SWP_HIDEWINDOW));
+            placed = want, shown = visible;
+            InvalidateRect(w, nullptr, FALSE);
+        }
+        POINT cursor{};
+        GetCursorPos(&cursor);
+        if (bool hover = visible && PtInRect(&placed, cursor); hover != gHover) gHover = hover, InvalidateRect(w, nullptr, FALSE);
+        if (clicked && visible) {
+            std::lock_guard lock(gButtonLock);
+            if (gButtonClick) ll::thread::ClientThreadExecutor::getDefault().execute(gButtonClick);
+        }
+        Sleep(16);
+    }
+    if (w) DestroyWindow(w);
+    gButtonRunning = false;
+}
+} // namespace
+
+void showButton(std::function<void()> click) {
+    {
+        std::lock_guard lock(gButtonLock);
+        gButtonClick = std::move(click);
+    }
+    gButtonWanted = true;
+    if (!gButtonRunning.exchange(true)) std::thread(buttonRun).detach();
+}
+
+void hideButton() { gButtonWanted = false; }
 
 } // namespace overlay

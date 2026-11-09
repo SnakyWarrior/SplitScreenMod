@@ -43,6 +43,10 @@
 #include "mc/deps/input/InputHandler.h"
 #include "mc/locale/Localization.h"
 #include "mc/world/actor/player/Player.h"
+#include "mc/world/actor/player/SerializedSkinImpl.h"
+#include "mc/world/actor/player/SerializedSkinRef.h"
+#include "mc/world/actor/player/SkinImage.h"
+#include "mc/util/ThreadOwner.h"
 #include "mc/world/level/Level.h"
 #include "ll/api/form/SimpleForm.h"
 #include "ll/api/service/Bedrock.h"
@@ -396,6 +400,12 @@ static std::set<int> gPlayerIds; // controller ids that have a player, refreshed
 
 static std::atomic_bool gInWorld = false; // refreshed on the client thread, read on GameInput's thread
 
+// Controllers that asked to join while no world was loaded (e.g. the game bringing players back when a world opens):
+// they are asked who they are once the world is up, so no controller keeps its player from the last world.
+static std::set<int> gAskLater; // client thread only
+static void          askBeforeJoin(IMinecraftGame& game, int slot);
+static void          openSettings();
+
 static std::atomic<int> gSecondsLeft = -1; // shown in the "controller lost" prompt; -1 when nobody is leaving
 
 static void checkControllers(IMinecraftGame& game) {
@@ -498,16 +508,28 @@ static void pollTrigger() {
     GetWindowThreadProcessId(window, &pid);
     static bool f7WasDown = false; // F7 opens the layout menu
     bool        f7        = (GetAsyncKeyState(VK_F7) & 0x8000) && pid == GetCurrentProcessId();
-    if (f7 && !f7WasDown && client && !overlay::isOpen())
-        overlay::show(
-            "Bedrock Splitscreen",
-            "Split screen layout",
-            {"Horizontal (top and bottom)", "Vertical (side by side)"},
-            [](int pick) {
-                if (auto c = ll::service::getClientInstance(); c && pick >= 0) c->getOptions().setSplitscreenDirection(pick);
-            }
-        );
+    if (f7 && !f7WasDown && client && !overlay::isOpen()) openSettings();
     f7WasDown = f7;
+    static int worldTicks = 0; // how long the world has been up, in polls
+    worldTicks            = gInWorld ? worldTicks + 1 : 0;
+    if (worldTicks > 60 && !gAskLater.empty() && !overlay::isOpen()) { // 3 s in: the players have spawned
+        int slot = *gAskLater.begin();
+        gAskLater.erase(gAskLater.begin());
+        askBeforeJoin(client->getMinecraftGame(), slot);
+    }
+    // the pause menu of any player gets a "Split screen" button
+    bool paused = false;
+    if (client && gInWorld)
+        for (auto& [sub, other] : client->getMinecraftGame().getClientInstanceMap())
+            if (other && other->getTopScreenName().find("pause") != std::string::npos) paused = true;
+    static std::string lastScreen; // logged so the pause check can be fixed if the game renames its screens
+    if (auto top = client ? client->getTopScreenName() : std::string(); top != lastScreen) note("screen: {}", lastScreen = top);
+    static bool wasPaused = false;
+    if (paused != wasPaused) {
+        if (paused) overlay::showButton(openSettings);
+        else overlay::hideButton();
+        wasPaused = paused;
+    }
     static bool f9WasDown = false; // F9 writes the controller table to the log (edge-detected)
     bool        f9        = (GetAsyncKeyState(VK_F9) & 0x8000) && pid == GetCurrentProcessId();
     if (f9 && !f9WasDown && client) dumpPlayers(client->getMinecraftGame());
@@ -795,6 +817,75 @@ static Player* serverPlayer(SubClientId sub) {
     return found;
 }
 
+// A player's face from their skin: the 8x8 front of the head with the hat layer on top. Remembered on disk per local
+// player, so players who are not in the world show their last face too.
+static overlay::Icon faceOf(Player& player) {
+    auto ref = (*player.mSkin).get();
+    if (!ref || !*ref->mSkinImpl) return {};
+    mce::Image const& image = *(*ref->mSkinImpl)->mObject.mSkinImage;
+    uint32_t          w = image.mWidth, h = image.mHeight;
+    auto              bytes = image.mImageBytes.data();
+    if (w < 64 || h < 32 || !bytes || image.mImageBytes.size() < size_t(w) * h * 4) return {};
+    uint32_t scale = w / 64;
+    auto     at    = [&](uint32_t x, uint32_t y) { return bytes + (size_t(y * scale + scale / 2) * w + x * scale + scale / 2) * 4; };
+    overlay::Icon face(64);
+    for (uint32_t y = 0; y < 8; ++y)
+        for (uint32_t x = 0; x < 8; ++x) {
+            auto px = at(8 + x, 8 + y);
+            if (auto hat = at(40 + x, 8 + y); hat[3] > 128) px = hat;
+            face[y * 8 + x] = RGB(px[0], px[1], px[2]);
+        }
+    return face;
+}
+
+static overlay::Icon faceFor(int sub) {
+    auto file = MyMod::getInstance().getSelf().getModDir() / "faces" / fmt::format("{}.bin", sub);
+    overlay::Icon face;
+    if (auto player = serverPlayer(SubClientId(sub))) face = faceOf(*player);
+    std::error_code ec;
+    if (face.size() == 64) {
+        std::filesystem::create_directories(file.parent_path(), ec);
+        std::ofstream(file, std::ios::binary).write(reinterpret_cast<char const*>(face.data()), 64 * sizeof(uint32_t));
+    } else if (std::ifstream in(file, std::ios::binary); in) {
+        face.resize(64);
+        if (!in.read(reinterpret_cast<char*>(face.data()), 64 * sizeof(uint32_t))) face.clear();
+    }
+    return face;
+}
+
+// F7 or the pause menu's "Split screen" button: layout, and removing players.
+static void openSettings() {
+    auto client = ll::service::getClientInstance();
+    if (!client || overlay::isOpen()) return;
+    auto clients  = client->getMinecraftGame().getClientInstanceMap();
+    bool vertical = int(client->getOptions().getSplitscreenDirection()) == 1;
+    std::vector<std::string>   buttons{vertical ? "Layout: side by side" : "Layout: top and bottom"};
+    std::vector<overlay::Icon> icons{{}};
+    std::vector<int>           subs{-1};
+    for (auto& [sub, other] : clients)
+        if (other && sub != SubClientId::PrimaryClient) {
+            buttons.push_back(fmt::format("Remove {}", localName(clients, int(sub))));
+            icons.push_back(faceFor(int(sub)));
+            subs.push_back(int(sub));
+        }
+    buttons.push_back("Close");
+    icons.emplace_back();
+    subs.push_back(-2);
+    overlay::show("Bedrock Splitscreen", "Split screen", buttons, [subs, vertical](int pick) {
+        auto client = ll::service::getClientInstance();
+        if (!client || pick < 0 || subs[pick] == -2) return;
+        if (subs[pick] == -1) {
+            client->getOptions().setSplitscreenDirection(vertical ? 0 : 1);
+            return openSettings(); // show the new layout's name
+        }
+        auto clients = client->getMinecraftGame().getClientInstanceMap();
+        if (auto it = clients.find(SubClientId(subs[pick])); it != clients.end() && it->second) {
+            note("settings: player {} removed", subs[pick] + 1);
+            it->second->requestLeaveGameAsync();
+        }
+    }, icons);
+}
+
 static void joinAs(IMinecraftGame& game, int controllerId, int sub) {
     gWantedSub = sub;
     gNoMenuFor.insert(sub);
@@ -942,11 +1033,13 @@ static void askBeforeJoin(IMinecraftGame& game, int slot) {
         bool takeOver; // take over a playing player (value = its controller) or join as saved player (value = sub)
         int  value;
     };
-    std::vector<Choice>      choices;
-    std::vector<std::string> buttons;
+    std::vector<Choice>        choices;
+    std::vector<std::string>   buttons;
+    std::vector<overlay::Icon> icons;
     for (auto& [sub, other] : clients) // playing players without a controller, player 1 included
         if (other && !withPad.contains(other->getControllerId())) {
             choices.push_back({true, other->getControllerId()});
+            icons.push_back(faceFor(int(sub)));
             buttons.push_back(fmt::format(
                 "{} - {}",
                 localName(clients, int(sub)),
@@ -957,6 +1050,7 @@ static void askBeforeJoin(IMinecraftGame& game, int slot) {
         for (int sub = 1; sub <= 3; ++sub)
             if (!clients.contains(SubClientId(sub))) {
                 choices.push_back({false, sub});
+                icons.push_back(faceFor(sub));
                 buttons.push_back(fmt::format("{} - join", localName(clients, sub)));
             }
     if (choices.empty()) return;
@@ -971,13 +1065,19 @@ static void askBeforeJoin(IMinecraftGame& game, int slot) {
         auto& choice = choices[pick];
         if (choice.takeOver) moveController(game, slot, choice.value);
         else joinAs(game, slot, choice.value);
-    });
+    }, icons);
 }
 
 // IMinecraftGame::addSubClientInstanceAndAssociateToUser, as called by the game's join prompt.
 static void joinRequestDetour(void* self, int controllerId) {
     auto original = reinterpret_cast<void (*)(void*, int)>(gCfg["addSubClientInstanceAndAssociateToUser"].origin);
-    if (tOurJoin || !ll::service::getLevel()) return original(self, controllerId);
+    if (tOurJoin) return original(self, controllerId);
+    if (!ll::service::getLevel()) {
+        if (controllerId <= 0) return original(self, controllerId);
+        note("controller {} asked to join before the world: asking in the world", controllerId);
+        gAskLater.insert(controllerId);
+        return;
+    }
     if (gAsking >= 0 || overlay::isOpen()) return; // a menu is open already
     if (std::chrono::steady_clock::now() - gAskedAt < std::chrono::seconds(1)) return;
     askBeforeJoin(*static_cast<IMinecraftGame*>(self), controllerId);
@@ -1162,8 +1262,14 @@ bool MyMod::enable() {
     }
     hookSlot(&game, &IMinecraftGame::addSubClientInstanceAndAssociateToUser, fn(&joinRequestDetour),
              "addSubClientInstanceAndAssociateToUser");
-    hookSlot(static_cast<IClientInstance*>(client.as_ptr()), &IClientInstance::calculateViewPortModifiers, fn(&viewportDetour),
-             "calculateViewPortModifiers", &gViewportOriginal);
+    // Hooked at the function itself, not the vtable slot: the HUD calls it directly, and with only the slot hooked the
+    // HUD of players 2 and 3 stayed in the game's own quarters while their world moved.
+    if (auto slot = findSlot(static_cast<IClientInstance*>(client.as_ptr()), &IClientInstance::calculateViewPortModifiers,
+                             "calculateViewPortModifiers")) {
+        ll::memory::hook(*slot, fn(&viewportDetour), reinterpret_cast<ll::memory::FuncPtr*>(&gViewportOriginal),
+                         ll::memory::HookPriority::Normal);
+        note("viewport at rva {:X}", reinterpret_cast<uintptr_t>(*slot) - gameBase());
+    }
     if (hooks.contains("isSplitscreenJoinEnabled"))
         hookSlot(&game, &IMinecraftGame::isSplitscreenJoinEnabled, fn(&joinEnabledDetour), "isSplitscreenJoinEnabled");
     if (hooks.contains("canAddSplitscreenSubClient"))
