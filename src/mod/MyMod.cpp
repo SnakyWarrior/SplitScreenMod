@@ -34,6 +34,8 @@
 #include "mc/client/game/ClientInstanceArguments.h"
 #include "mc/client/game/IClientInstance.h"
 #include "mc/client/options/IOptionRegistry.h"
+#include "mc/deps/renderer/ViewportInfo.h"
+#include "mc/math/Vec2.h"
 #include "mc/client/game/IMinecraftGame.h"
 #include "mc/client/input/MinecraftInputHandler.h"
 #include "mc/deps/application/gamecore/Platform_GameCore.h"
@@ -325,6 +327,14 @@ static void runTrigger(std::string const& cmd, int arg) {
         game.addSubClientInstanceAndAssociateToUser(arg); // goes through the menu like the game's join prompt
     }
     if (cmd == "pads") dumpPlayers(game);
+    if (cmd == "vp") // each player's viewport as the renderer and HUD see it
+        for (auto& [sub, other] : game.getClientInstanceMap())
+            if (other) {
+                auto& info = other->getViewportInfo();
+                auto  n    = other->getNormalizedViewportSize();
+                note("vp: player {} size {} {} offset {} {} normalized {} {}", int(sub) + 1, info.size->x, info.size->y,
+                     info.offset->x, info.offset->y, n.x, n.y);
+            }
     if (cmd == "dir") client->getOptions().setSplitscreenDirection(arg); // 0 horizontal, 1 vertical
     // prototype: "form N" shows a test form to the Nth server-side player; "swap A B" swaps the gamepads of two
     // controller ids in the game's table.
