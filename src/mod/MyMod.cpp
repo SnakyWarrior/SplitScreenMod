@@ -1217,13 +1217,15 @@ LL_AUTO_TYPE_INSTANCE_HOOK(
 using ViewportFn = ViewRect* (*)(void*, ViewRect*, SubClientId, uint64_t, int);
 
 static std::atomic<ll::memory::FuncPtr> gViewportOriginal = nullptr; // read on the render thread: not through gCfg
-static std::atomic_bool                 gThree = false; // the last layout asked for was for three players
+static std::atomic_bool                 gThree = false;
+static std::atomic<int>                 gDirection = 0; // the last layout asked for was for three players
 static ViewRect                         gRects[4]{};    // each player's part with three players
 
 static ViewRect* viewportDetour(void* self, ViewRect* out, SubClientId id, uint64_t count, int direction) {
     auto original = reinterpret_cast<ViewportFn>(gViewportOriginal.load());
     original(self, out, id, count, direction);
-    gThree = count == 3;
+    gThree     = count == 3;
+    gDirection = direction;
     if (count != 3 || !gLayout3) return out;
     {
         static std::set<uintptr_t> callers;
@@ -1259,7 +1261,9 @@ static Size2* normSizeDetour(IClientInstance* self, Size2* out) {
     static std::atomic<int> logged = 0;
     if (!(logged.fetch_or(1 << sub) & (1 << sub)))
         note("hud size: player {} game {} {}, now {} {}", sub + 1, out->x, out->y, rect.width, rect.height);
-    if (rect.width > 0) *out = {rect.width, rect.height};
+    // The HUD multiplies the viewport by this along the axis the game never splits in the chosen direction (height
+    // when side by side, width when top and bottom), so that axis must stay 1 or the HUD shrinks to half its part.
+    if (rect.width > 0) *out = gDirection == 1 ? Size2{rect.width, 1} : Size2{1, rect.height};
     return out;
 }
 
