@@ -19,7 +19,8 @@ if not has_config("vs_runtime") then
     set_runtimes("MD")
 end
 
-target("SplitScreenMod") -- Change this to your mod name.
+target("SplitScreenMod")
+    set_version("1.0.0")
     add_rules("@levibuildscript/linkrule")
     add_rules("@levibuildscript/modpacker")
     if is_plat("windows") then

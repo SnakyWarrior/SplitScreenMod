@@ -9,7 +9,6 @@ jobs:
     strategy:
       matrix:
         target_type:
-          - server
           - client
     steps:
       - uses: actions/checkout@v7
@@ -70,7 +69,6 @@ jobs:
     strategy:
       matrix:
         target_type:
-          - server
           - client
     runs-on: ubuntu-latest
     steps:
@@ -81,12 +79,14 @@ jobs:
           name: ${{ github.event.repository.name }}-${{ github.sha }}-${{ matrix.target_type }}-windows-x64
           path: artifact
 
+      # lip and the mod folder both expect manifest.json at the zip root; the .pdb is only for debugging
       - run: |
-          cp CHANGELOG.md LICENSE README.md artifact/
+          cp CHANGELOG.md LICENSE README.md artifact/${{ github.event.repository.name }}/
+          rm -f artifact/${{ github.event.repository.name }}/*.pdb
 
       - run: |
-          zip -r ../${{ github.event.repository.name }}-${{ matrix.target_type }}-windows-x64.zip *
-        working-directory: artifact
+          zip -r ../../${{ github.event.repository.name }}-${{ matrix.target_type }}-windows-x64.zip *
+        working-directory: artifact/${{ github.event.repository.name }}
 
       - uses: softprops/action-gh-release@v3
         with:

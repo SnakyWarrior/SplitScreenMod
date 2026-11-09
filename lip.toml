@@ -1,0 +1,19 @@
+format = 4
+id = "github.com/SnakyWarrior/SplitScreenMod"
+version = "1.0.0"
+
+[info]
+name = "SplitScreenMod"
+description = "Local split-screen for Minecraft Bedrock on Windows: up to 4 players, one controller each."
+tags = ["game-mechanics", "utility"]
+
+[[variants.""]]
+side = "client"
+platform = "win-x64"
+
+[variants."".deps]
+"github.com/LiteLDev/LeviLamina" = ">=26.60.0 <26.61.0"
+
+[[variants."".assets]]
+type = "mcmod"
+urls = ["https://github.com/SnakyWarrior/SplitScreenMod/releases/download/v{{version}}/SplitScreenMod-client-windows-x64.zip"]
