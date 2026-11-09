@@ -15,6 +15,7 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <thread>
 #include <vector>
 
@@ -33,6 +34,7 @@
 #include "mc/client/game/ClientInstance.h"
 #include "mc/client/game/ClientInstanceArguments.h"
 #include "mc/client/game/IClientInstance.h"
+#include "mc/client/options/IOptionRegistry.h"
 #include "mc/client/game/IMinecraftGame.h"
 #include "mc/client/input/MinecraftInputHandler.h"
 #include "mc/deps/application/gamecore/Platform_GameCore.h"
@@ -319,6 +321,7 @@ static void runTrigger(std::string const& cmd, int arg) {
         game.addSubClientInstanceAndAssociateToUser(arg); // goes through the menu like the game's join prompt
     }
     if (cmd == "pads") dumpPlayers(game);
+    if (cmd == "dir") client->getOptions().setSplitscreenDirection(arg); // 0 horizontal, 1 vertical
     // prototype: "form N" shows a test form to the Nth server-side player; "swap A B" swaps the gamepads of two
     // controller ids in the game's table.
     if (cmd == "who")
@@ -1070,6 +1073,24 @@ LL_AUTO_TYPE_INSTANCE_HOOK(
     return result;
 }
 
+// ---- Split-screen layout: IClientInstance::calculateViewPortModifiers gives each player its part of the screen ----
+struct ViewRect {
+    float a, b, c, d; // layout learned from the game's own values, see viewportDetour
+};
+// Instance methods return structs through a hidden pointer passed after `this`.
+using ViewportFn = ViewRect* (*)(void*, ViewRect*, SubClientId, uint64_t, int);
+
+static ViewRect* viewportDetour(void* self, ViewRect* out, SubClientId id, uint64_t count, int direction) {
+    auto original = reinterpret_cast<ViewportFn>(gCfg["calculateViewPortModifiers"].origin);
+    original(self, out, id, count, direction);
+    static std::set<std::tuple<int, uint64_t, int>> seen;
+    static std::mutex                               m;
+    std::lock_guard                                 lock(m);
+    if (seen.insert({int(id), count, direction}).second)
+        note("viewport: player {} of {}, direction {}: {} {} {} {}", int(id) + 1, count, direction, out->a, out->b, out->c, out->d);
+    return out;
+}
+
 bool MyMod::load() {
     note("SplitScreenMod loading");
     gLlClient = findLlClientVar(); // checked in enable(), once the client exists
@@ -1123,6 +1144,8 @@ bool MyMod::enable() {
     }
     hookSlot(&game, &IMinecraftGame::addSubClientInstanceAndAssociateToUser, fn(&joinRequestDetour),
              "addSubClientInstanceAndAssociateToUser");
+    hookSlot(static_cast<IClientInstance*>(client.as_ptr()), &IClientInstance::calculateViewPortModifiers, fn(&viewportDetour),
+             "calculateViewPortModifiers");
     if (hooks.contains("isSplitscreenJoinEnabled"))
         hookSlot(&game, &IMinecraftGame::isSplitscreenJoinEnabled, fn(&joinEnabledDetour), "isSplitscreenJoinEnabled");
     if (hooks.contains("canAddSplitscreenSubClient"))
