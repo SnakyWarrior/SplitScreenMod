@@ -15,7 +15,6 @@
 #include <sstream>
 #include <string>
 #include <string_view>
-#include <tuple>
 #include <thread>
 #include <vector>
 
@@ -497,6 +496,18 @@ static void pollTrigger() {
     auto       window = GetForegroundWindow();
     DWORD      pid    = 0;
     GetWindowThreadProcessId(window, &pid);
+    static bool f7WasDown = false; // F7 opens the layout menu
+    bool        f7        = (GetAsyncKeyState(VK_F7) & 0x8000) && pid == GetCurrentProcessId();
+    if (f7 && !f7WasDown && client && !overlay::isOpen())
+        overlay::show(
+            "Bedrock Splitscreen",
+            "Split screen layout",
+            {"Horizontal (top and bottom)", "Vertical (side by side)"},
+            [](int pick) {
+                if (auto c = ll::service::getClientInstance(); c && pick >= 0) c->getOptions().setSplitscreenDirection(pick);
+            }
+        );
+    f7WasDown = f7;
     static bool f9WasDown = false; // F9 writes the controller table to the log (edge-detected)
     bool        f9        = (GetAsyncKeyState(VK_F9) & 0x8000) && pid == GetCurrentProcessId();
     if (f9 && !f9WasDown && client) dumpPlayers(client->getMinecraftGame());
@@ -1076,7 +1087,7 @@ LL_AUTO_TYPE_INSTANCE_HOOK(
 
 // ---- Split-screen layout: IClientInstance::calculateViewPortModifiers gives each player its part of the screen ----
 struct ViewRect {
-    float a, b, c, d; // layout learned from the game's own values, see viewportDetour
+    float x, y, width, height; // fractions of the window
 };
 // Instance methods return structs through a hidden pointer passed after `this`.
 using ViewportFn = ViewRect* (*)(void*, ViewRect*, SubClientId, uint64_t, int);
@@ -1086,11 +1097,15 @@ static std::atomic<ll::memory::FuncPtr> gViewportOriginal = nullptr; // read on 
 static ViewRect* viewportDetour(void* self, ViewRect* out, SubClientId id, uint64_t count, int direction) {
     auto original = reinterpret_cast<ViewportFn>(gViewportOriginal.load());
     original(self, out, id, count, direction);
-    static std::set<std::tuple<int, uint64_t, int>> seen;
-    static std::mutex                               m;
-    std::lock_guard                                 lock(m);
-    if (seen.insert({int(id), count, direction}).second)
-        note("viewport: player {} of {}, direction {}: {} {} {} {}", int(id) + 1, count, direction, out->a, out->b, out->c, out->d);
+    if (count != 3) return out;
+    // With three players the game uses quarters and leaves one black. Give player 1 half of the screen and let the
+    // other two share the other half. Which player is which comes from the game's quarter: top-left, top-right,
+    // bottom-left.
+    int  slot     = out->y >= 0.5f ? 2 : out->x >= 0.5f ? 1 : 0;
+    bool vertical = direction == 1;
+    if (slot == 0) *out = vertical ? ViewRect{0, 0, 0.5f, 1} : ViewRect{0, 0, 1, 0.5f};
+    else if (vertical) *out = {0.5f, slot == 1 ? 0.f : 0.5f, 0.5f, 0.5f};
+    else *out = {slot == 1 ? 0.f : 0.5f, 0.5f, 0.5f, 0.5f};
     return out;
 }
 
