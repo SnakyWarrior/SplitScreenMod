@@ -529,7 +529,7 @@ static uintptr_t findUserLookup(uintptr_t callback) {
     auto body = reinterpret_cast<uint8_t const*>(begin);
     auto size = fn->EndAddress - fn->BeginAddress;
     for (size_t p = 0; p + 4 <= size; ++p) {
-        if (std::memcmp(body + p, "HÂƒÃ:", 4) != 0) continue;
+        if (std::memcmp(body + p, "HƒÁ:", 4) != 0) continue;
         for (size_t q = p + 4; q < p + 24 && q + 5 <= size; ++q)
             if (body[q] == 0xE8) return begin + q + 5 + *reinterpret_cast<int32_t const*>(body + q + 1);
     }
