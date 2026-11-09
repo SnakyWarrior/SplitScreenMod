@@ -381,6 +381,19 @@ static std::string deviceName(void* device) {
     return fmt::format("{:04X}:{:04X}", info[0], info[1]);
 }
 
+// The user handle is the first field of XsapiHandle (the game's own code tests it there).
+static void dumpTable(GameControllerHandler_GameCore* handler, char const* when) {
+    std::unique_lock lock(*handler->mPlayerInputsLock, std::try_to_lock);
+    if (!lock) return note("pads {}: table busy", when);
+    note("pads {}: {} players", when, handler->mPlayerInputs->size());
+    for (auto& [id, input] : *handler->mPlayerInputs) {
+        std::vector<std::string> names;
+        for (auto d : gamepadsOf(input)) names.push_back(deviceName(d));
+        note("pads {}: controller {}: state {}, user {}, gamepads [{}], mouse {}", when, id, int(input.mConnectionState),
+             *reinterpret_cast<void* const*>(&input.mMappedUser) != nullptr, fmt::join(names, " "), bool(input.mMouseSupport));
+    }
+}
+
 static void dumpPlayers(IMinecraftGame& game) {
     if (auto handler = controllerHandler()) {
         std::unique_lock lock(*handler->mPlayerInputsLock, std::try_to_lock);
@@ -550,9 +563,12 @@ static DeviceCallback gDeviceCallback = nullptr;
 static void deviceCallbackDetour(uint64_t token, void* context, void* device, uint64_t time, uint32_t now, uint32_t before) {
     bool pad = device && gFindUser && isGamepad(device);
     note("device {}: status {:X} (was {:X}){}", device ? deviceName(device) : "?", now, before, pad ? ", gamepad" : "");
+    auto handler = static_cast<GameControllerHandler_GameCore*>(context);
+    if (pad && handler) dumpTable(handler, "before");
     tHideUser = pad;
     gDeviceCallback(token, context, device, time, now, before);
     tHideUser = false;
+    if (pad && handler) dumpTable(handler, "after");
 }
 
 bool MyMod::load() {
