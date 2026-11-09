@@ -10,6 +10,7 @@
 #include <set>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include <Windows.h>
@@ -223,6 +224,8 @@ static auto fn(auto f) { return reinterpret_cast<ll::memory::FuncPtr>(f); }
 
 // Gamepads are sorted into players when they connect, which happens before enable(), so hook as early as possible.
 static void hookPlatform() {
+    static std::mutex m;
+    std::lock_guard   lock(m);
     auto platform = ll::service::getAppPlatform();
     if (gPlatformHooked || !platform || !gWanted.contains("allowSplitScreen")) return;
     gPlatformHooked =
@@ -232,8 +235,17 @@ static void hookPlatform() {
 bool MyMod::load() {
     note("SplitScreenMod loading");
     readConfig(gWanted);
-    hookPlatform();
-    note("load: platform {}", gPlatformHooked ? "hooked" : "not ready yet");
+    // AppPlatform does not exist yet at load; catch it as soon as it does, before gamepads are enumerated.
+    std::thread([] {
+        for (int i = 0; i < 60000 && !gPlatformHooked; ++i) {
+            if (ll::service::getAppPlatform()) {
+                hookPlatform();
+                note("load: platform hooked after {} ms", i);
+                return;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    }).detach();
     return true;
 }
 
