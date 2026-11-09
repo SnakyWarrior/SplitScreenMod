@@ -37,6 +37,7 @@
 #include "mc/gamecore/AppPlatform_GameCore.h"
 #include "mc/gamecore/GameControllerHandler_GameCore.h"
 #include "mc/deps/input/InputHandler.h"
+#include "mc/locale/Localization.h"
 #include "mc/deps/application/AppPlatform.h"
 
 namespace my_mod {
@@ -340,20 +341,44 @@ static void watchConnections(IClientInstance& client) {
     };
 }
 
+static std::atomic<int> gSecondsLeft = -1; // shown in the "controller lost" prompt; -1 when nobody is leaving
+
 static void checkControllers(IMinecraftGame& game) {
-    auto now = std::chrono::steady_clock::now();
+    auto now  = std::chrono::steady_clock::now();
+    int  left = -1;
     for (auto& [sub, client] : game.getClientInstanceMap()) {
         if (!client) continue;
         watchConnections(*client);
         if (sub == SubClientId::PrimaryClient) continue;
         auto lost = gMissingSince.find(client->getControllerId());
+        if (lost != gMissingSince.end()) {
+            auto secs = int(std::chrono::duration_cast<std::chrono::seconds>(kRemoveAfter - (now - lost->second)).count());
+            if (secs >= 0 && (left < 0 || secs < left)) left = secs;
+        }
         if (lost != gMissingSince.end() && now - lost->second > kRemoveAfter) {
             note("player {}: no controller for {} s, removed", int(sub) + 1, kRemoveAfter.count());
             gMissingSince.erase(lost);
             client->requestLeaveGameAsync(); // what the player's own "Save & Leave" does
-
         }
     }
+    gSecondsLeft = left;
+}
+
+// The game's "controller lost" prompt reads this text; add how long until that player is removed.
+LL_AUTO_TYPE_INSTANCE_HOOK(
+    LostControllerTextHook,
+    ll::memory::HookPriority::Normal,
+    Localization,
+    &Localization::get,
+    bool,
+    std::string const&              id,
+    std::string&                    out,
+    std::vector<std::string> const& params
+) {
+    bool found = origin(id, out, params);
+    if (int left = gSecondsLeft; found && left >= 0 && id == "gamepad_disconnect.reconnectController")
+        out += fmt::format("\n\nThe player leaves in {} s.", left);
+    return found;
 }
 
 // The game's own table of which input devices belong to which player (controller id).
@@ -402,29 +427,13 @@ static void dumpPlayers(IMinecraftGame& game) {
         if (client) note("pads: player {} uses controller {}", int(sub) + 1, client->getControllerId());
 }
 
-// F8 adds a player on the lowest controller id (1..3) that no player uses.
-static void joinNextFree(IMinecraftGame& game) {
-    std::set<int> used;
-    for (auto& [sub, client] : game.getClientInstanceMap())
-        if (client) used.insert(client->getControllerId());
-    for (int id = 1; id <= 3; ++id)
-        if (!used.contains(id)) return runTrigger("join", id);
-    note("F8: already 4 players");
-}
-
 static void pollTrigger() {
-    // F8 in the game window adds the next splitscreen player (controller ids 1..3).
-    // Edge-detect the key: the "pressed since last call" bit of GetAsyncKeyState fired several joins for one press.
-    static bool wasDown = false;
-    static int  tick    = 0;
-    auto        client  = ll::service::getClientInstance();
-    auto        window         = GetForegroundWindow();
-    DWORD       pid            = 0;
+    static int tick   = 0;
+    auto       client = ll::service::getClientInstance();
+    auto       window = GetForegroundWindow();
+    DWORD      pid    = 0;
     GetWindowThreadProcessId(window, &pid);
-    bool down = (GetAsyncKeyState(VK_F8) & 0x8000) && pid == GetCurrentProcessId();
-    if (down && !wasDown && client) joinNextFree(client->getMinecraftGame());
-    wasDown = down;
-    static bool f9WasDown = false; // F9 writes the controller table to the log
+    static bool f9WasDown = false; // F9 writes the controller table to the log (edge-detected)
     bool        f9        = (GetAsyncKeyState(VK_F9) & 0x8000) && pid == GetCurrentProcessId();
     if (f9 && !f9WasDown && client) dumpPlayers(client->getMinecraftGame());
     f9WasDown = f9;

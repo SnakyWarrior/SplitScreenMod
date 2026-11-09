@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The "Controller lost connection" prompt shows how many seconds are left before that player is removed.
+
+### Changed
+
+- F8 no longer adds a player: a player without a controller could not be removed.
+
+### Fixed
+
+- The game crashed when a player without a controller was removed after 20 seconds.
+
 ## [1.1.0] - 2026-11-09
 
 ### Added

@@ -10,8 +10,7 @@ Minecraft Bedrock already contains split-screen (it is used on Xbox), but the Wi
 
 - **Press a button on a free controller to join**, just like on Xbox: the game shows its join prompt and the screen splits.
 - **One controller per player.** A controller that is plugged in takes the place of a player who lost theirs; otherwise it gets a new player.
-- **Players leave on their own:** a player (2 to 4) whose controller stays disconnected for 20 seconds is removed.
-- **F8** adds a player from the keyboard.
+- **Players leave on their own:** a player (2 to 4) whose controller stays disconnected for 20 seconds is removed. The game's "Controller lost connection" prompt counts down the seconds.
 - Player 1 can keep using keyboard and mouse.
 - Nothing else in the game is changed. The mod finds the places it needs by the shape of the game code, not by fixed addresses, so a new game version normally needs only a rebuild against the matching LeviLamina, not code changes.
 
@@ -34,9 +33,9 @@ Minecraft Bedrock already contains split-screen (it is used on Xbox), but the Wi
 
 1. Start the game and enter a world with the first controller (or keyboard and mouse).
 2. Press a button on another controller and confirm the join prompt. The screen splits.
-3. Repeat for players 3 and 4. You can also press **F8** on the keyboard to add a player.
+3. Repeat for players 3 and 4.
 
-To leave, just unplug or switch off that controller: after 20 seconds the player is removed. Plug a controller back in before that and it takes the player over again.
+To leave, just unplug or switch off that controller: the "Controller lost connection" prompt counts down, and after 20 seconds the player is removed. Plug a controller back in before that and it takes the player over again.
 
 ## Troubleshooting
 
