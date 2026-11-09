@@ -29,8 +29,11 @@ namespace my_mod {
 
 // LeviLamina exports no addresses for these PC overrides in this game build,
 // so each one is read from the live object's vtable and hooked there.
+// Patch the vtable entry, not the function body: on PC allowSplitScreen is a plain "return false" that the
+// linker folded with ~1500 other functions, so hooking its code changed unrelated game behaviour.
 struct Hooked {
-    ll::memory::FuncPtr target, detour, origin;
+    ll::memory::FuncPtr* slot;
+    ll::memory::FuncPtr  original;
 };
 static std::vector<Hooked> gHooks;
 
@@ -118,14 +121,12 @@ static bool hookSlot(void* object, F method, ll::memory::FuncPtr detour, char co
         return false;
     }
     auto self = static_cast<char*>(object) + (sizeof(method) > 8 ? raw.adjust : 0);
-    Hooked h{(*reinterpret_cast<ll::memory::FuncPtr**>(self))[*index], detour, nullptr};
-    // Detours read their original from gCfg, so the hook must fill it before any game call can arrive.
-    if (ll::memory::hook(h.target, h.detour, &gCfg[name].origin, ll::memory::HookPriority::Normal) != 0) {
-        note("ERROR: hooking {} failed", name);
-        return false;
-    }
+    auto slot = *reinterpret_cast<ll::memory::FuncPtr**>(self) + *index;
+    Hooked h{slot, *slot};
+    gCfg[name].origin = h.original; // detours read this, so set it before the slot goes live
+    ll::memory::modify(slot, sizeof(*slot), [&] { *slot = detour; });
     gHooks.push_back(h);
-    note("Hooked {} (vtable slot {}, rva {:X})", name, *index, reinterpret_cast<uintptr_t>(h.target) - gameBase());
+    note("Hooked {} (vtable slot {}, original rva {:X})", name, *index, reinterpret_cast<uintptr_t>(h.original) - gameBase());
     return true;
 }
 
@@ -191,7 +192,7 @@ bool MyMod::enable() {
 }
 
 bool MyMod::disable() {
-    for (auto& h : gHooks) ll::memory::unhook(h.target, h.detour);
+    for (auto& h : gHooks) ll::memory::modify(h.slot, sizeof(*h.slot), [&] { *h.slot = h.original; });
     gHooks.clear();
     return true;
 }
