@@ -32,6 +32,10 @@
 #include "mc/client/game/IClientInstance.h"
 #include "mc/client/game/IMinecraftGame.h"
 #include "mc/client/input/MinecraftInputHandler.h"
+#include "mc/deps/application/gamecore/Platform_GameCore.h"
+#include "mc/deps/entry/src_gamecore/input/GameCorePlayerInput.h"
+#include "mc/gamecore/AppPlatform_GameCore.h"
+#include "mc/gamecore/GameControllerHandler_GameCore.h"
 #include "mc/deps/input/InputHandler.h"
 #include "mc/deps/application/AppPlatform.h"
 
@@ -303,6 +307,7 @@ static void runTrigger(std::string const& cmd, int arg) {
         game.addSubClientInstanceAndAssociateToUser(arg);
         note("join {}: addSubClientInstanceAndAssociateToUser returned", arg);
     }
+    if (cmd == "pads") dumpPlayers(game);
     note("info: active={} count={}", client->isSplitScreenActive(), client->getSplitScreenCount());
 }
 
@@ -345,6 +350,38 @@ static void checkControllers(IMinecraftGame& game) {
     }
 }
 
+// The game's own table of which input devices belong to which player (controller id).
+static GameControllerHandler_GameCore* controllerHandler() {
+    auto platform = ll::service::getAppPlatform();
+    if (!platform) return nullptr;
+    auto& gameCore = static_cast<AppPlatform_GameCore&>(*platform);
+    auto  core     = gameCore.mPlatformGameCore.get().get();
+    return core ? core->mGameControllerHandler_Shim.get().get() : nullptr;
+}
+
+// shortcut: GameCoreGamepadSupport has no layout in LeviLamina; a vector of 0x30-byte entries starting with the device
+// pointer is read from the 1.26.60 code. Only used for the diagnostic dump.
+static std::vector<void*> gamepadsOf(GameCorePlayerInput& input) {
+    std::vector<void*> out;
+    auto support = reinterpret_cast<uint8_t* const*>(input.mGamepadSupport.get().get());
+    if (!support) return out;
+    for (auto e = support[0]; e && e < support[1]; e += 0x30) out.push_back(*reinterpret_cast<void**>(e));
+    return out;
+}
+
+static void dumpPlayers(IMinecraftGame& game) {
+    if (auto handler = controllerHandler()) {
+        std::unique_lock lock(handler->mPlayerInputsLock.get(), std::try_to_lock);
+        if (!lock) return note("pads: table busy, try again");
+        for (auto& [id, input] : handler->mPlayerInputs.get())
+            note("pads: controller {}: state {}, gamepads {}, keyboard {}, mouse {}", id,
+                 int(input.mConnectionState.get()), fmt::join(gamepadsOf(input), " "), bool(input.mKeyboardSupport.get()),
+                 bool(input.mMouseSupport.get()));
+    } else note("pads: controller table not found");
+    for (auto& [sub, client] : game.getClientInstanceMap())
+        if (client) note("pads: player {} uses controller {}", int(sub) + 1, client->getControllerId());
+}
+
 // F8 adds a player on the lowest controller id (1..3) that no player uses.
 static void joinNextFree(IMinecraftGame& game) {
     std::set<int> used;
@@ -367,6 +404,10 @@ static void pollTrigger() {
     bool down = (GetAsyncKeyState(VK_F8) & 0x8000) && pid == GetCurrentProcessId();
     if (down && !wasDown && client) joinNextFree(client->getMinecraftGame());
     wasDown = down;
+    static bool f9WasDown = false; // F9 writes the controller table to the log
+    bool        f9        = (GetAsyncKeyState(VK_F9) & 0x8000) && pid == GetCurrentProcessId();
+    if (f9 && !f9WasDown && client) dumpPlayers(client->getMinecraftGame());
+    f9WasDown = f9;
     if (++tick % 20 == 0 && client) checkControllers(client->getMinecraftGame()); // once a second
     auto path = MyMod::getInstance().getSelf().getModDir() / "trigger.txt";
     if (std::filesystem::exists(path)) {
