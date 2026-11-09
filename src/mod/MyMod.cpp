@@ -373,9 +373,9 @@ static std::vector<void*> gamepadsOf(GameCorePlayerInput& input) {
 
 static void dumpPlayers(IMinecraftGame& game) {
     if (auto handler = controllerHandler()) {
-        std::unique_lock lock(handler->mPlayerInputsLock, std::try_to_lock);
+        std::unique_lock lock(*handler->mPlayerInputsLock, std::try_to_lock);
         if (!lock) return note("pads: table busy, try again");
-        for (auto& [id, input] : handler->mPlayerInputs)
+        for (auto& [id, input] : *handler->mPlayerInputs)
             note("pads: controller {}: state {}, gamepads {}, keyboard {}, mouse {}", id,
                  int(input.mConnectionState), fmt::join(gamepadsOf(input), " "), bool(input.mKeyboardSupport),
                  bool(input.mMouseSupport));
