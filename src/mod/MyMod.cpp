@@ -3,7 +3,12 @@
 #include <cstring>
 #include <fstream>
 #include <optional>
+#include <set>
+#include <sstream>
+#include <string>
 #include <vector>
+
+#include <Windows.h>
 
 #include <fmt/format.h>
 #include <fmt/ranges.h>
@@ -12,6 +17,7 @@
 #include "ll/api/memory/Memory.h"
 #include "ll/api/mod/RegisterHelper.h"
 #include "ll/api/service/TargetedBedrock.h"
+#include "ll/api/utils/StacktraceUtils.h"
 #include "mc/client/game/ClientInstance.h"
 #include "mc/client/game/IMinecraftGame.h"
 #include "mc/deps/application/AppPlatform.h"
@@ -65,6 +71,8 @@ static std::optional<uint> thunkSlot(uint8_t const* code) {
     return static_cast<uint>(disp / 8);
 }
 
+static uintptr_t gameBase() { return reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr)); }
+
 template <class F>
 static bool hookSlot(void* object, F method, ll::memory::FuncPtr detour, char const* name) {
     struct Raw {
@@ -84,8 +92,30 @@ static bool hookSlot(void* object, F method, ll::memory::FuncPtr detour, char co
         return false;
     }
     gHooks.push_back(h);
-    note("Hooked {} (vtable slot {}, this adjust {})", name, *index, sizeof(method) > 8 ? raw.adjust : 0);
+    note("Hooked {} (vtable slot {}, rva {:X})", name, *index, reinterpret_cast<uintptr_t>(h.target) - gameBase());
     return true;
+}
+
+// splitscreen.cfg lets tests switch hooks and resolve crash addresses without rebuilding:
+//   hook <name>        apply one of the hooks below
+//   lookup <hex rva>   log the game function at that offset from Minecraft.Windows.exe
+static void readConfig(std::set<std::string>& hooks) {
+    std::ifstream in(MyMod::getInstance().getSelf().getModDir() / "splitscreen.cfg");
+    if (!in) {
+        hooks = {"allowSplitScreen", "isSplitscreenJoinEnabled", "canAddSplitscreenSubClient"};
+        return;
+    }
+    for (std::string line; std::getline(in, line);) {
+        std::istringstream words(line);
+        std::string        cmd, arg;
+        words >> cmd >> arg;
+        if (cmd == "hook") hooks.insert(arg);
+        if (cmd == "lookup" && !arg.empty()) {
+            auto rva  = std::stoull(arg, nullptr, 16);
+            auto addr = reinterpret_cast<void*>(gameBase() + rva);
+            note("lookup {:X}: {}", rva, ll::utils::stacktrace_utils::toString(ll::StacktraceEntry(addr)));
+        }
+    }
 }
 
 MyMod& MyMod::getInstance() {
@@ -97,24 +127,24 @@ bool MyMod::load() { return true; }
 
 bool MyMod::enable() {
     note("SplitScreenMod enabling");
-    auto  platform = ll::service::getAppPlatform();
-    auto  client   = ll::service::getClientInstance();
+    std::set<std::string> hooks;
+    readConfig(hooks);
+    auto platform = ll::service::getAppPlatform();
+    auto client   = ll::service::getClientInstance();
     if (!platform || !client) {
         note("ERROR: game not ready (platform: {}, client: {})", bool(platform), bool(client));
         return false;
     }
     IMinecraftGame& game = client->getMinecraftGame();
     auto            fn   = [](auto f) { return reinterpret_cast<ll::memory::FuncPtr>(f); };
-    bool            ok   = hookSlot(platform.as_ptr(), &AppPlatform::allowSplitScreen, fn(&returnTrue), "allowSplitScreen")
-              && hookSlot(&game, &IMinecraftGame::isSplitscreenJoinEnabled, fn(&joinEnabledDetour), "isSplitscreenJoinEnabled")
-              && hookSlot(
-                  &game,
-                  &IMinecraftGame::canAddSplitscreenSubClient,
-                  fn(&canAddSubClientDetour),
-                  "canAddSplitscreenSubClient"
-              );
-    if (!ok) disable();
-    return ok;
+    if (hooks.contains("allowSplitScreen"))
+        hookSlot(platform.as_ptr(), &AppPlatform::allowSplitScreen, fn(&returnTrue), "allowSplitScreen");
+    if (hooks.contains("isSplitscreenJoinEnabled"))
+        hookSlot(&game, &IMinecraftGame::isSplitscreenJoinEnabled, fn(&joinEnabledDetour), "isSplitscreenJoinEnabled");
+    if (hooks.contains("canAddSplitscreenSubClient"))
+        hookSlot(&game, &IMinecraftGame::canAddSplitscreenSubClient, fn(&canAddSubClientDetour), "canAddSplitscreenSubClient");
+    note("SplitScreenMod enabled ({} hooks)", gHooks.size());
+    return true;
 }
 
 bool MyMod::disable() {
