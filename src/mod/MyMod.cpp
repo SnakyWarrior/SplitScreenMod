@@ -221,13 +221,15 @@ static void runTrigger(std::string const& cmd, int arg) {
 
 static void pollTrigger() {
     // F8 in the game window adds the next splitscreen player (controller ids 1..3).
-    static int nextController = 1;
-    auto       window         = GetForegroundWindow();
-    DWORD      pid            = 0;
+    // Edge-detect the key: the "pressed since last call" bit of GetAsyncKeyState fired several joins for one press.
+    static int  nextController = 1;
+    static bool wasDown        = false;
+    auto        window         = GetForegroundWindow();
+    DWORD       pid            = 0;
     GetWindowThreadProcessId(window, &pid);
-    if ((GetAsyncKeyState(VK_F8) & 1) && pid == GetCurrentProcessId() && nextController <= 3) {
-        runTrigger("join", nextController++);
-    }
+    bool down = (GetAsyncKeyState(VK_F8) & 0x8000) && pid == GetCurrentProcessId();
+    if (down && !wasDown && nextController <= 3) runTrigger("join", nextController++);
+    wasDown = down;
     auto path = MyMod::getInstance().getSelf().getModDir() / "trigger.txt";
     if (std::filesystem::exists(path)) {
         std::vector<std::pair<std::string, int>> cmds;
@@ -247,7 +249,7 @@ static void pollTrigger() {
         std::filesystem::remove(path, ec);
         for (auto& [cmd, arg] : cmds) runTrigger(cmd, arg);
     }
-    ll::thread::ClientThreadExecutor::getDefault().executeAfter(pollTrigger, std::chrono::milliseconds(500));
+    ll::thread::ClientThreadExecutor::getDefault().executeAfter(pollTrigger, std::chrono::milliseconds(50));
 }
 
 MyMod& MyMod::getInstance() {

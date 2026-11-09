@@ -1,6 +1,6 @@
 format = 4
 id = "github.com/SnakyWarrior/SplitScreenMod"
-version = "1.0.0"
+version = "1.0.1"
 
 [info]
 name = "SplitScreenMod"

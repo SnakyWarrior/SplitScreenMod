@@ -32,7 +32,7 @@ Minecraft Bedrock already contains split-screen (it is used on Xbox), but the Wi
 
 1. Connect all controllers **before you start the game**, then start it.
 2. Enter a world.
-3. Press **F8** on the keyboard. Player 2 joins and the screen splits. Press F8 again for players 3 and 4 (tested with 2 players so far).
+3. Press **F8** on the keyboard. Player 2 joins and the screen splits. Press F8 again for players 3 and 4.
 4. Pick up controller 2 and play.
 
 If a controller still moves player 1, unplug it and plug it back in (or switch it off and on) while you are in the world.
