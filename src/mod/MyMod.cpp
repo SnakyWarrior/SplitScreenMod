@@ -314,6 +314,7 @@ static void readConfig(std::set<std::string>& hooks) {
 // write "join <controller>" or "info" lines into trigger.txt next to the mod; it is run on the client thread and deleted.
 static void dumpPlayers(IMinecraftGame& game);
 static void offerPicker(SubClientId owner, bool fresh);
+static std::atomic_bool gLayout3 = true; // "layout 0" trigger: the game's own quarters, for comparing
 static std::set<int> gNoMenuFor; // sub ids that just joined through the menu itself (client thread only)
 static thread_local bool tOurJoin = false; // joins the mod makes itself go through unchanged
 static GameControllerHandler_GameCore* controllerHandler();
@@ -327,6 +328,7 @@ static void runTrigger(std::string const& cmd, int arg) {
         game.addSubClientInstanceAndAssociateToUser(arg); // goes through the menu like the game's join prompt
     }
     if (cmd == "pads") dumpPlayers(game);
+    if (cmd == "layout") gLayout3 = arg != 0;
     if (cmd == "vp") // each player's viewport as the renderer and HUD see it
         for (auto& [sub, other] : game.getClientInstanceMap())
             if (other) {
@@ -1222,7 +1224,14 @@ static ViewRect* viewportDetour(void* self, ViewRect* out, SubClientId id, uint6
     auto original = reinterpret_cast<ViewportFn>(gViewportOriginal.load());
     original(self, out, id, count, direction);
     gThree = count == 3;
-    if (count != 3) return out;
+    if (count != 3 || !gLayout3) return out;
+    {
+        static std::set<uintptr_t> callers;
+        static std::mutex          m;
+        std::lock_guard            lock(m);
+        if (auto at = reinterpret_cast<uintptr_t>(_ReturnAddress()) - gameBase(); callers.insert(at).second)
+            note("viewport: asked from rva {:X} for player {}", at, int(id) + 1);
+    }
     // With three players the game uses quarters and leaves one black. Give player 1 half of the screen and let the
     // other two share the other half. Which player is which comes from the game's quarter: top-left, top-right,
     // bottom-left.
@@ -1244,7 +1253,7 @@ static std::atomic<ll::memory::FuncPtr> gNormSizeOriginal = nullptr;
 
 static Size2* normSizeDetour(IClientInstance* self, Size2* out) {
     reinterpret_cast<Size2* (*)(IClientInstance*, Size2*)>(gNormSizeOriginal.load())(self, out);
-    if (!gThree) return out;
+    if (!gThree || !gLayout3) return out;
     int  sub  = int(self->getClientSubId()) & 3;
     auto rect = gRects[sub];
     static std::atomic<int> logged = 0;
