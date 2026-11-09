@@ -385,7 +385,9 @@ static std::string deviceName(void* device) {
 static void dumpTable(GameControllerHandler_GameCore* handler, char const* when) {
     std::unique_lock lock(*handler->mPlayerInputsLock, std::try_to_lock);
     if (!lock) return note("pads {}: table busy", when);
-    note("pads {}: {} players", when, handler->mPlayerInputs->size());
+    note("pads {}: {} players (map at +{:X}, qword at +188 = {})", when, handler->mPlayerInputs->size(),
+         reinterpret_cast<uintptr_t>(&*handler->mPlayerInputs) - reinterpret_cast<uintptr_t>(handler),
+         *reinterpret_cast<uint64_t const*>(reinterpret_cast<uintptr_t>(handler) + 0x188));
     for (auto& [id, input] : *handler->mPlayerInputs) {
         std::vector<std::string> names;
         for (auto d : gamepadsOf(input)) names.push_back(deviceName(d));
