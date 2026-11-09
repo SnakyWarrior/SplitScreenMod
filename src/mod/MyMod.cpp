@@ -38,6 +38,9 @@
 #include "mc/gamecore/GameControllerHandler_GameCore.h"
 #include "mc/deps/input/InputHandler.h"
 #include "mc/locale/Localization.h"
+#include "mc/world/actor/player/Player.h"
+#include "mc/world/level/Level.h"
+#include "ll/api/form/SimpleForm.h"
 #include "mc/deps/application/AppPlatform.h"
 
 namespace my_mod {
@@ -297,6 +300,7 @@ static void readConfig(std::set<std::string>& hooks) {
 // Test trigger, so a second player can be added without a second physical controller or cheats:
 // write "join <controller>" or "info" lines into trigger.txt next to the mod; it is run on the client thread and deleted.
 static void dumpPlayers(IMinecraftGame& game);
+static GameControllerHandler_GameCore* controllerHandler();
 
 static void runTrigger(std::string const& cmd, int arg) {
     auto client = ll::service::getClientInstance();
@@ -307,6 +311,35 @@ static void runTrigger(std::string const& cmd, int arg) {
         game.addSubClientInstanceAndAssociateToUser(arg);
     }
     if (cmd == "pads") dumpPlayers(game);
+    // prototype: "form N" shows a test form to the Nth server-side player; "swap A B" swaps the gamepads of two
+    // controller ids in the game's table.
+    if (cmd == "form") {
+        auto level = ll::service::getLevel();
+        if (!level) return note("form: no level");
+        int index = 0;
+        level->forEachPlayer([&](Player& player) {
+            note("form: player {} = {}", ++index, player.getRealName());
+            if (index == arg)
+                ll::form::SimpleForm("Bedrock Splitscreen", "Test form")
+                    .appendButton("First")
+                    .appendButton("Second")
+                    .sendTo(player, [](Player& p, int choice, ll::form::FormCancelReason) {
+                        note("form: {} chose {}", p.getRealName(), choice);
+                    });
+            return true;
+        });
+    }
+    if (cmd == "swap") {
+        auto handler = controllerHandler();
+        if (!handler) return note("swap: no table");
+        std::lock_guard lock(*handler->mPlayerInputsLock);
+        auto& inputs = *handler->mPlayerInputs;
+        int   other  = arg % 10;
+        int   first  = arg / 10;
+        if (!inputs.contains(first) || !inputs.contains(other)) return note("swap: no controller {} or {}", first, other);
+        std::swap(inputs.at(first).mGamepadSupport, inputs.at(other).mGamepadSupport);
+        note("swap: gamepads of controllers {} and {} swapped", first, other);
+    }
     // test commands: "leave N" (the player's own Save & Leave), "remove N" (queueSubclientRemoval)
     if (cmd == "leave" || cmd == "remove")
         for (auto& [sub, other] : game.getClientInstanceMap())
