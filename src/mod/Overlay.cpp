@@ -105,13 +105,13 @@ void paint(HDC dc, Menu const& m, Layout const& l) {
     frame(dc, all, RGB(30, 30, 31), l.unit);
     fill(dc, {l.unit, l.titleH, l.width - l.unit, l.height - l.unit}, RGB(49, 50, 51));
     HFONT big   = CreateFontW(-10 * l.unit, 0, 0, 0, FW_NORMAL, 0, 0, 0, DEFAULT_CHARSET, 0, 0, NONANTIALIASED_QUALITY, 0, fontFace().c_str());
-    HFONT small = CreateFontW(-8 * l.unit, 0, 0, 0, FW_NORMAL, 0, 0, 0, DEFAULT_CHARSET, 0, 0, NONANTIALIASED_QUALITY, 0, fontFace().c_str());
+    HFONT smallFont = CreateFontW(-8 * l.unit, 0, 0, 0, FW_NORMAL, 0, 0, 0, DEFAULT_CHARSET, 0, 0, NONANTIALIASED_QUALITY, 0, fontFace().c_str());
     SetBkMode(dc, TRANSPARENT);
     auto old = SelectObject(dc, big);
     SetTextColor(dc, RGB(49, 50, 51));
     RECT title{0, 0, l.width, l.titleH};
     DrawTextW(dc, m.title.c_str(), -1, &title, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-    SelectObject(dc, small);
+    SelectObject(dc, smallFont);
     SetTextColor(dc, RGB(255, 255, 255));
     RECT text{l.pad, l.titleH, l.width - l.pad, l.titleH + l.textH + l.pad};
     DrawTextW(dc, m.text.c_str(), -1, &text, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
@@ -129,7 +129,7 @@ void paint(HDC dc, Menu const& m, Layout const& l) {
     }
     SelectObject(dc, old);
     DeleteObject(big);
-    DeleteObject(small);
+    DeleteObject(smallFont);
 }
 
 // XInput is loaded at run time so the mod does not need it at link time.
