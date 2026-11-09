@@ -314,8 +314,6 @@ static void readConfig(std::set<std::string>& hooks) {
 // write "join <controller>" or "info" lines into trigger.txt next to the mod; it is run on the client thread and deleted.
 static void dumpPlayers(IMinecraftGame& game);
 static void offerPicker(SubClientId owner, bool fresh);
-static std::atomic<int>  gFix     = 0;
-static std::atomic_bool gLayout3 = true; // "layout 0" trigger: the game's own quarters, for comparing
 static std::set<int> gNoMenuFor; // sub ids that just joined through the menu itself (client thread only)
 static thread_local bool tOurJoin = false; // joins the mod makes itself go through unchanged
 static GameControllerHandler_GameCore* controllerHandler();
@@ -329,8 +327,6 @@ static void runTrigger(std::string const& cmd, int arg) {
         game.addSubClientInstanceAndAssociateToUser(arg); // goes through the menu like the game's join prompt
     }
     if (cmd == "pads") dumpPlayers(game);
-    if (cmd == "layout") gLayout3 = arg != 0;
-    if (cmd == "fix") gFix = arg;
     if (cmd == "vp") // each player's viewport as the renderer and HUD see it
         for (auto& [sub, other] : game.getClientInstanceMap())
             if (other) {
@@ -1219,59 +1215,17 @@ LL_AUTO_TYPE_INSTANCE_HOOK(
 using ViewportFn = ViewRect* (*)(void*, ViewRect*, SubClientId, uint64_t, int);
 
 static std::atomic<ll::memory::FuncPtr> gViewportOriginal = nullptr; // read on the render thread: not through gCfg
-static std::atomic_bool                 gThree = false;
-static std::atomic<int>                 gDirection = 0; // the last layout asked for was for three players
-static ViewRect                         gRects[4]{};    // each player's part with three players
 
 static ViewRect* viewportDetour(void* self, ViewRect* out, SubClientId id, uint64_t count, int direction) {
     auto original = reinterpret_cast<ViewportFn>(gViewportOriginal.load());
     original(self, out, id, count, direction);
-    gThree     = count == 3;
-    gDirection = direction;
-    if (count != 3 || !gLayout3) return out;
-    {
-        static std::set<uintptr_t> callers;
-        static std::mutex          m;
-        std::lock_guard            lock(m);
-        if (auto at = reinterpret_cast<uintptr_t>(_ReturnAddress()) - gameBase(); callers.insert(at).second)
-            note("viewport: asked from rva {:X} for player {}", at, int(id) + 1);
-    }
-    // With three players the game uses quarters and leaves one black. Give player 1 half of the screen and let the
-    // other two share the other half. Which player is which comes from the game's quarter: top-left, top-right,
+    if (count != 3) return out;
+    // With three players the game uses quarters and leaves one black. Use three equal parts instead: side by side, or
+    // one above the other. They must be the same size: the game lays out every player's HUD at player 1's scale, so
+    // a bigger part for player 1 shrinks the others' HUD. Order from the game's quarter: top-left, top-right,
     // bottom-left.
-    int  slot     = out->y >= 0.5f ? 2 : out->x >= 0.5f ? 1 : 0;
-    bool vertical = direction == 1;
-    if (slot == 0) *out = vertical ? ViewRect{0, 0, 0.5f, 1} : ViewRect{0, 0, 1, 0.5f};
-    else if (vertical) *out = {0.5f, slot == 1 ? 0.f : 0.5f, 0.5f, 0.5f};
-    else *out = {slot == 1 ? 0.f : 0.5f, 0.5f, 0.5f, 0.5f};
-    gRects[int(id) & 3] = *out;
-    // experiment: "fix N" makes the unsplit axis 1 for caller A (bit 1) / B (bit 2)
-    auto at = reinterpret_cast<uintptr_t>(_ReturnAddress()) - gameBase();
-    if (int f = gFix; (f & 1 && at == 0x65AAABA) || (f & 2 && at == 0xE9A3B9)) {
-        if (vertical) out->y = 0, out->height = 1;
-        else out->x = 0, out->width = 1;
-    }
-    return out;
-}
-
-// The HUD sizes itself from IClientInstance::getNormalizedViewportSize, which has its own idea of the 3-player
-// layout; give it the part of the screen chosen above.
-struct Size2 {
-    float x, y;
-};
-static std::atomic<ll::memory::FuncPtr> gNormSizeOriginal = nullptr;
-
-static Size2* normSizeDetour(IClientInstance* self, Size2* out) {
-    reinterpret_cast<Size2* (*)(IClientInstance*, Size2*)>(gNormSizeOriginal.load())(self, out);
-    if (!gThree || !gLayout3) return out;
-    int  sub  = int(self->getClientSubId()) & 3;
-    auto rect = gRects[sub];
-    static std::atomic<int> logged = 0;
-    if (!(logged.fetch_or(1 << sub) & (1 << sub)))
-        note("hud size: player {} game {} {}, now {} {}", sub + 1, out->x, out->y, rect.width, rect.height);
-    // The HUD multiplies the viewport by this along the axis the game never splits in the chosen direction (height
-    // when side by side, width when top and bottom), so that axis must stay 1 or the HUD shrinks to half its part.
-    if (rect.width > 0) *out = gDirection == 1 ? Size2{rect.width, 1} : Size2{1, rect.height};
+    float slot = out->y >= 0.5f ? 2.f : out->x >= 0.5f ? 1.f : 0.f;
+    *out       = direction == 1 ? ViewRect{slot / 3, 0, 1.f / 3, 1} : ViewRect{0, slot / 3, 1, 1.f / 3};
     return out;
 }
 
@@ -1335,12 +1289,6 @@ bool MyMod::enable() {
         ll::memory::hook(*slot, fn(&viewportDetour), reinterpret_cast<ll::memory::FuncPtr*>(&gViewportOriginal),
                          ll::memory::HookPriority::Normal);
         note("viewport at rva {:X}", reinterpret_cast<uintptr_t>(*slot) - gameBase());
-    }
-    if (auto slot = findSlot(static_cast<IClientInstance*>(client.as_ptr()), &IClientInstance::getNormalizedViewportSize,
-                             "getNormalizedViewportSize")) {
-        ll::memory::hook(*slot, fn(&normSizeDetour), reinterpret_cast<ll::memory::FuncPtr*>(&gNormSizeOriginal),
-                         ll::memory::HookPriority::Normal);
-        note("hud size at rva {:X}", reinterpret_cast<uintptr_t>(*slot) - gameBase());
     }
     if (hooks.contains("isSplitscreenJoinEnabled"))
         hookSlot(&game, &IMinecraftGame::isSplitscreenJoinEnabled, fn(&joinEnabledDetour), "isSplitscreenJoinEnabled");
