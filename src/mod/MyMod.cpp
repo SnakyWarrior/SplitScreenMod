@@ -305,6 +305,7 @@ static void readConfig(std::set<std::string>& hooks) {
 // write "join <controller>" or "info" lines into trigger.txt next to the mod; it is run on the client thread and deleted.
 static void dumpPlayers(IMinecraftGame& game);
 static void offerPicker(SubClientId owner, bool fresh);
+static std::set<int> gNoMenuFor; // sub ids that just joined through the menu itself (client thread only)
 static GameControllerHandler_GameCore* controllerHandler();
 
 static void runTrigger(std::string const& cmd, int arg) {
@@ -418,10 +419,10 @@ static void checkControllers(IMinecraftGame& game) {
 
     // Every player who joins gets the menu once they are in the world.
     static std::set<SubClientId> known;
-    std::set<SubClientId>        now;
+    std::set<SubClientId>        present;
     for (auto& [sub, client] : game.getClientInstanceMap())
-        if (client) now.insert(sub);
-    for (auto sub : now)
+        if (client) present.insert(sub);
+    for (auto sub : present)
         if (sub != SubClientId::PrimaryClient && !known.contains(sub)) {
             if (gNoMenuFor.erase(int(sub))) continue; // chosen in the menu already
             ll::thread::ClientThreadExecutor::getDefault().executeAfter(
@@ -429,7 +430,7 @@ static void checkControllers(IMinecraftGame& game) {
                 std::chrono::seconds(3)
             );
         }
-    known = now;
+    known = present;
 }
 
 // The game's "controller lost" prompt reads this text; add how long until that player is removed.
@@ -743,7 +744,6 @@ static int slotOfDevice(void* device) {
 
 // Which saved local player (sub id) the next joining player becomes; -1 lets the game pick the lowest free one.
 static std::atomic<int> gWantedSub = -1;
-static std::set<int>    gNoMenuFor; // sub ids that just joined through the menu itself (client thread only)
 
 using TryGetSubId = bool (*)(void*, int, SubClientId&, bool);
 static TryGetSubId gTryGetSubId = nullptr;
@@ -801,11 +801,13 @@ static void rejoinAs(SubClientId leaving, int controllerId, int sub, int tries =
     auto& game    = client->getMinecraftGame();
     auto  clients = game.getClientInstanceMap();
     if (tries == 0 && clients.contains(leaving)) clients.at(leaving)->requestLeaveGameAsync();
-    if (clients.contains(leaving) && tries < 40) // wait up to 20 s for the player to be gone
-        return ll::thread::ClientThreadExecutor::getDefault().executeAfter(
+    if (clients.contains(leaving) && tries < 40) { // wait up to 20 s for the player to be gone
+        ll::thread::ClientThreadExecutor::getDefault().executeAfter(
             [=] { rejoinAs(leaving, controllerId, sub, tries + 1); },
             std::chrono::milliseconds(500)
         );
+        return;
+    }
     joinAs(game, controllerId, sub);
 }
 
