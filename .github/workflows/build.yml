@@ -14,21 +14,19 @@ jobs:
       - uses: actions/checkout@v7
 
       - uses: xmake-io/github-action-setup-xmake@v1
-        # with:
-        #   xmake-version: branch@master
+        with:
+          actions-cache-folder: .xmake-cache
       
       - uses: actions/cache@v6
         with:
           path: |
             ~/AppData/Local/.xmake
-          key: xmake-${{ hashFiles('xmake.lua') }}
+          key: xmake-packages-levilamina-26.60
           restore-keys: |
             xmake-
 
-      - name: Setup LLVM
-        uses: ZhongRuoyu/setup-llvm@v0
-        with:
-          llvm-version: 22
+      # The runner's preinstalled LLVM is used; installing LLVM 22 every run took over a minute.
+      - run: clang-cl --version
 
       - run: |
           xmake repo -u
