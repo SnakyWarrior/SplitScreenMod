@@ -306,6 +306,7 @@ static void readConfig(std::set<std::string>& hooks) {
 static void dumpPlayers(IMinecraftGame& game);
 static void offerPicker(SubClientId owner, bool fresh);
 static std::set<int> gNoMenuFor; // sub ids that just joined through the menu itself (client thread only)
+static thread_local bool tOurJoin = false; // joins the mod makes itself go through unchanged
 static GameControllerHandler_GameCore* controllerHandler();
 
 static void runTrigger(std::string const& cmd, int arg) {
@@ -908,7 +909,6 @@ static void offerPicker(SubClientId owner, bool fresh) {
 // ---- "Press start to join" asks first: the menu opens on player 1's screen (the whole screen before splitting)
 // and the new controller drives it, by trading gamepads with player 1 until a choice is made. ----
 
-static thread_local bool tOurJoin = false; // joins the mod makes itself go through unchanged
 static int               gAsking  = -1;    // controller slot whose menu is open (client thread only)
 
 static void swapPads(int a, int b) {
