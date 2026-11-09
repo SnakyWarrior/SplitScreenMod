@@ -124,22 +124,23 @@ static RUNTIME_FUNCTION* functionAt(uintptr_t addr, uintptr_t& begin) {
     return fn;
 }
 
-// The add-a-device-to-this-player function asks allowSplitScreen too, and "true" makes it refuse gamepads. That is
-// wanted on its first use in the device callback (adding to the player of the signed-in user, which on PC would get
-// every gamepad), but not when the callback reuses a free player slot, e.g. for a reconnected controller.
-static bool reusesPlayerSlot(void* ret) {
+// The add-a-device-to-this-player function asks allowSplitScreen too, and "true" makes it refuse gamepads.
+enum class AddPath { Direct, UserPlayer, FreeSlot };
+// UserPlayer: its first use in the device callback, adding to the signed-in user's player (on PC every gamepad would
+// land there). FreeSlot: the callback reusing a free player slot, e.g. for a reconnected controller.
+static AddPath addPath(void* ret) {
     void* frames[24];
     auto  n = RtlCaptureStackBackTrace(0, 24, frames, nullptr);
     int   i = 0;
     while (i < n && frames[i] != ret) ++i;
-    if (i + 1 >= n) return false;
+    if (i + 1 >= n) return AddPath::Direct;
     auto      outer = reinterpret_cast<uintptr_t>(frames[i + 1]);
-    static std::map<uintptr_t, bool> cache; // decide() holds the lock
+    static std::map<uintptr_t, AddPath> cache; // decide() holds the lock
     if (auto it = cache.find(outer); it != cache.end()) return it->second;
     uintptr_t inner = 0, caller = 0;
     auto      innerFn = functionAt(reinterpret_cast<uintptr_t>(ret), inner);
     auto      outerFn = functionAt(outer, caller);
-    bool      reuse   = false;
+    auto      path    = AddPath::Direct;
     if (innerFn && outerFn) {
         auto body = reinterpret_cast<uint8_t const*>(caller);
         auto size = outerFn->EndAddress - outerFn->BeginAddress;
@@ -148,11 +149,12 @@ static bool reusesPlayerSlot(void* ret) {
             for (size_t p = 0; p + 5 <= size && !firstCall; ++p)
                 if (body[p] == 0xE8 && caller + p + 5 + *reinterpret_cast<int32_t const*>(body + p + 1) == inner)
                     firstCall = caller + p + 5;
-            reuse = firstCall && outer != firstCall;
+            if (firstCall) path = outer == firstCall ? AddPath::UserPlayer : AddPath::FreeSlot;
         }
     }
-    note("gamepad add from {:X}: {}", outer - gameBase(), reuse ? "free player slot, allow" : "keep separate");
-    return cache[outer] = reuse;
+    note("gamepad add from {:X}: {}", outer - gameBase(),
+         path == AddPath::FreeSlot ? "free player slot" : path == AddPath::UserPlayer ? "user's player" : "direct");
+    return cache[outer] = path;
 }
 
 static bool autoAllow(void* ret) {
@@ -171,7 +173,16 @@ static bool autoAllow(void* ret) {
         if (kind == No && !gJoinFn) return false; // may be the join function, which is found in enable()
         kinds[ret] = kind;
     }
-    return kind == Yes || (kind == Gamepad && !reusesPlayerSlot(ret));
+    if (kind != Gamepad) return kind == Yes;
+    switch (addPath(ret)) {
+    case AddPath::FreeSlot: return false; // let the controller take the slot
+    case AddPath::UserPlayer: {
+        // The first gamepad belongs to player 1; every later one must get a player of its own.
+        static bool firstGiven = false;
+        return std::exchange(firstGiven, true);
+    }
+    default: return true;
+    }
 }
 
 static bool decide(char const* name, void* ret, bool original) {
