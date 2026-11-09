@@ -140,10 +140,12 @@ static bool hookSlot(void* object, F method, ll::memory::FuncPtr detour, char co
 static void readConfig(std::set<std::string>& hooks) {
     std::ifstream in(MyMod::getInstance().getSelf().getModDir() / "splitscreen.cfg");
     if (!in) {
-        for (auto n : {"allowSplitScreen", "isSplitscreenJoinEnabled", "canAddSplitscreenSubClient"}) {
-            hooks.insert(n);
-            gCfg[n].force = true;
-        }
+        // Default: allow splitscreen only where MinecraftGame::isSplitscreenJoinEnabled asks for it. Forcing every
+        // caller breaks other PC code paths.
+        // shortcut: call-site RVA is for game 1.26.60 only, re-find it with "trace" when the game updates.
+        hooks = {"allowSplitScreen"};
+        gCfg["allowSplitScreen"].force = true;
+        gCfg["allowSplitScreen"].only  = {0x876204};
         return;
     }
     for (std::string line; std::getline(in, line);) {
@@ -180,6 +182,14 @@ static void runTrigger(std::string const& cmd, int arg) {
 }
 
 static void pollTrigger() {
+    // F8 in the game window adds the next splitscreen player (controller ids 1..3).
+    static int nextController = 1;
+    auto       window         = GetForegroundWindow();
+    DWORD      pid            = 0;
+    GetWindowThreadProcessId(window, &pid);
+    if ((GetAsyncKeyState(VK_F8) & 1) && pid == GetCurrentProcessId() && nextController <= 3) {
+        runTrigger("join", nextController++);
+    }
     auto path = MyMod::getInstance().getSelf().getModDir() / "trigger.txt";
     if (std::filesystem::exists(path)) {
         std::vector<std::pair<std::string, int>> cmds;
