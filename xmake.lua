@@ -42,6 +42,7 @@ target("SplitScreenMod") -- Change this to your mod name.
         set_toolchains("clang-cl")
     end
     add_packages("levilamina")
+    add_syslinks("user32")
     set_kind("shared")
     set_languages("c++20")
     set_symbols("debug")
