@@ -80,6 +80,7 @@ static uintptr_t gInputFn = 0; // MinecraftInputHandler::_registerInputHandlers,
 static uintptr_t followJumps(uintptr_t a) {
     for (int i = 0; i < 4; ++i) {
         auto c = reinterpret_cast<uint8_t const*>(a);
+        if (c[0] == 0x48 && c[1] == 0xFF && c[2] == 0x25) ++a, ++c; // rex.w jmp [rip+x]
         if (c[0] == 0xE9) a += 5 + *reinterpret_cast<int32_t const*>(c + 1);
         else if (c[0] == 0xFF && c[1] == 0x25) a = *reinterpret_cast<uintptr_t const*>(a + 6 + *reinterpret_cast<int32_t const*>(c + 2));
         else break;
@@ -304,7 +305,8 @@ bool MyMod::load() {
         uintptr_t code;
         std::memcpy(&code, &method, sizeof(code));
         gInputFn = followJumps(code);
-        note("registerInputHandlers at rva {:X}", gInputFn - gameBase());
+        note("registerInputHandlers at rva {:X} (stub {:02X})", gInputFn - gameBase(),
+             fmt::join(reinterpret_cast<uint8_t const*>(code), reinterpret_cast<uint8_t const*>(code) + 16, " "));
     }
     // AppPlatform does not exist yet at load; follow it from creation until the game is up.
     std::thread([] {
