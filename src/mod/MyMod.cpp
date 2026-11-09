@@ -506,12 +506,53 @@ static uintptr_t findDeviceCallback() {
     return 0;
 }
 
+// On PC every controller is linked to the one signed-in Xbox user, and the game sends a device of a known user to
+// that user's player (player 1), dropping it if player 1 already has a gamepad. Devices without a user take the
+// console route instead: a free player slot, else a new player. So while the game sorts a gamepad, its user lookup
+// (XUserFindForDevice, called only from this callback) reports no user.
+static thread_local bool tHideUser = false;
+
+using FindUser = long (*)(void const*, void**);
+static FindUser gFindUser = nullptr;
+
+static long findUserDetour(void const* deviceId, void** user) {
+    if (!tHideUser) return gFindUser(deviceId, user);
+    *user = nullptr;
+    return static_cast<long>(0x8007048F); // HRESULT_FROM_WIN32(ERROR_DEVICE_NOT_CONNECTED)
+}
+
+// The lookup is the call right after "add rcx, 3Ah" (the device id inside GameInputDeviceInfo).
+static uintptr_t findUserLookup(uintptr_t callback) {
+    uintptr_t begin = 0;
+    auto      fn    = functionAt(callback, begin);
+    if (!fn) return 0;
+    auto body = reinterpret_cast<uint8_t const*>(begin);
+    auto size = fn->EndAddress - fn->BeginAddress;
+    for (size_t p = 0; p + 4 <= size; ++p) {
+        if (std::memcmp(body + p, "HÁ:", 4) != 0) continue;
+        for (size_t q = p + 4; q < p + 24 && q + 5 <= size; ++q)
+            if (body[q] == 0xE8) return begin + q + 5 + *reinterpret_cast<int32_t const*>(body + q + 1);
+    }
+    return 0;
+}
+
+// GameInputDeviceInfo::supportedInput (offset as used by the game's own code) has GameInputKindGamepad.
+static bool isGamepad(void* device) {
+    using GetInfo     = long (*)(void*, uint8_t const**);
+    uint8_t const* info = nullptr;
+    auto           fn   = reinterpret_cast<GetInfo>((*reinterpret_cast<void***>(device))[3]);
+    return fn(device, &info) >= 0 && info && (*reinterpret_cast<uint32_t const*>(info + 0x60) & 0x40000);
+}
+
 using DeviceCallback = void (*)(uint64_t, void*, void*, uint64_t, uint32_t, uint32_t);
 static DeviceCallback gDeviceCallback = nullptr;
 
 static void deviceCallbackDetour(uint64_t token, void* context, void* device, uint64_t time, uint32_t now, uint32_t before) {
-    note("device {}: status {:X} (was {:X})", device ? deviceName(device) : "?", now, before);
+    bool pad = device && gFindUser && isGamepad(device);
+    note("device {}: status {:X} (was {:X}){}", device ? deviceName(device) : "?", now, before, pad ? ", gamepad" : "");
+    tHideUser = pad;
     gDeviceCallback(token, context, device, time, now, before);
+    tHideUser = false;
 }
 
 bool MyMod::load() {
@@ -521,6 +562,11 @@ bool MyMod::load() {
         ll::memory::hook(reinterpret_cast<ll::memory::FuncPtr>(cb), reinterpret_cast<ll::memory::FuncPtr>(&deviceCallbackDetour),
                          reinterpret_cast<ll::memory::FuncPtr*>(&gDeviceCallback), ll::memory::HookPriority::Normal);
         note("device callback at rva {:X}", cb - gameBase());
+        if (auto lookup = findUserLookup(cb)) {
+            ll::memory::hook(reinterpret_cast<ll::memory::FuncPtr>(lookup), reinterpret_cast<ll::memory::FuncPtr>(&findUserDetour),
+                             reinterpret_cast<ll::memory::FuncPtr*>(&gFindUser), ll::memory::HookPriority::Normal);
+            note("user lookup at rva {:X}", lookup - gameBase());
+        } else note("user lookup not found: extra controllers may all control player 1");
     } else note("device callback not found");
     // AppPlatform does not exist yet at load; follow it from creation until the game is up.
     std::thread([] {
