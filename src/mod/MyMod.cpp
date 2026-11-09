@@ -314,7 +314,7 @@ static void runTrigger(std::string const& cmd, int arg) {
     auto& game = client->getMinecraftGame();
     if (cmd == "join") {
         note("adding player on controller {}", arg);
-        game.addSubClientInstanceAndAssociateToUser(arg);
+        game.addSubClientInstanceAndAssociateToUser(arg); // goes through the menu like the game's join prompt
     }
     if (cmd == "pads") dumpPlayers(game);
     // prototype: "form N" shows a test form to the Nth server-side player; "swap A B" swaps the gamepads of two
@@ -417,20 +417,6 @@ static void checkControllers(IMinecraftGame& game) {
     }
     gSecondsLeft = left;
 
-    // Every player who joins gets the menu once they are in the world.
-    static std::set<SubClientId> known;
-    std::set<SubClientId>        present;
-    for (auto& [sub, client] : game.getClientInstanceMap())
-        if (client) present.insert(sub);
-    for (auto sub : present)
-        if (sub != SubClientId::PrimaryClient && !known.contains(sub)) {
-            if (gNoMenuFor.erase(int(sub))) continue; // chosen in the menu already
-            ll::thread::ClientThreadExecutor::getDefault().executeAfter(
-                [sub] { offerPicker(sub, true); },
-                std::chrono::seconds(3)
-            );
-        }
-    known = present;
 }
 
 // The game's "controller lost" prompt reads this text; add how long until that player is removed.
@@ -793,7 +779,9 @@ static void joinAs(IMinecraftGame& game, int controllerId, int sub) {
     gWantedSub = sub;
     gNoMenuFor.insert(sub);
     note("picker: controller {} joins as saved player {}", controllerId, sub);
+    tOurJoin = true;
     game.addSubClientInstanceAndAssociateToUser(controllerId);
+    tOurJoin = false;
     gWantedSub = -1;
 }
 
@@ -888,8 +876,11 @@ static void offerPicker(SubClientId owner, bool fresh) {
                     ll::thread::ClientThreadExecutor::getDefault().executeAfter(
                         [device] {
                             int slot = slotOfDevice(device);
-                            if (auto c = ll::service::getClientInstance(); c && slot >= 0)
+                            if (auto c = ll::service::getClientInstance(); c && slot >= 0) {
+                                tOurJoin = true;
                                 c->getMinecraftGame().addSubClientInstanceAndAssociateToUser(slot);
+                                tOurJoin = false;
+                            }
                             gWantedSub = -1;
                         },
                         std::chrono::milliseconds(500)
@@ -914,7 +905,71 @@ static void offerPicker(SubClientId owner, bool fresh) {
     });
 }
 
-// A controller was connected: offer the menu to the player that got it, or let it join first.
+// ---- "Press start to join" asks first: the menu opens on player 1's screen (the whole screen before splitting)
+// and the new controller drives it, by trading gamepads with player 1 until a choice is made. ----
+
+static thread_local bool tOurJoin = false; // joins the mod makes itself go through unchanged
+static int               gAsking  = -1;    // controller slot whose menu is open (client thread only)
+
+static void swapPads(int a, int b) {
+    auto handler = controllerHandler();
+    if (!handler) return;
+    std::lock_guard lock(*handler->mPlayerInputsLock);
+    auto&           inputs = *handler->mPlayerInputs;
+    if (inputs.contains(a) && inputs.contains(b)) std::swap(inputs.at(a).mGamepadSupport, inputs.at(b).mGamepadSupport);
+}
+
+static void askBeforeJoin(IMinecraftGame& game, int slot) {
+    auto clients = game.getClientInstanceMap();
+    auto first   = serverPlayer(SubClientId::PrimaryClient);
+    if (!first || clients.size() >= 4) return;
+
+    std::set<int> withPad;
+    if (auto handler = controllerHandler()) {
+        std::lock_guard lock(*handler->mPlayerInputsLock);
+        for (auto& [id, input] : *handler->mPlayerInputs)
+            if (!gamepadsOf(input).empty()) withPad.insert(id);
+    }
+    struct Choice {
+        bool takeOver; // take over a playing player (value = its controller) or join as saved player (value = sub)
+        int  value;
+    };
+    std::vector<Choice>  choices;
+    ll::form::SimpleForm form("Bedrock Splitscreen", "Who is playing with this controller?");
+    for (auto& [sub, other] : clients)
+        if (sub != SubClientId::PrimaryClient && other && !withPad.contains(other->getControllerId())) {
+            choices.push_back({true, other->getControllerId()});
+            form.appendButton(fmt::format("{}\nplaying, no controller", localName(clients, int(sub))));
+        }
+    for (int sub = 1; sub <= 3; ++sub)
+        if (!clients.contains(SubClientId(sub))) {
+            choices.push_back({false, sub});
+            form.appendButton(fmt::format("{}\njoin", localName(clients, sub)));
+        }
+    gAsking = slot;
+    swapPads(0, slot); // the new controller now drives player 1's screen
+    note("picker: controller {} asks who joins ({} choices)", slot, choices.size());
+    form.sendTo(*first, [choices, slot](Player&, int pick, ll::form::FormCancelReason) {
+        swapPads(0, slot); // controllers back to their own players
+        gAsking      = -1;
+        auto client  = ll::service::getClientInstance();
+        if (!client || pick < 0 || pick >= int(choices.size())) return note("picker: no one joins");
+        auto& game   = client->getMinecraftGame();
+        auto& choice = choices[pick];
+        if (choice.takeOver) moveController(game, slot, choice.value);
+        else joinAs(game, slot, choice.value);
+    });
+}
+
+// IMinecraftGame::addSubClientInstanceAndAssociateToUser, as called by the game's join prompt.
+static void joinRequestDetour(void* self, int controllerId) {
+    auto original = reinterpret_cast<void (*)(void*, int)>(gCfg["addSubClientInstanceAndAssociateToUser"].origin);
+    if (tOurJoin || !ll::service::getLevel()) return original(self, controllerId);
+    if (gAsking >= 0) return; // a menu is open already
+    askBeforeJoin(*static_cast<IMinecraftGame*>(self), controllerId);
+}
+
+// A controller was connected: offer the menu to the player that got it.
 static void onControllerConnected(void* device) {
     auto client = ll::service::getClientInstance();
     int  slot   = slotOfDevice(device); // also proves the device is still in the game's table
@@ -923,10 +978,7 @@ static void onControllerConnected(void* device) {
     auto  clients = game.getClientInstanceMap();
     for (auto& [sub, other] : clients)
         if (other && other->getControllerId() == slot) return offerPicker(sub, false);
-    if (clients.size() < 4) {
-        note("picker: controller in slot {} joins as a new player", slot);
-        game.addSubClientInstanceAndAssociateToUser(slot); // the join is noticed below and gets the menu
-    }
+    // no player yet: pressing start on it opens the menu (see joinRequestDetour)
 }
 
 static void deviceCallbackDetour(uint64_t token, void* context, void* device, uint64_t time, uint32_t now, uint32_t before) {
@@ -1063,6 +1115,8 @@ bool MyMod::enable() {
             }
         if (!gTryGetSubId) note("sub id choice not found: picking a saved player will not work");
     }
+    hookSlot(&game, &IMinecraftGame::addSubClientInstanceAndAssociateToUser, fn(&joinRequestDetour),
+             "addSubClientInstanceAndAssociateToUser");
     if (hooks.contains("isSplitscreenJoinEnabled"))
         hookSlot(&game, &IMinecraftGame::isSplitscreenJoinEnabled, fn(&joinEnabledDetour), "isSplitscreenJoinEnabled");
     if (hooks.contains("canAddSplitscreenSubClient"))
