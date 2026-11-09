@@ -1,9 +1,12 @@
 #include "mod/MyMod.h"
 
+#include <cstring>
 #include <fstream>
+#include <optional>
 #include <vector>
 
 #include <fmt/format.h>
+#include <fmt/ranges.h>
 
 #include "ll/api/memory/Hook.h"
 #include "ll/api/memory/Memory.h"
@@ -46,20 +49,42 @@ static bool canAddSubClientDetour(void*, int controllerId) {
     return true;
 }
 
+// LeviLamina's getVtableIndex rejects 16-byte member pointers (classes with several bases, like AppPlatform)
+// and knows one thunk form, so decode clang's vcall thunk here: mov rax,[rcx] then [rax+disp8/disp32].
+static std::optional<uint> thunkSlot(uint8_t const* code) {
+    for (int i = 0; i < 4 && code[0] == 0xE9; ++i) code += 5 + *reinterpret_cast<int32_t const*>(code + 1);
+    if (code[0] != 0x48 || code[1] != 0x8B || code[2] != 0x01) return std::nullopt;
+    auto op = code + 3;
+    if (op[0] == 0x48) ++op; // mov rax,[rax+disp] instead of jmp [rax+disp]
+    int32_t disp;
+    if (op[1] == 0x60 || op[1] == 0x40) disp = static_cast<int8_t>(op[2]);
+    else if (op[1] == 0xA0 || op[1] == 0x80) disp = *reinterpret_cast<int32_t const*>(op + 2);
+    else if (op[1] == 0x20 || op[1] == 0x00) disp = 0;
+    else return std::nullopt;
+    if (disp < 0 || disp % 8) return std::nullopt;
+    return static_cast<uint>(disp / 8);
+}
+
 template <class F>
 static bool hookSlot(void* object, F method, ll::memory::FuncPtr detour, char const* name) {
-    auto index = ll::memory::getVtableIndex(method);
+    struct Raw {
+        uint8_t const* code;
+        int32_t        adjust; // only present in 16-byte member pointers
+    } raw{};
+    std::memcpy(&raw, &method, sizeof(method));
+    auto index = thunkSlot(raw.code);
     if (!index) {
-        note("ERROR: could not find the vtable slot for {}", name);
+        note("ERROR: could not find the vtable slot for {} (thunk bytes {:02X})", name, fmt::join(raw.code, raw.code + 16, " "));
         return false;
     }
-    Hooked h{(*static_cast<ll::memory::FuncPtr**>(object))[*index], detour, nullptr};
+    auto self = static_cast<char*>(object) + (sizeof(method) > 8 ? raw.adjust : 0);
+    Hooked h{(*reinterpret_cast<ll::memory::FuncPtr**>(self))[*index], detour, nullptr};
     if (ll::memory::hook(h.target, h.detour, &h.origin, ll::memory::HookPriority::Normal) != 0) {
         note("ERROR: hooking {} failed", name);
         return false;
     }
     gHooks.push_back(h);
-    note("Hooked {} (vtable slot {})", name, *index);
+    note("Hooked {} (vtable slot {}, this adjust {})", name, *index, sizeof(method) > 8 ? raw.adjust : 0);
     return true;
 }
 
