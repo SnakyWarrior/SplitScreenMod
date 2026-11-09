@@ -298,6 +298,8 @@ static void readConfig(std::set<std::string>& hooks) {
 
 // Test trigger, so a second player can be added without a second physical controller or cheats:
 // write "join <controller>" or "info" lines into trigger.txt next to the mod; it is run on the client thread and deleted.
+static void dumpPlayers(IMinecraftGame& game);
+
 static void runTrigger(std::string const& cmd, int arg) {
     auto client = ll::service::getClientInstance();
     if (!client) return note("trigger {}: no client instance", cmd);
@@ -355,15 +357,15 @@ static GameControllerHandler_GameCore* controllerHandler() {
     auto platform = ll::service::getAppPlatform();
     if (!platform) return nullptr;
     auto& gameCore = static_cast<AppPlatform_GameCore&>(*platform);
-    auto  core     = gameCore.mPlatformGameCore.get().get();
-    return core ? core->mGameControllerHandler_Shim.get().get() : nullptr;
+    auto  core     = gameCore.mPlatformGameCore.get();
+    return core ? core->mGameControllerHandler_Shim.get() : nullptr;
 }
 
 // shortcut: GameCoreGamepadSupport has no layout in LeviLamina; a vector of 0x30-byte entries starting with the device
 // pointer is read from the 1.26.60 code. Only used for the diagnostic dump.
 static std::vector<void*> gamepadsOf(GameCorePlayerInput& input) {
     std::vector<void*> out;
-    auto support = reinterpret_cast<uint8_t* const*>(input.mGamepadSupport.get().get());
+    auto support = reinterpret_cast<uint8_t* const*>(input.mGamepadSupport.get());
     if (!support) return out;
     for (auto e = support[0]; e && e < support[1]; e += 0x30) out.push_back(*reinterpret_cast<void**>(e));
     return out;
@@ -371,12 +373,12 @@ static std::vector<void*> gamepadsOf(GameCorePlayerInput& input) {
 
 static void dumpPlayers(IMinecraftGame& game) {
     if (auto handler = controllerHandler()) {
-        std::unique_lock lock(handler->mPlayerInputsLock.get(), std::try_to_lock);
+        std::unique_lock lock(handler->mPlayerInputsLock, std::try_to_lock);
         if (!lock) return note("pads: table busy, try again");
-        for (auto& [id, input] : handler->mPlayerInputs.get())
+        for (auto& [id, input] : handler->mPlayerInputs)
             note("pads: controller {}: state {}, gamepads {}, keyboard {}, mouse {}", id,
-                 int(input.mConnectionState.get()), fmt::join(gamepadsOf(input), " "), bool(input.mKeyboardSupport.get()),
-                 bool(input.mMouseSupport.get()));
+                 int(input.mConnectionState), fmt::join(gamepadsOf(input), " "), bool(input.mKeyboardSupport),
+                 bool(input.mMouseSupport));
     } else note("pads: controller table not found");
     for (auto& [sub, client] : game.getClientInstanceMap())
         if (client) note("pads: player {} uses controller {}", int(sub) + 1, client->getControllerId());
