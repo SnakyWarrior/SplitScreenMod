@@ -41,6 +41,7 @@
 #include "mc/world/actor/player/Player.h"
 #include "mc/world/level/Level.h"
 #include "ll/api/form/SimpleForm.h"
+#include "ll/api/service/Bedrock.h"
 #include "mc/deps/application/AppPlatform.h"
 
 namespace my_mod {
