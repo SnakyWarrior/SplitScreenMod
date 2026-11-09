@@ -42,6 +42,7 @@
 #include "mc/world/level/Level.h"
 #include "ll/api/form/SimpleForm.h"
 #include "ll/api/service/Bedrock.h"
+#include "mc/client/player/LocalPlayer.h"
 #include "mc/deps/application/AppPlatform.h"
 
 namespace my_mod {
@@ -375,11 +376,20 @@ static void watchConnections(IClientInstance& client) {
     };
 }
 
+static std::mutex    gPlayerIdsLock;
+static std::set<int> gPlayerIds; // controller ids that have a player, refreshed once a second on the client thread
+
 static std::atomic<int> gSecondsLeft = -1; // shown in the "controller lost" prompt; -1 when nobody is leaving
 
 static void checkControllers(IMinecraftGame& game) {
     auto now  = std::chrono::steady_clock::now();
     int  left = -1;
+    {
+        std::lock_guard lock(gPlayerIdsLock);
+        gPlayerIds.clear();
+        for (auto& [sub, client] : game.getClientInstanceMap())
+            if (client) gPlayerIds.insert(client->getControllerId());
+    }
     for (auto& [sub, client] : game.getClientInstanceMap()) {
         if (!client) continue;
         watchConnections(*client);
@@ -608,6 +618,130 @@ static bool asPureGamepad(void* device) {
 using DeviceCallback = void (*)(uint64_t, void*, void*, uint64_t, uint32_t, uint32_t);
 static DeviceCallback gDeviceCallback = nullptr;
 
+// ---- Player picker: a connected controller can take over any player without a controller, or start a new one ----
+
+struct LastConnect {
+    uint64_t token = 0, time = 0;
+    void*    context = nullptr;
+};
+static LastConnect gLastConnect;
+
+static void fireConnection(IClientInstance& client, bool connected, int id) {
+    auto input = client.getMinecraftInput();
+    if (!input || !input->mInputHandler.get()) return;
+    if (auto& callback = input->mInputHandler.get()->mControllerConnectionStateChangeHandler.get())
+        callback(client, connected, id);
+}
+
+using ClientMap = std::map<SubClientId, std::shared_ptr<IClientInstance>>;
+
+static IClientInstance* clientWithController(ClientMap const& clients, int id) {
+    for (auto& [sub, client] : clients)
+        if (client && client->getControllerId() == id) return client.get();
+    return nullptr;
+}
+
+// The controller in slot `from` moves to slot `to` (the two slots trade their gamepads).
+static void moveController(IMinecraftGame& game, int from, int to) {
+    auto handler = controllerHandler();
+    if (!handler) return;
+    {
+        std::lock_guard lock(*handler->mPlayerInputsLock);
+        auto&           inputs = *handler->mPlayerInputs;
+        if (!inputs.contains(from) || !inputs.contains(to)) return note("picker: no slot {} or {}", from, to);
+        std::swap(inputs.at(from).mGamepadSupport, inputs.at(to).mGamepadSupport);
+        for (int id : {from, to})
+            inputs.at(id).mConnectionState = gamepadsOf(inputs.at(id)).empty() ? PlayerInputConnectionState::Disconnected
+                                                                               : PlayerInputConnectionState::Connected;
+    }
+    note("picker: controller moved from slot {} to slot {}", from, to);
+    auto clients = game.getClientInstanceMap();
+    if (auto c = clientWithController(clients, to)) fireConnection(*c, true, to);
+    if (auto c = clientWithController(clients, from)) fireConnection(*c, false, from);
+}
+
+// The controller in slot `from` gets a slot of its own; the game then shows its "press to join" prompt.
+static void newPlayerFor(IMinecraftGame& game, int from, void* device) {
+    auto handler = controllerHandler();
+    if (!handler || !gLastConnect.context) return;
+    {
+        std::lock_guard lock(*handler->mPlayerInputsLock);
+        auto&           inputs = *handler->mPlayerInputs;
+        if (!inputs.contains(from)) return;
+        // shortcut: the slot's gamepad list object is left allocated (its destructor has no address in LeviLamina);
+        // a few bytes and one device reference per "New player" choice.
+        (void)inputs.at(from).mGamepadSupport.release();
+        inputs.at(from).mConnectionState = PlayerInputConnectionState::Disconnected;
+    }
+    tHideUser = true;
+    gDeviceCallback(gLastConnect.token, gLastConnect.context, device, gLastConnect.time, 1, 0); // connect it again
+    tHideUser = false;
+    note("picker: controller left slot {} for a new player", from);
+    auto clients = game.getClientInstanceMap();
+    if (auto c = clientWithController(clients, from)) fireConnection(*c, false, from);
+}
+
+static int slotOfDevice(void* device) {
+    auto handler = controllerHandler();
+    if (!handler) return -1;
+    std::lock_guard lock(*handler->mPlayerInputsLock);
+    for (auto& [id, input] : *handler->mPlayerInputs)
+        for (auto d : gamepadsOf(input))
+            if (d == device) return id;
+    return -1;
+}
+
+static void offerPicker(void* device) {
+    auto client = ll::service::getClientInstance();
+    auto level  = ll::service::getLevel();
+    int  slot   = slotOfDevice(device); // also proves the device is still in the game's table
+    if (!client || !level || slot < 0) return;
+    auto& game = client->getMinecraftGame();
+
+    struct Choice {
+        std::string name;
+        int         slot;
+    };
+    std::vector<Choice> players; // the player that got the controller first, then players without a controller
+    std::string         owner;
+    std::set<int>       withPad;
+    if (auto handler = controllerHandler()) {
+        std::lock_guard lock(*handler->mPlayerInputsLock);
+        for (auto& [id, input] : *handler->mPlayerInputs)
+            if (!gamepadsOf(input).empty()) withPad.insert(id);
+    }
+    auto clients = game.getClientInstanceMap();
+    for (auto& [sub, other] : clients) {
+        if (!other || !other->getLocalPlayer()) continue;
+        int  id   = other->getControllerId();
+        auto real = other->getLocalPlayer()->getRealName();
+        auto name = fmt::format("{} (player {})", real, int(sub) + 1);
+        if (id == slot) {
+            owner = real;
+            players.insert(players.begin(), {name, id});
+        } else if (!withPad.contains(id)) players.push_back({name, id});
+    }
+    if (owner.empty()) return; // the controller has no player yet: the game's own join prompt handles it
+    bool canAddPlayer = clients.size() < 4;
+    if (players.size() < 2 && !canAddPlayer) return; // nothing to choose
+
+    ll::form::SimpleForm form("Bedrock Splitscreen", "A controller was connected. Who is playing with it?");
+    for (auto& p : players) form.appendButton(p.name);
+    if (canAddPlayer) form.appendButton("New player");
+    level->forEachPlayer([&](Player& player) {
+        if (player.getRealName() != owner) return true;
+        form.sendTo(player, [players, slot, device](Player&, int choice, ll::form::FormCancelReason) {
+            auto client = ll::service::getClientInstance();
+            if (!client || choice <= 0) return; // closed, or kept the player it already has
+            if (slotOfDevice(device) != slot) return note("picker: the controller moved meanwhile");
+            auto& game = client->getMinecraftGame();
+            if (choice < int(players.size())) moveController(game, slot, players[choice].slot);
+            else newPlayerFor(game, slot, device);
+        });
+        return false;
+    });
+}
+
 static void deviceCallbackDetour(uint64_t token, void* context, void* device, uint64_t time, uint32_t now, uint32_t before) {
     bool pad = device && gFindUser && asPureGamepad(device);
     note("device {}: status {:X} (was {:X}){}", device ? deviceName(device) : "?", now, before, pad ? ", gamepad" : "");
@@ -624,13 +758,20 @@ static void deviceCallbackDetour(uint64_t token, void* context, void* device, ui
         // The user handle is the first field of XsapiHandle (the game's own code tests it there).
         auto userOf = [](GameCorePlayerInput& in) { return reinterpret_cast<void**>(&in.mMappedUser); };
         if (inputs.contains(0)) user = *userOf(inputs.at(0));
-        for (auto& [id, input] : inputs)
-            if (id > 0 && user && !*userOf(input) && gamepadsOf(input).empty()) {
-                lentTo  = userOf(input);
-                *lentTo = user;
-                note("device {}: reusing empty controller slot {}", deviceName(device), id);
-                break;
-            }
+        std::set<int> players;
+        {
+            std::lock_guard idsLock(gPlayerIdsLock);
+            players = gPlayerIds;
+        }
+        // A player who lost their controller first, then any empty slot.
+        for (int pass = 0; pass < 2 && !lentTo; ++pass)
+            for (auto& [id, input] : inputs)
+                if (id > 0 && user && !*userOf(input) && gamepadsOf(input).empty() && (pass == 1 || players.contains(id))) {
+                    lentTo  = userOf(input);
+                    *lentTo = user;
+                    note("device {}: reusing empty controller slot {}", deviceName(device), id);
+                    break;
+                }
     }
     tHideUser = pad;
     gDeviceCallback(token, context, device, time, now, before);
@@ -638,6 +779,13 @@ static void deviceCallbackDetour(uint64_t token, void* context, void* device, ui
     if (lentTo) {
         std::lock_guard lock(*handler->mPlayerInputsLock);
         if (*lentTo == user) *lentTo = nullptr;
+    }
+    if (connecting) {
+        gLastConnect = {token, time, context};
+        ll::thread::ClientThreadExecutor::getDefault().executeAfter(
+            [device] { offerPicker(device); },
+            std::chrono::milliseconds(500)
+        );
     }
 }
 
