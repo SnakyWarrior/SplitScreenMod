@@ -752,7 +752,7 @@ static TryGetSubId gTryGetSubId = nullptr;
 static bool tryGetSubIdDetour(void* game, int controllerId, SubClientId& out, bool initialCheck) {
     bool ok   = gTryGetSubId(game, controllerId, out, initialCheck);
     int  want = gWantedSub;
-    if (ok && !initialCheck && want > 0) {
+    if (ok && want > 0) { // the join itself asks with initialCheck set too
         auto clients = static_cast<IMinecraftGame*>(game)->getClientInstanceMap();
         if (!clients.contains(SubClientId(want))) out = SubClientId(want);
     }
