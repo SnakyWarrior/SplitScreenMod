@@ -610,9 +610,34 @@ static DeviceCallback gDeviceCallback = nullptr;
 static void deviceCallbackDetour(uint64_t token, void* context, void* device, uint64_t time, uint32_t now, uint32_t before) {
     bool pad = device && gFindUser && asPureGamepad(device);
     note("device {}: status {:X} (was {:X}){}", device ? deviceName(device) : "?", now, before, pad ? ", gamepad" : "");
+    // A connecting gamepad should fill the lowest empty player slot. The game only reuses a slot that has an Xbox user,
+    // and the slots it made for players 2-4 have none (their user is hidden above), so it kept opening new slots until
+    // it ran past the 4 controllers it supports and crashed. Lend player 1's user to the lowest empty slot meanwhile.
+    auto       handler = static_cast<GameControllerHandler_GameCore*>(context);
+    void**     lentTo  = nullptr;
+    void*      user    = nullptr;
+    bool const connecting = pad && handler && (now & 1) && !(before & 1); // GameInputDeviceConnected
+    if (connecting) {
+        std::lock_guard lock(*handler->mPlayerInputsLock);
+        auto&           inputs = *handler->mPlayerInputs;
+        // The user handle is the first field of XsapiHandle (the game's own code tests it there).
+        auto userOf = [](GameCorePlayerInput& in) { return reinterpret_cast<void**>(&in.mMappedUser); };
+        if (inputs.contains(0)) user = *userOf(inputs.at(0));
+        for (auto& [id, input] : inputs)
+            if (id > 0 && user && !*userOf(input) && gamepadsOf(input).empty()) {
+                lentTo  = userOf(input);
+                *lentTo = user;
+                note("device {}: reusing empty controller slot {}", deviceName(device), id);
+                break;
+            }
+    }
     tHideUser = pad;
     gDeviceCallback(token, context, device, time, now, before);
     tHideUser = false;
+    if (lentTo) {
+        std::lock_guard lock(*handler->mPlayerInputsLock);
+        if (*lentTo == user) *lentTo = nullptr;
+    }
 }
 
 bool MyMod::load() {
