@@ -12,26 +12,14 @@
           {
             "splitscreen_padding": {
               "type": "panel",
-              "size": [ "2%", 0 ],
-              "bindings": [
-                { "binding_name": "(#splitscreen_many_players or #splitscreen_free_controller)", "binding_name_override": "#visible" }
-              ]
+              "size": [ "2%", 0 ]
             }
           },
           {
             "splitscreen_small_button": {
               "type": "input_panel",
               "size": [ "100%c + 4px", 32 ],
-              "controls": [ { "splitscreen_btn@pause.splitscreen_button_small_with_tooltip": {} } ],
-              "bindings": [ { "binding_name": "#splitscreen_many_players", "binding_name_override": "#visible" } ]
-            }
-          },
-          {
-            "splitscreen_free_controller_button": {
-              "type": "input_panel",
-              "size": [ "100%c + 4px", 32 ],
-              "controls": [ { "free_btn@pause.splitscreen_free_button_small_with_tooltip": {} } ],
-              "bindings": [ { "binding_name": "#splitscreen_free_controller", "binding_name_override": "#visible" } ]
+              "controls": [ { "splitscreen_btn@pause.splitscreen_button_small_with_tooltip": {} } ]
             }
           }
         ]
@@ -54,33 +42,6 @@
     "size": [ 24, 24 ],
     "$button_content": "pause.splitscreen_icon",
     "$pressed_alpha": 0.65
-  },
-
-  "splitscreen_free_icon": {
-    "type": "image",
-    "texture": "textures/ui/controller_glyph",
-    "layer": 3,
-    "size": [ 16, 16 ]
-  },
-
-  // alone in the world: take player 1's controller away so it can choose a player
-  "splitscreen_free_button_small@common_buttons.light_content_button": {
-    "$pressed_button_name": "button.splitscreen_free_controller",
-    "$focus_id": "icon_panel_main_focus",
-    "focus_change_down": "return_to_game",
-    "$button_tts_header": "Disconnect controller",
-    "size": [ 24, 24 ],
-    "$button_content": "pause.splitscreen_free_icon",
-    "$pressed_alpha": 0.65
-  },
-
-  "splitscreen_free_button_small_with_tooltip": {
-    "type": "panel",
-    "size": [ 24, 24 ],
-    "controls": [
-      { "button@pause.splitscreen_free_button_small": {} },
-      { "tooltip_trigger@pause.icon_button_tooltip_trigger": { "$tooltip_text": "Disconnect controller" } }
-    ]
   },
 
   "splitscreen_button_small_with_tooltip": {
