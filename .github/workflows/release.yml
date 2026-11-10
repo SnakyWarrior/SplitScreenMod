@@ -5,7 +5,7 @@ on:
   
 jobs:
   build:
-    runs-on: windows-2022 # windows-latest moved to MSVC 14.51, which LeviLamina 26.60 does not build with
+    runs-on: windows-latest
     strategy:
       matrix:
         target_type:
