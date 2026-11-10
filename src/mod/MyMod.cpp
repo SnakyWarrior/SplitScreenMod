@@ -926,7 +926,9 @@ static void showMenu(
     std::string const&              title = "Bedrock Splitscreen"
 ) {
     auto player = serverPlayer(who);
-    if (!player || buttons.empty() || menuOpen(int(who))) return;
+    if (!player || buttons.empty() || menuOpen(int(who)))
+        return note("menu for player {} not shown (player found: {}, already open: {})", int(who) + 1, bool(player),
+                    menuOpen(int(who)));
     gMenus[int(who)] = std::chrono::steady_clock::now();
     ll::form::SimpleForm form(title, text);
     for (size_t i = 0; i < buttons.size(); ++i)
@@ -960,6 +962,18 @@ static void openSettings(int who) {
     std::vector<std::string>   buttons{vertical ? "Layout: side by side" : "Layout: top and bottom"};
     std::vector<bool>          tagged{false};
     std::vector<int>           subs{-1};
+    void*                      firstPad = nullptr; // player 1's controller, if they have one
+    if (auto handler = controllerHandler()) {
+        std::lock_guard lock(*handler->mPlayerInputsLock);
+        auto&           inputs = *handler->mPlayerInputs;
+        if (inputs.contains(0))
+            if (auto pads = gamepadsOf(inputs.at(0)); !pads.empty()) firstPad = pads.front();
+    }
+    if (firstPad) {
+        buttons.push_back(fmt::format("Take the controller from {}", localName(clients, 0)));
+        tagged.push_back(false);
+        subs.push_back(-3);
+    }
     for (auto& [sub, other] : clients)
         if (other && sub != SubClientId::PrimaryClient) {
             buttons.push_back(fmt::format("Remove {}", localName(clients, int(sub))));
@@ -969,9 +983,24 @@ static void openSettings(int who) {
     buttons.push_back("Close");
     tagged.push_back(false);
     subs.push_back(-2);
-    showMenu(SubClientId(who), "Split screen", buttons, tagged, [subs, vertical, who](int pick) {
+    showMenu(SubClientId(who), "Split screen", buttons, tagged, [subs, vertical, who, firstPad](int pick) {
         auto client = ll::service::getClientInstance();
         if (!client || pick < 0 || subs[pick] == -2) return;
+        if (subs[pick] == -3) {
+            // Player 1 goes back to keyboard and mouse; the controller gets a slot of its own and asks who it is for,
+            // without unplugging it.
+            auto& game = client->getMinecraftGame();
+            note("settings: controller taken from player 1");
+            newPlayerFor(game, 0, firstPad);
+            ll::thread::ClientThreadExecutor::getDefault().executeAfter(
+                [firstPad] {
+                    int slot = slotOfDevice(firstPad);
+                    if (auto c = ll::service::getClientInstance(); c && slot > 0) startJoin(c->getMinecraftGame(), slot);
+                },
+                std::chrono::milliseconds(500)
+            );
+            return;
+        }
         if (subs[pick] == -1) {
             client->getOptions().setSplitscreenDirection(vertical ? 0 : 1);
             return openSettings(who); // show the new layout's name
@@ -1032,36 +1061,42 @@ static void offerPicker(SubClientId owner, bool fresh) {
         int         value; // controller id (TakeOver) or sub id (Offline)
         SubClientId sub;
     };
-    std::vector<Choice>      choices{{Kind::Keep, 0, owner}};
-    std::vector<std::string> buttons{fmt::format("{} (keep)", localName(clients, int(owner)))};
-    std::vector<bool>        tagged{true};
-    for (auto& [sub, other] : clients) // players in the game without a controller
-        if (sub != owner && other && !withPad.contains(other->getControllerId())) {
+    // One button per player in player order (player 1 first): this controller's own player, players without a
+    // controller, and saved players who are not playing.
+    std::vector<Choice> choices{{Kind::Keep, 0, owner}};
+    for (auto& [sub, other] : clients)
+        if (sub != owner && other && !withPad.contains(other->getControllerId()))
             choices.push_back({Kind::TakeOver, other->getControllerId(), sub});
-            buttons.push_back(fmt::format("{} - playing, no controller", localName(clients, int(sub))));
-            tagged.push_back(true);
-        }
-    for (int sub = 1; sub <= 3; ++sub) // saved players not in the game
-        if (!clients.contains(SubClientId(sub))) {
-            choices.push_back({Kind::Offline, sub, SubClientId(sub)});
-            buttons.push_back(fmt::format("{} - not playing", localName(clients, sub)));
-            tagged.push_back(true);
-        }
+    for (int sub = 1; sub <= 3; ++sub)
+        if (!clients.contains(SubClientId(sub))) choices.push_back({Kind::Offline, sub, SubClientId(sub)});
+    std::stable_sort(choices.begin(), choices.end(), [](Choice const& a, Choice const& b) { return a.sub < b.sub; });
+    std::vector<std::string> buttons;
+    std::vector<bool>        tagged;
+    for (auto& c : choices) {
+        auto name = localName(clients, int(c.sub));
+        buttons.push_back(c.kind == Kind::Offline ? fmt::format("{} - not playing", name)
+                          : c.kind == Kind::TakeOver ? fmt::format("{} - no controller", name)
+                                                     : name);
+        tagged.push_back(true);
+    }
     if (!fresh && clients.size() < 4) {
         choices.push_back({Kind::NewPlayer, 0, owner});
         buttons.push_back("New player");
+        tagged.push_back(false);
     }
+    int const keep = int(std::find_if(choices.begin(), choices.end(), [](Choice const& c) { return c.kind == Kind::Keep; })
+                         - choices.begin());
     if (choices.size() < 2) return;
     note("picker: menu for player {} ({} choices)", int(owner) + 1, choices.size());
     showMenu(owner, "Who is playing with this controller?", buttons, tagged, [=](int pick) {
         auto client = ll::service::getClientInstance();
         if (fresh) {
-            if (pick <= 0 || pick >= int(choices.size())) { // kept: the stand-in is the chosen player
+            if (pick == keep || pick < 0 || pick >= int(choices.size())) { // kept: the stand-in is the chosen player
                 if (auto player = serverPlayer(owner)) hideStandIn(*player, false);
                 quietFor(std::chrono::seconds(10)); // its skin line can still come
             } else quietFor(std::chrono::seconds(30)); // the stand-in leaves and the chosen player comes in quietly
         }
-        if (!client || pick <= 0 || pick >= int(choices.size())) return; // closed, or kept
+        if (!client || pick == keep || pick < 0 || pick >= int(choices.size())) return; // closed, or kept
         auto& game   = client->getMinecraftGame();
         auto& choice = choices[pick];
         switch (choice.kind) {
