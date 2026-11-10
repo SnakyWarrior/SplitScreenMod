@@ -280,6 +280,14 @@ static thread_local bool tOurJoin = false; // joins the mod makes itself go thro
 static GameControllerHandler_GameCore* controllerHandler();
 
 static void dumpPlayers(IMinecraftGame& game);
+// The state of a player's SplitscreenJoinListener (MinecraftInputHandler + 0x88 in 1.26.60): the game shows its
+// "Join as Player" prompt on that player's screen only while it is 1 or 2 (ClientInputHandler's prompt check).
+static int* joinListenerState(IClientInstance& client) {
+    auto input = client.getMinecraftInput();
+    if (!input) return nullptr;
+    auto listener = *reinterpret_cast<int**>(reinterpret_cast<char*>(input.get()) + 0x88);
+    return listener;
+}
 static void fireConnection(IClientInstance& client, bool connected, int id);
 static std::vector<void*> gamepadsOf(GameCorePlayerInput& input);
 static void deviceCallbackDetour(uint64_t token, void* context, void* device, uint64_t time, uint32_t now, uint32_t before);
@@ -293,6 +301,12 @@ static void runTrigger(std::string const& cmd, int arg) {
     if (!client) return note("trigger {}: no client instance", cmd);
     auto& game = client->getMinecraftGame();
     if (cmd == "pads") dumpPlayers(game); // the same as F9
+    if (cmd == "listen") { // experiment: set player 1's join listener state
+        if (auto state = joinListenerState(*client)) {
+            note("listen: player 1's join listener {} -> {}", *state, arg);
+            *state = arg;
+        }
+    }
     if (cmd == "replug") { // experiment: a free controller (no player) is unplugged and plugged in again, as by hand
         void* device = nullptr;
         if (auto handler = controllerHandler()) {
@@ -644,9 +658,12 @@ static void dumpPlayers(IMinecraftGame& game) {
     } else note("pads: controller table not found");
     for (auto& [sub, client] : game.getClientInstanceMap())
         if (client)
-            note("pads: player {} uses controller {} (has controller {}, uses controller {}, handling disconnect {})",
+            note("pads: player {} uses controller {} (has controller {}, uses controller {}, handling disconnect {}, join listener {})",
                  int(sub) + 1, client->getControllerId(), client->hasConnectedController(), client->useController(),
-                 client->getHandlingControllerDisconnect());
+                 client->getHandlingControllerDisconnect(), [&] {
+                     auto state = joinListenerState(*client);
+                     return state ? std::to_string(*state) : std::string("none");
+                 }());
 }
 
 // ---- Watchdog: when the game's main thread stops for 4 s, write where it is stuck into the log ----
