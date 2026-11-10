@@ -6,6 +6,8 @@ Local split-screen for **Minecraft Bedrock on Windows**: up to 4 players on one 
 
 Minecraft Bedrock already contains split-screen (it is used on Xbox), but the Windows version switches it off. This [LeviLamina](https://github.com/LiteLDev/LeviLamina) mod switches it back on.
 
+<p align="center"><a href="https://www.patreon.com/PantelisKonstantinidis"><img src="https://img.shields.io/badge/Support%20on-Patreon-F96854?logo=patreon&logoColor=white" alt="Support on Patreon"></a></p>
+
 ![Two players in split-screen on PC](docs/screenshot.png)
 
 ## Features
@@ -15,7 +17,6 @@ Minecraft Bedrock already contains split-screen (it is used on Xbox), but the Wi
 - **Looks like the game's new UI.** Every player has a P1-P4 picture in their own colour, and tags show who is playing, who has no controller and who you are.
 - **Player 1 keeps keyboard and mouse.** A controller only plays as player 1 when you choose that. A controller that is already connected when you enter a world waits for you to press start.
 - **One controller per player.** A controller that reconnects can pick up the player who lost theirs. A player whose controller stays disconnected for 20 seconds leaves; the game's "Controller lost connection" prompt counts down the seconds.
-- **The world pauses** when every player is in the pause menu.
 - **Made to survive updates.** The mod finds the places it needs by the shape of the game code, not by fixed addresses, so a new game version normally needs only a rebuild against the matching LeviLamina.
 
 ## Screenshots
@@ -72,6 +73,10 @@ You do not need Visual Studio. Every push is built by GitHub Actions; download t
 xmake f -a x64 -m release -p windows --target_type=client -y
 xmake
 ```
+
+## Support
+
+The mod is free and stays free. If it gives you split-screen nights you would not have had, you can support its development on [Patreon](https://www.patreon.com/PantelisKonstantinidis). Bug reports and ideas on the [issues page](../../issues) help just as much.
 
 ## Licence
 
