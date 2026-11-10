@@ -64,19 +64,6 @@ To leave, press the red X next to the player in the Split screen menu, or unplug
 
 The mod writes a log to `mods\SplitScreenMod\splitscreen.log`. If controllers go to the wrong player, press **F9** in the game first: it writes which controller belongs to which player into the log. Please attach the log when you [report a problem](../../issues/new/choose).
 
-<details>
-<summary>Advanced: splitscreen.cfg</summary>
-
-For testing after a game update, you can put a `splitscreen.cfg` file next to the mod to override which callers get split-screen:
-
-```
-hook allowSplitScreen auto              # default
-hook allowSplitScreen trace             # log every caller, change nothing
-hook allowSplitScreen force 876204 ...  # allow only these call sites (offsets in Minecraft.Windows.exe)
-```
-
-</details>
-
 ## Building
 
 You do not need Visual Studio. Every push is built by GitHub Actions; download the build from the Actions tab. To build locally, install [xmake](https://xmake.io) and run:
@@ -90,4 +77,4 @@ xmake
 
 [GPL-3.0](LICENSE) © SnakyWarrior. This mod is not affiliated with Mojang or Microsoft.
 
-The menu colours and the cross icon come from [Spectrollay-OreUI](https://github.com/Spectrollay-OreUI/OreUI) (MIT, © 2020 Spectrollay). The Ore UI button, radio and dropdown textures come from [bedrock-core/ui](https://github.com/bedrock-core/ui) (MIT, © 2026 bedrock-core; licence in `resource_packs/SplitScreenUI/textures/ui/ore-styled/`).
+The menu colours and the cross icon come from [Spectrollay-OreUI](https://github.com/Spectrollay-OreUI/OreUI) (MIT, © 2020 Spectrollay). The Ore UI button and radio textures come from [bedrock-core/ui](https://github.com/bedrock-core/ui) (MIT, © 2026 bedrock-core; licence in `resource_packs/SplitScreenUI/textures/ui/ore-styled/`).

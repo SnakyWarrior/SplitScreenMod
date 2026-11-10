@@ -189,9 +189,6 @@
       { "kick@server_form.splitscreen_row_kick": {} },
       { "pad@server_form.splitscreen_row_pad": {} },
       { "radio@server_form.splitscreen_row_radio": {} },
-      { "dropdown_arrow@server_form.splitscreen_dropdown_arrow": {} },
-      { "splitscreen_layout_tag_0@server_form.splitscreen_layout_tag_0": {} },
-      { "splitscreen_layout_tag_1@server_form.splitscreen_layout_tag_1": {} },
       { "splitscreen_you_tag_0@server_form.splitscreen_you_tag_0": {} },
       { "splitscreen_you_tag_1@server_form.splitscreen_you_tag_1": {} },
       { "header0@server_form.splitscreen_header_0": {} },
@@ -309,58 +306,6 @@
     ]
   },
 
-  "splitscreen_layout_tag_0": {
-    "type": "panel",
-    "size": [ "100%", 0 ],
-    "bindings": [
-      { "binding_type": "collection_details", "binding_collection_name": "form_buttons" },
-      { "binding_name": "#form_button_text", "binding_type": "collection", "binding_collection_name": "form_buttons" },
-      { "binding_type": "view", "source_property_name": "(#form_button_text = '[tag:Top and bottom]')", "target_property_name": "#visible" }
-    ],
-    "controls": [
-      {
-        "pill": {
-          "type": "panel",
-          "size": [ 82, 13 ],
-          "anchor_from": "top_right",
-          "anchor_to": "top_right",
-          "offset": [ -22, -25 ],
-          "layer": 20,
-          "controls": [
-            { "outline@server_form.splitscreen_fill": { "color": [ 0.118, 0.118, 0.122 ] } },
-            { "back@server_form.splitscreen_fill": { "color": [0.549, 0.702, 1.0], "size": [ "100% - 2px", "100% - 2px" ], "layer": 1 } },
-            { "label": { "type": "label", "text": "Top and bottom", "color": [0.118, 0.118, 0.122], "size": [ "default", "default" ], "anchor_from": "center", "anchor_to": "center", "layer": 2 } }
-          ]
-        }
-      }
-    ]
-  },
-  "splitscreen_layout_tag_1": {
-    "type": "panel",
-    "size": [ "100%", 0 ],
-    "bindings": [
-      { "binding_type": "collection_details", "binding_collection_name": "form_buttons" },
-      { "binding_name": "#form_button_text", "binding_type": "collection", "binding_collection_name": "form_buttons" },
-      { "binding_type": "view", "source_property_name": "(#form_button_text = '[tag:Side by side]')", "target_property_name": "#visible" }
-    ],
-    "controls": [
-      {
-        "pill": {
-          "type": "panel",
-          "size": [ 70, 13 ],
-          "anchor_from": "top_right",
-          "anchor_to": "top_right",
-          "offset": [ -22, -25 ],
-          "layer": 20,
-          "controls": [
-            { "outline@server_form.splitscreen_fill": { "color": [ 0.118, 0.118, 0.122 ] } },
-            { "back@server_form.splitscreen_fill": { "color": [0.549, 0.702, 1.0], "size": [ "100% - 2px", "100% - 2px" ], "layer": 1 } },
-            { "label": { "type": "label", "text": "Side by side", "color": [0.118, 0.118, 0.122], "size": [ "default", "default" ], "anchor_from": "center", "anchor_to": "center", "layer": 2 } }
-          ]
-        }
-      }
-    ]
-  },
   "splitscreen_you_tag_0": {
     "type": "panel",
     "size": [ "100%", 0 ],
@@ -413,21 +358,6 @@
       }
     ]
   },
-
-  // the dropdown arrow at the end of the "Layout" row
-  "splitscreen_dropdown_arrow": {
-    "type": "panel",
-    "size": [ "100%", 0 ],
-    "bindings": [
-      { "binding_type": "collection_details", "binding_collection_name": "form_buttons" },
-      { "binding_name": "#form_button_text", "binding_type": "collection", "binding_collection_name": "form_buttons" },
-      { "binding_type": "view", "source_property_name": "(('%.11s' * #form_button_text) = '[tag:Top an') or (('%.11s' * #form_button_text) = '[tag:Side ')", "target_property_name": "#visible" }
-    ],
-    "controls": [
-      { "arrow": { "type": "image", "texture": "textures/ui/ore-styled/dropdown/arrow", "size": [ 7, 4 ], "anchor_from": "top_right", "anchor_to": "top_right", "offset": [ -8, -19 ], "layer": 20 } }
-    ]
-  },
-
   // status tags: drawn over the right end of the row above, not pressable
   "splitscreen_tag_0": {
     "type": "panel",

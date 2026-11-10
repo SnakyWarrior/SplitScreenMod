@@ -34,7 +34,6 @@
 #include "mc/client/game/ClientInstanceArguments.h"
 #include "mc/client/game/IClientInstance.h"
 #include "mc/client/options/IOptionRegistry.h"
-#include "mc/deps/renderer/ViewportInfo.h"
 #include "mc/common/Globals.h"
 #include "mc/client/game/IMinecraftGame.h"
 #include "mc/client/input/MinecraftInputHandler.h"
@@ -91,14 +90,10 @@ static void note(fmt::format_string<Args...> f, Args&&... args) {
 
 static uintptr_t gameBase() { return reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr)); }
 
-// Per-hook behaviour from splitscreen.cfg: "trace" keeps the game's answer and logs each new caller,
-// "force" returns true everywhere, "force <rva>..." returns true only for those call sites.
+// Per hooked function: its original, and the call sites already logged.
 struct HookCfg {
-    bool                    autoSites = false; // pick the call sites by what the calling code does (see autoAllow)
-    bool                    force = false;
-    std::set<uintptr_t>     only;
-    std::set<uintptr_t>     seen;
-    ll::memory::FuncPtr     origin = nullptr;
+    std::set<uintptr_t> seen;
+    ll::memory::FuncPtr origin = nullptr;
 };
 static std::map<std::string, HookCfg> gCfg;
 
@@ -214,9 +209,7 @@ static bool decide(char const* name, void* ret, bool original) {
     std::lock_guard   lock(m);
     auto& c   = gCfg[name];
     auto  rva = reinterpret_cast<uintptr_t>(ret) - gameBase();
-    bool  res = c.autoSites ? autoAllow(ret) || original
-              : c.force && (c.only.empty() || c.only.contains(rva)) ? true
-                                                                     : original;
+    bool  res = autoAllow(ret) || original;
     if (c.seen.insert(rva).second) note("{} called from {:X}: game said {}, returning {}", name, rva, original, res);
     return res;
 }
@@ -224,18 +217,6 @@ static bool decide(char const* name, void* ret, bool original) {
 static bool allowSplitScreenDetour(void* self) {
     auto orig = reinterpret_cast<bool (*)(void*)>(gCfg["allowSplitScreen"].origin)(self);
     return decide("allowSplitScreen", _ReturnAddress(), orig);
-}
-
-static bool joinEnabledDetour(void* self) {
-    auto orig = reinterpret_cast<bool (*)(void*)>(gCfg["isSplitscreenJoinEnabled"].origin)(self);
-    return decide("isSplitscreenJoinEnabled", _ReturnAddress(), orig);
-}
-
-static bool canAddSubClientDetour(void* self, int controllerId) {
-    auto orig = reinterpret_cast<bool (*)(void*, int)>(gCfg["canAddSplitscreenSubClient"].origin)(self, controllerId);
-    note("canAddSplitscreenSubClient(controller {}) from {:X}: game said {}", controllerId,
-         reinterpret_cast<uintptr_t>(_ReturnAddress()) - gameBase(), orig);
-    return decide("canAddSplitscreenSubClient", _ReturnAddress(), orig);
 }
 
 // LeviLamina's getVtableIndex rejects 16-byte member pointers (classes with several bases, like AppPlatform)
@@ -284,41 +265,8 @@ static ll::memory::FuncPtr* hookSlot(void* object, F method, ll::memory::FuncPtr
     return slot;
 }
 
-// splitscreen.cfg lets tests switch hooks and resolve crash addresses without rebuilding:
-//   hook <name> auto           allowSplitScreen only: the default, call sites chosen by autoAllow
-//   hook <name> trace          log every call site, keep the game's answer
-//   hook <name> force [rva..]  return true (only at those call sites, if given)
-//   lookup <hex rva>   log the game function at that offset from Minecraft.Windows.exe
-static void readConfig(std::set<std::string>& hooks) {
-    std::ifstream in(MyMod::getInstance().getSelf().getModDir() / "splitscreen.cfg");
-    if (!in) {
-        hooks                              = {"allowSplitScreen"};
-        gCfg["allowSplitScreen"].autoSites = true;
-        return;
-    }
-    for (std::string line; std::getline(in, line);) {
-        std::istringstream words(line);
-        std::string        cmd, arg;
-        words >> cmd >> arg;
-        if (cmd == "hook") {
-            hooks.insert(arg);
-            std::string mode, rva;
-            words >> mode;
-            gCfg[arg].force     = mode == "force";
-            gCfg[arg].autoSites = mode == "auto";
-            while (words >> rva) gCfg[arg].only.insert(std::stoull(rva, nullptr, 16));
-        }
-        if (cmd == "lookup" && !arg.empty()) {
-            auto rva  = std::stoull(arg, nullptr, 16);
-            auto addr = reinterpret_cast<void*>(gameBase() + rva);
-            note("lookup {:X}: {}", rva, ll::utils::stacktrace_utils::toString(ll::StacktraceEntry(addr)));
-        }
-    }
-}
-
 // Test trigger, so a second player can be added without a second physical controller or cheats:
-// write "join <controller>" or "info" lines into trigger.txt next to the mod; it is run on the client thread and deleted.
-static void dumpPlayers(IMinecraftGame& game);
+// write "join <controller>" lines into trigger.txt next to the mod; it is run on the client thread and deleted.
 static void offerPicker(SubClientId owner, bool fresh);
 static std::set<int> gNoMenuFor; // sub ids that just joined through the menu itself (client thread only)
 static thread_local bool tOurJoin = false; // joins the mod makes itself go through unchanged
@@ -332,59 +280,6 @@ static void runTrigger(std::string const& cmd, int arg) {
         note("adding player on controller {}", arg);
         game.addSubClientInstanceAndAssociateToUser(arg); // goes through the menu like the game's join prompt
     }
-    if (cmd == "pads") dumpPlayers(game);
-    if (cmd == "vp") // each player's viewport as the renderer and HUD see it
-        for (auto& [sub, other] : game.getClientInstanceMap())
-            if (other) {
-                auto& info = other->getViewportInfo();
-                auto  n    = other->getNormalizedViewportSize();
-                note("vp: player {} size {} {} offset {} {} normalized {} {}", int(sub) + 1, info.size->x, info.size->y,
-                     info.offset->x, info.offset->y, n.x, n.y);
-            }
-    if (cmd == "dir") client->getOptions().setSplitscreenDirection(arg); // 0 horizontal, 1 vertical
-    // prototype: "form N" shows a test form to the Nth server-side player; "swap A B" swaps the gamepads of two
-    // controller ids in the game's table.
-    if (cmd == "who")
-        if (auto level = ll::service::getLevel())
-            level->forEachPlayer([](Player& player) {
-                note("who: '{}' sub {} uuid {}", player.getRealName(), int(player.getClientSubId()), player.getUuid().asString());
-                return true;
-            });
-    if (cmd == "form") {
-        auto level = ll::service::getLevel();
-        if (!level) return note("form: no level");
-        int index = 0;
-        level->forEachPlayer([&](Player& player) {
-            note("form: player {} = {}", ++index, player.getRealName());
-            if (index == arg)
-                ll::form::SimpleForm("Bedrock Splitscreen", "Test form")
-                    .appendButton("First")
-                    .appendButton("Second")
-                    .sendTo(player, [](Player& p, int choice, ll::form::FormCancelReason) {
-                        note("form: {} chose {}", p.getRealName(), choice);
-                    });
-            return true;
-        });
-    }
-    if (cmd == "swap") {
-        auto handler = controllerHandler();
-        if (!handler) return note("swap: no table");
-        std::lock_guard lock(*handler->mPlayerInputsLock);
-        auto& inputs = *handler->mPlayerInputs;
-        int   other  = arg % 10;
-        int   first  = arg / 10;
-        if (!inputs.contains(first) || !inputs.contains(other)) return note("swap: no controller {} or {}", first, other);
-        std::swap(inputs.at(first).mGamepadSupport, inputs.at(other).mGamepadSupport);
-        note("swap: gamepads of controllers {} and {} swapped", first, other);
-    }
-    // test commands: "leave N" (the player's own Save & Leave), "remove N" (queueSubclientRemoval)
-    if (cmd == "leave" || cmd == "remove")
-        for (auto& [sub, other] : game.getClientInstanceMap())
-            if (other && int(sub) + 1 == arg) {
-                note("{} player {}", cmd, arg);
-                if (cmd == "leave") other->requestLeaveGameAsync();
-                else game.queueSubclientRemoval(sub);
-            }
 }
 
 // A second player whose controller stays disconnected is removed, so their half of the screen does not stay frozen.
@@ -904,7 +799,6 @@ MyMod& MyMod::getInstance() {
     return instance;
 }
 
-static std::set<std::string> gWanted;
 static std::atomic_bool      gPlatformHooked = false;
 static auto fn(auto f) { return reinterpret_cast<ll::memory::FuncPtr>(f); }
 
@@ -916,7 +810,7 @@ static void hookPlatform() {
     static ll::memory::FuncPtr*       hooked = nullptr;
     std::lock_guard                   lock(m);
     auto                              platform = ll::service::getAppPlatform();
-    if (!platform || !gWanted.contains("allowSplitScreen")) return;
+    if (!platform) return;
     auto slot = hookSlot(platform.as_ptr(), &AppPlatform::allowSplitScreen, fn(&allowSplitScreenDetour), "allowSplitScreen");
     if (slot && slot != hooked && hooked) {
         auto old = std::find_if(gHooks.begin(), gHooks.end(), [](auto& h) { return h.slot == hooked; });
@@ -1737,7 +1631,6 @@ LL_AUTO_TYPE_INSTANCE_HOOK(
 bool MyMod::load() {
     note("SplitScreenMod loading");
     gLlClient = findLlClientVar(); // checked in enable(), once the client exists
-    readConfig(gWanted);
     if (auto cb = findDeviceCallback()) {
         ll::memory::hook(reinterpret_cast<ll::memory::FuncPtr>(cb), reinterpret_cast<ll::memory::FuncPtr>(&deviceCallbackDetour),
                          reinterpret_cast<ll::memory::FuncPtr*>(&gDeviceCallback), ll::memory::HookPriority::Normal);
@@ -1764,10 +1657,9 @@ bool MyMod::enable() {
         note("LeviLamina client pointer not found: leaving a world with several players may crash");
         gLlClient = nullptr;
     }
-    auto& hooks  = gWanted;
     hookPlatform();
     auto client = ll::service::getClientInstance();
-    if (!gPlatformHooked && hooks.contains("allowSplitScreen") || !client) {
+    if (!gPlatformHooked || !client) {
         note("ERROR: game not ready (platform hooked: {}, client: {})", gPlatformHooked.load(), bool(client));
         return false;
     }
@@ -1787,10 +1679,6 @@ bool MyMod::enable() {
     }
     hookSlot(&game, &IMinecraftGame::addSubClientInstanceAndAssociateToUser, fn(&joinRequestDetour),
              "addSubClientInstanceAndAssociateToUser");
-    if (hooks.contains("isSplitscreenJoinEnabled"))
-        hookSlot(&game, &IMinecraftGame::isSplitscreenJoinEnabled, fn(&joinEnabledDetour), "isSplitscreenJoinEnabled");
-    if (hooks.contains("canAddSplitscreenSubClient"))
-        hookSlot(&game, &IMinecraftGame::canAddSplitscreenSubClient, fn(&canAddSubClientDetour), "canAddSplitscreenSubClient");
     ll::thread::ClientThreadExecutor::getDefault().execute(pollTrigger);
     note("SplitScreenMod enabled ({} hooks)", gHooks.size());
     return true;

@@ -56,16 +56,22 @@
     "$pressed_alpha": 0.65
   },
 
+  // the game's controller glyph, centered in the button
   "splitscreen_free_icon": {
     "type": "image",
     "texture": "textures/ui/controller_glyph",
     "layer": 3,
-    "size": [ 16, 16 ]
+    "size": [ 16, 16 ],
+    "anchor_from": "center",
+    "anchor_to": "center"
   },
 
   // alone in the world: take player 1's controller away so it can choose a player
   "splitscreen_free_button_small@common_buttons.light_content_button": {
     "$pressed_button_name": "button.splitscreen_free_controller",
+    "$default_button_texture": "textures/ui/button_red",
+    "$hover_button_texture": "textures/ui/button_red",
+    "$pressed_button_texture": "textures/ui/button_red_pressed",
     "$focus_id": "icon_panel_main_focus",
     "focus_change_down": "return_to_game",
     "$button_tts_header": "Disconnect controller",
