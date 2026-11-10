@@ -1,0 +1,38 @@
+{
+  "namespace": "pause",
+
+  // A "Split screen" button under Dressing Room, styled like it. The mod handles "button.splitscreen_menu".
+  "skin_panel_interior": {
+    "modifications": [
+      {
+        "array_name": "controls",
+        "operation": "insert_back",
+        "value": [
+          {
+            "splitscreen_panel": {
+              "type": "panel",
+              "size": [ "100%", "100%c + 4px" ],
+              "controls": [ { "splitscreen_button@pause.splitscreen_button": {} } ]
+            }
+          }
+        ]
+      }
+    ]
+  },
+
+  "splitscreen_button@common_buttons.light_text_form_fitting_button": {
+    "$pressed_button_name": "button.splitscreen_menu",
+    "$form_fitting_min_size": [ "100%c + 2px", 22 ],
+    "anchor_from": "bottom_middle",
+    "anchor_to": "bottom_middle",
+    "$button_text": "Split screen",
+    "$pressed_alpha": 0.65,
+    "focus_identifier": "splitscreen_button",
+    "focus_change_up": "profile_button",
+    "focus_change_down": "friendsdrawer_button"
+  },
+
+  // Down from Dressing Room goes to the new button first.
+  "dressing_room_button": { "focus_change_down": "splitscreen_button" },
+  "dressing_room_button_gamepad": { "focus_change_down": "splitscreen_button" }
+}

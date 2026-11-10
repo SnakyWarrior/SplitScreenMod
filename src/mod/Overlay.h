@@ -23,14 +23,6 @@ void show(
     std::vector<Icon>        icons = {}
 );
 
-// A small "Split screen" button in the corner of the game (for the pause menu). Clicking it, or Y on a controller,
-// runs `click` on the client thread. Hidden while a menu is open.
-void showButton(std::function<void()> click);
-void hideButton();
-// Where the button goes: the top-right corner of this part of the game window (fractions of it), under the pause
-// menu's own corner button.
-void moveButton(float x, float y, float width, float height);
-
 bool isOpen();
 
 } // namespace overlay

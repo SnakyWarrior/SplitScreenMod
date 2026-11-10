@@ -44,6 +44,9 @@
 #include "mc/gamecore/GameControllerHandler_GameCore.h"
 #include "mc/deps/input/InputHandler.h"
 #include "mc/locale/Localization.h"
+#include "mc/client/gui/screens/controllers/PauseScreenController.h"
+#include "mc/client/gui/screens/models/PauseScreenModel.h"
+#include "mc/client/gui/ViewRequest.h"
 #include "mc/world/actor/player/Player.h"
 #include "mc/world/level/Level.h"
 #include "ll/api/form/SimpleForm.h"
@@ -411,10 +414,6 @@ static std::atomic_bool gInWorld = false; // refreshed on the client thread, rea
 static std::set<int> gAskLater; // client thread only
 static void          askBeforeJoin(IMinecraftGame& game, int slot);
 static void          openSettings();
-struct ViewRect {
-    float x, y, width, height; // fractions of the window
-};
-static ViewRect* viewportOf(void* self, ViewRect* out, SubClientId id, uint64_t count, int direction);
 
 static std::atomic<int> gSecondsLeft = -1; // shown in the "controller lost" prompt; -1 when nobody is leaving
 
@@ -444,6 +443,24 @@ static void checkControllers(IMinecraftGame& game) {
     }
     gSecondsLeft = left;
 
+}
+
+// The pause menu's "Split screen" button (added by the mod's resource pack) sends "button.splitscreen_menu".
+LL_AUTO_TYPE_INSTANCE_HOOK(
+    PauseButtonHook,
+    ll::memory::HookPriority::Normal,
+    PauseScreenController,
+    &PauseScreenController::$ctor,
+    void*,
+    std::shared_ptr<PauseScreenModel> model,
+    bool                              overlaySocialDrawerOnce
+) {
+    auto result = origin(std::move(model), overlaySocialDrawerOnce);
+    registerButtonPressedHandler(_getNameId("button.splitscreen_menu"), [](UIPropertyBag*) {
+        ll::thread::ClientThreadExecutor::getDefault().execute(openSettings);
+        return ui::ViewRequest::None;
+    });
+    return result;
 }
 
 // The game's "controller lost" prompt reads this text; add how long until that player is removed.
@@ -527,30 +544,8 @@ static void pollTrigger() {
         gAskLater.erase(gAskLater.begin());
         askBeforeJoin(client->getMinecraftGame(), slot);
     }
-    // the pause menu of any player gets a "Split screen" button
-    bool     paused = false;
-    ViewRect where{0, 0, 1, 1};
-    if (client && gInWorld) {
-        auto clients = client->getMinecraftGame().getClientInstanceMap();
-        for (auto& [sub, other] : clients)
-            if (other && !paused && other->getTopScreenName().find("pause") != std::string::npos) {
-                paused = true;
-                viewportOf(other.get(), &where, sub, clients.size(), int(client->getOptions().getSplitscreenDirection()));
-            }
-    }
-    static ViewRect shownAt{};
-    if (paused && std::memcmp(&where, &shownAt, sizeof where)) {
-        overlay::moveButton(where.x, where.y, where.width, where.height);
-        shownAt = where;
-    }
     static std::string lastScreen; // logged so the pause check can be fixed if the game renames its screens
     if (auto top = client ? client->getTopScreenName() : std::string(); top != lastScreen) note("screen: {}", lastScreen = top);
-    static bool wasPaused = false;
-    if (paused != wasPaused) {
-        if (paused) overlay::showButton(openSettings);
-        else overlay::hideButton();
-        wasPaused = paused;
-    }
     static bool f9WasDown = false; // F9 writes the controller table to the log (edge-detected)
     bool        f9        = (GetAsyncKeyState(VK_F9) & 0x8000) && pid == GetCurrentProcessId();
     if (f9 && !f9WasDown && client) dumpPlayers(client->getMinecraftGame());
@@ -1208,17 +1203,6 @@ LL_AUTO_TYPE_INSTANCE_HOOK(
     return result;
 }
 
-// ---- Each player's part of the screen: IClientInstance::calculateViewPortModifiers (only read, to place the pause
-// button). Instance methods return structs through a hidden pointer passed after `this`.
-using ViewportFn = ViewRect* (*)(void*, ViewRect*, SubClientId, uint64_t, int);
-
-static std::atomic<ll::memory::FuncPtr> gViewportFn = nullptr;
-
-static ViewRect* viewportOf(void* self, ViewRect* out, SubClientId id, uint64_t count, int direction) {
-    if (auto fn = reinterpret_cast<ViewportFn>(gViewportFn.load())) return fn(self, out, id, count, direction);
-    return out;
-}
-
 bool MyMod::load() {
     note("SplitScreenMod loading");
     gLlClient = findLlClientVar(); // checked in enable(), once the client exists
@@ -1272,9 +1256,6 @@ bool MyMod::enable() {
     }
     hookSlot(&game, &IMinecraftGame::addSubClientInstanceAndAssociateToUser, fn(&joinRequestDetour),
              "addSubClientInstanceAndAssociateToUser");
-    if (auto slot = findSlot(static_cast<IClientInstance*>(client.as_ptr()), &IClientInstance::calculateViewPortModifiers,
-                             "calculateViewPortModifiers"))
-        gViewportFn = *slot;
     if (hooks.contains("isSplitscreenJoinEnabled"))
         hookSlot(&game, &IMinecraftGame::isSplitscreenJoinEnabled, fn(&joinEnabledDetour), "isSplitscreenJoinEnabled");
     if (hooks.contains("canAddSplitscreenSubClient"))

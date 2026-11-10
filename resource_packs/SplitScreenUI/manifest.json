@@ -1,0 +1,17 @@
+{
+  "format_version": 2,
+  "header": {
+    "name": "Bedrock Splitscreen UI",
+    "description": "The Split screen button in the pause menu",
+    "uuid": "64c369bd-945a-4e1b-ab9a-4b3377148744",
+    "version": [1, 0, 0],
+    "min_engine_version": [1, 26, 0]
+  },
+  "modules": [
+    {
+      "type": "resources",
+      "uuid": "2d29ae07-be78-4451-a33e-53ca7c775e0e",
+      "version": [1, 0, 0]
+    }
+  ]
+}
