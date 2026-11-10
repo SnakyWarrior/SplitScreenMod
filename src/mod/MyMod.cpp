@@ -291,6 +291,21 @@ static bool splitActiveDetour(void* self) {
     return gVvSites.contains(rva) ? false : orig;
 }
 
+// the same for the split screen counts: "vvc <rva>" makes that caller see 1
+static std::set<uintptr_t> gVvCountSites;
+template <int Which>
+static int splitCountDetour(void* self) {
+    static constexpr char const* names[] = {"client getSplitScreenCount", "game getSplitScreenCount"};
+    int  orig = reinterpret_cast<int (*)(void*)>(gCfg[names[Which]].origin)(self);
+    if (Which == 1) orig = uint8_t(orig); // IMinecraftGame's returns one byte
+    auto rva  = reinterpret_cast<uintptr_t>(_ReturnAddress()) - gameBase();
+    static std::mutex m;
+    std::lock_guard   lock(m);
+    static std::set<uintptr_t> seen;
+    if (seen.insert(rva).second) note("{} called from {:X} ({}): game said {}", names[Which], rva, rva, orig);
+    return gVvCountSites.contains(rva) ? 1 : orig;
+}
+
 static void runTrigger(std::string const& cmd, int arg) {
     auto client = ll::service::getClientInstance();
     if (!client) return note("trigger {}: no client instance", cmd);
@@ -298,6 +313,11 @@ static void runTrigger(std::string const& cmd, int arg) {
     if (cmd == "join") {
         note("adding player on controller {}", arg);
         game.addSubClientInstanceAndAssociateToUser(arg); // goes through the menu like the game's join prompt
+    }
+    if (cmd == "vvc") {
+        if (arg) gVvCountSites.insert(uintptr_t(arg));
+        else gVvCountSites.clear();
+        note("vvc: {} caller(s) see one screen", gVvCountSites.size());
     }
     if (cmd == "vv") {
         if (arg) gVvSites.insert(uintptr_t(arg));
@@ -1717,6 +1737,8 @@ bool MyMod::enable() {
         if (!gTryGetSubId) note("sub id choice not found: picking a saved player will not work");
     }
     hookSlot(client.as_ptr(), &IClientInstance::isSplitScreenActive, fn(&splitActiveDetour), "isSplitScreenActive");
+    hookSlot(client.as_ptr(), &IClientInstance::getSplitScreenCount, fn(&splitCountDetour<0>), "client getSplitScreenCount");
+    hookSlot(&game, &IMinecraftGame::getSplitScreenCount, fn(&splitCountDetour<1>), "game getSplitScreenCount");
     hookSlot(&game, &IMinecraftGame::addSubClientInstanceAndAssociateToUser, fn(&joinRequestDetour),
              "addSubClientInstanceAndAssociateToUser");
     ll::thread::ClientThreadExecutor::getDefault().execute(pollTrigger);
