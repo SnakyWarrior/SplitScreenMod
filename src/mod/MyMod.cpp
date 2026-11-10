@@ -36,6 +36,7 @@
 #include "mc/client/options/IOptionRegistry.h"
 #include "mc/common/Globals.h"
 #include "mc/client/game/IMinecraftGame.h"
+#include "mc/client/input/ClientInputHandler.h"
 #include "mc/client/input/MinecraftInputHandler.h"
 #include "mc/deps/application/gamecore/Platform_GameCore.h"
 #include "mc/deps/entry/src_gamecore/input/GameCorePlayerInput.h"
@@ -324,7 +325,6 @@ static bool menuOpen(int sub) {
 static void          startJoin(IMinecraftGame& game, int slot);
 static void          freeFirstPad(IMinecraftGame& game, void* pad);
 static void*         firstPlayerPad();
-static std::atomic<int>  gPlayerCount = 1;     // players in the game, for the pause menu (poll loop)
 static std::atomic_bool  gFirstHasPad = false; // player 1 has a controller, for the pause menu (poll loop)
 static Player*       serverPlayer(SubClientId sub);
 static int           gFreshSlot = -1;  // the controller slot of gFreshSub
@@ -401,28 +401,32 @@ LL_AUTO_TYPE_INSTANCE_HOOK(QuietSendHook, ll::memory::HookPriority::Normal, Loop
     if (!isQuietJoinMessage(packet)) origin(ids, packet);
 }
 
-// Spectator mode: the other players do not see it, nothing can hurt it and it shows no effect icons. Its own game
-// mode comes back when it is chosen.
-static std::map<int, GameType> gModeBeforeHiding; // client sub id -> game mode (server thread calls are brief)
+// Spectator mode: the other players do not see it, nothing can hurt it and it shows no effect icons. The game mode
+// it had is kept in a tag on the player itself, so it is saved with the world: a player that leaves (or is saved)
+// while hidden gets its own mode back the next time it is in the world (see restoreHidden in the poll loop).
+static constexpr std::string_view kModeTag = "splitscreen_mode_";
+
+static std::optional<std::string> modeTag(Player& player) {
+    for (auto& tag : player.getTags())
+        if (tag.starts_with(kModeTag)) return tag;
+    return std::nullopt;
+}
 
 static void hideStandIn(Player& player, bool hide) {
-    int sub = int(player.getClientSubId());
-    // A stand-in that was dropped while hidden is saved in spectator mode; it then comes back with the world's
-    // default game mode instead.
-    auto worldMode = [] {
-        auto level = ll::service::getLevel();
-        return level ? level->getDefaultGameType() : GameType::Survival;
-    };
-    if (hide) {
-        if (!gModeBeforeHiding.contains(sub))
-            gModeBeforeHiding[sub] = player.getPlayerGameType() != GameType::Spectator ? player.getPlayerGameType() : worldMode();
-        player.setPlayerGameType(GameType::Spectator);
-    } else {
-        auto it   = gModeBeforeHiding.find(sub);
-        auto mode = it != gModeBeforeHiding.end() ? it->second : worldMode();
-        if (it != gModeBeforeHiding.end()) gModeBeforeHiding.erase(it);
-        if (player.getPlayerGameType() == GameType::Spectator || mode != GameType::Spectator) player.setPlayerGameType(mode);
+    if (!hide) {
+        if (auto tag = modeTag(player)) {
+            player.setPlayerGameType(GameType(std::stoi(tag->substr(kModeTag.size()))));
+            player.removeTag(*tag);
+        }
+        return;
     }
+    if (!modeTag(player)) {
+        auto mode = player.getPlayerGameType();
+        if (mode == GameType::Spectator) // already hidden by an older version: take the world's mode
+            if (auto level = ll::service::getLevel()) mode = level->getDefaultGameType();
+        player.addTag(std::string(kModeTag) + std::to_string(int(mode)));
+    }
+    player.setPlayerGameType(GameType::Spectator);
 }
 
 // Which player each open pause menu belongs to: a pause menu is created just before it shows, so the poll loop gives
@@ -447,30 +451,36 @@ static void claimPauseMenus(std::map<SubClientId, std::shared_ptr<IClientInstanc
     }
 }
 
+// Players in the game now. The pause menu asks on the client thread, which owns this map; the poll loop's count goes
+// stale while a one-player world is paused.
+static int playersNow() {
+    auto client = ll::service::getClientInstance();
+    return client ? int(client->getMinecraftGame().getClientInstanceMap().size()) : 1;
+}
+
 // Closes `who`'s pause menu, then runs `next`: while it is open the world may be paused, so menus (forms) do not
-// arrive and the game holds back its own prompts.
+// arrive and the game holds back its own prompts. Called from a button, on the client thread: the pop is asked for at
+// once, because the mod's delayed tasks only run again once the world runs.
 static void closePauseThen(int who, std::function<void()> next) {
-    ll::thread::ClientThreadExecutor::getDefault().execute([who, next] {
-        auto paused = [who]() -> std::shared_ptr<IClientInstance> {
-            auto client = ll::service::getClientInstance();
-            if (!client) return nullptr;
-            auto clients = client->getMinecraftGame().getClientInstanceMap();
-            auto it      = clients.find(SubClientId(who));
-            return it != clients.end() && it->second && it->second->getTopScreenName().find("pause") != std::string::npos
-                     ? it->second
-                     : nullptr;
-        };
-        if (auto c = paused()) c->getClientSceneStack()->schedulePopScreen(1);
-        ll::thread::ClientThreadExecutor::getDefault().executeAfter(
-            [who, paused, next] {
-                // player 1's pause menu can sit on the window's main stack instead (only player 1's: the main stack
-                // holds player 1's screens)
-                if (auto c = who == 0 ? paused() : nullptr) c->getMainSceneStack()->schedulePopScreen(1);
-                ll::thread::ClientThreadExecutor::getDefault().executeAfter(next, std::chrono::milliseconds(300));
-            },
-            std::chrono::milliseconds(200)
-        );
-    });
+    auto paused = [who]() -> std::shared_ptr<IClientInstance> {
+        auto client = ll::service::getClientInstance();
+        if (!client) return nullptr;
+        auto clients = client->getMinecraftGame().getClientInstanceMap();
+        auto it      = clients.find(SubClientId(who));
+        return it != clients.end() && it->second && it->second->getTopScreenName().find("pause") != std::string::npos
+                 ? it->second
+                 : nullptr;
+    };
+    if (auto c = paused()) c->getClientSceneStack()->schedulePopScreen(1);
+    ll::thread::ClientThreadExecutor::getDefault().executeAfter(
+        [who, paused, next] {
+            // player 1's pause menu can sit on the window's main stack instead (only player 1's: the main stack holds
+            // player 1's screens)
+            if (auto c = who == 0 ? paused() : nullptr) c->getMainSceneStack()->schedulePopScreen(1);
+            ll::thread::ClientThreadExecutor::getDefault().executeAfter(next, std::chrono::milliseconds(300));
+        },
+        std::chrono::milliseconds(200)
+    );
 }
 
 // The pause menu's "Split screen" button (added by the mod's resource pack) sends "button.splitscreen_menu".
@@ -490,13 +500,13 @@ LL_AUTO_TYPE_INSTANCE_HOOK(
     }
     note("pause menu opened: Split screen button ready");
     // read from values the poll loop keeps up to date: the UI asks often, and must never wait on the game's locks
-    bindBool(StringHash("#splitscreen_many_players"), [] { return gPlayerCount > 1; }, [] { return true; });
-    bindBool(StringHash("#splitscreen_free_controller"), [] { return gPlayerCount == 1 && gFirstHasPad; }, [] { return true; });
+    bindBool(StringHash("#splitscreen_many_players"), [] { return playersNow() > 1; }, [] { return true; });
+    bindBool(StringHash("#splitscreen_free_controller"), [] { return playersNow() == 1 && gFirstHasPad; }, [] { return true; });
     // One plain bool for the gap before the buttons: an "(#a or #b)" binding expression made the game's UI layout
     // loop forever when the pause menu opened with two players.
     bindBool(
         StringHash("#splitscreen_any_button"),
-        [] { return gPlayerCount > 1 || (gPlayerCount == 1 && gFirstHasPad); },
+        [] { return playersNow() > 1 || gFirstHasPad; },
         [] { return true; }
     );
     registerButtonPressedHandler(_getNameId("button.splitscreen_free_controller"), [](UIPropertyBag*) {
@@ -729,14 +739,23 @@ static void pollTrigger() {
             gFreshRetried = false;
         } else if (gFreshSub >= 0 && std::chrono::steady_clock::now() - gFreshAt > std::chrono::seconds(60)) gFreshSub = -1, hidden = -1;
     }
+    if (worldTicks > 0 && worldTicks % 20 == 0)
+        if (auto level = ll::service::getLevel())
+            level->forEachPlayer([](Player& player) {
+                int sub = int(player.getClientSubId());
+                if (sub != gFreshSub && !menuOpen(sub) && modeTag(player)) {
+                    note("player {} was still hidden: own game mode back", sub + 1);
+                    hideStandIn(player, false);
+                }
+                return true;
+            });
     if (worldTicks > 60 && !gAskLater.empty() && gFreshSub < 0 && !everyonePaused()) { // 3 s in: the players have spawned
         int slot = *gAskLater.begin();
         gAskLater.erase(gAskLater.begin());
         startJoin(client->getMinecraftGame(), slot);
     }
     if (client && gInWorld) claimPauseMenus(client->getMinecraftGame().getClientInstanceMap());
-    if (client && tick % 5 == 0) {
-        gPlayerCount = int(client->getMinecraftGame().getClientInstanceMap().size());
+    if (client && tick % 5 == 0) { // player 1 has a controller: read without waiting on the game
         if (auto handler = controllerHandler()) {
             std::unique_lock lock(*handler->mPlayerInputsLock, std::try_to_lock);
             if (lock) {
@@ -765,8 +784,9 @@ static void pollTrigger() {
         for (auto& [sub, other] : clients)
             if (!other || other->getTopScreenName().find("pause") == std::string::npos) all = false;
         if (all != allPaused) {
-            if (auto level = ll::service::getLevel()) level->setSimPaused(all);
-            note("all players paused: {}", all);
+            // the game's own pause (what a single player's pause menu asks for); Level::setSimPaused did not stop it
+            bool done = client->requestInGamePause(all);
+            note("all players paused: {} (game accepted: {})", all, done);
             allPaused = all;
         }
     } else allPaused = false;
@@ -1105,6 +1125,8 @@ static void tell(SubClientId sub, std::string const& text) {
 static void freeFirstPad(IMinecraftGame& game, void* pad) {
     note("controller taken from player 1");
     newPlayerFor(game, 0, pad);
+    // the sticks and buttons it held stay pressed on player 1 otherwise (walking or turning by itself)
+    if (auto client = ll::service::getClientInstance(); client && client->getInput()) client->getInput()->releaseButtonsAndSticks();
     tell(SubClientId::PrimaryClient, "Press start on your controller to choose who plays with it");
     ll::thread::ClientThreadExecutor::getDefault().executeAfter(
         [] {
