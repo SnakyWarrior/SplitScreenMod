@@ -247,7 +247,7 @@
           "size": [ 82, 13 ],
           "anchor_from": "top_right",
           "anchor_to": "top_right",
-          "offset": [ -22, -26 ],
+          "offset": [ -22, -25 ],
           "layer": 20,
           "controls": [
             { "outline@server_form.splitscreen_fill": { "color": [ 0.118, 0.118, 0.122 ] } },
@@ -273,7 +273,7 @@
           "size": [ 70, 13 ],
           "anchor_from": "top_right",
           "anchor_to": "top_right",
-          "offset": [ -22, -26 ],
+          "offset": [ -22, -25 ],
           "layer": 20,
           "controls": [
             { "outline@server_form.splitscreen_fill": { "color": [ 0.118, 0.118, 0.122 ] } },
@@ -299,7 +299,7 @@
           "size": [ 30, 13 ],
           "anchor_from": "top_right",
           "anchor_to": "top_right",
-          "offset": [ -94, -26 ],
+          "offset": [ -94, -25 ],
           "layer": 20,
           "controls": [
             { "outline@server_form.splitscreen_fill": { "color": [ 0.118, 0.118, 0.122 ] } },
@@ -325,7 +325,7 @@
           "size": [ 30, 13 ],
           "anchor_from": "top_right",
           "anchor_to": "top_right",
-          "offset": [ -128, -26 ],
+          "offset": [ -128, -25 ],
           "layer": 20,
           "controls": [
             { "outline@server_form.splitscreen_fill": { "color": [ 0.118, 0.118, 0.122 ] } },
@@ -347,7 +347,7 @@
       { "binding_type": "view", "source_property_name": "(('%.11s' * #form_button_text) = '[tag:Top an') or (('%.11s' * #form_button_text) = '[tag:Side ')", "target_property_name": "#visible" }
     ],
     "controls": [
-      { "arrow": { "type": "image", "texture": "textures/ui/ore-styled/dropdown/arrow", "size": [ 7, 4 ], "anchor_from": "top_right", "anchor_to": "top_right", "offset": [ -8, -21 ], "layer": 20 } }
+      { "arrow": { "type": "image", "texture": "textures/ui/ore-styled/dropdown/arrow", "size": [ 7, 4 ], "anchor_from": "top_right", "anchor_to": "top_right", "offset": [ -8, -19 ], "layer": 20 } }
     ]
   },
 
@@ -367,7 +367,7 @@
           "size": [ 54, 13 ],
           "anchor_from": "top_right",
           "anchor_to": "top_right",
-          "offset": [ -6, -26 ],
+          "offset": [ -6, -25 ],
           "layer": 20,
           "controls": [
             { "outline@server_form.splitscreen_fill": { "color": [ 0.118, 0.118, 0.122 ] } },
@@ -393,7 +393,7 @@
           "size": [ 48, 13 ],
           "anchor_from": "top_right",
           "anchor_to": "top_right",
-          "offset": [ -6, -26 ],
+          "offset": [ -6, -25 ],
           "layer": 20,
           "controls": [
             { "outline@server_form.splitscreen_fill": { "color": [ 0.118, 0.118, 0.122 ] } },
@@ -419,7 +419,7 @@
           "size": [ 76, 13 ],
           "anchor_from": "top_right",
           "anchor_to": "top_right",
-          "offset": [ -6, -26 ],
+          "offset": [ -6, -25 ],
           "layer": 20,
           "controls": [
             { "outline@server_form.splitscreen_fill": { "color": [ 0.118, 0.118, 0.122 ] } },
@@ -445,7 +445,7 @@
           "size": [ 66, 13 ],
           "anchor_from": "top_right",
           "anchor_to": "top_right",
-          "offset": [ -6, -26 ],
+          "offset": [ -6, -25 ],
           "layer": 20,
           "controls": [
             { "outline@server_form.splitscreen_fill": { "color": [ 0.118, 0.118, 0.122 ] } },
@@ -471,7 +471,7 @@
           "size": [ 54, 13 ],
           "anchor_from": "top_right",
           "anchor_to": "top_right",
-          "offset": [ -40, -26 ],
+          "offset": [ -40, -25 ],
           "layer": 20,
           "controls": [
             { "outline@server_form.splitscreen_fill": { "color": [ 0.118, 0.118, 0.122 ] } },
@@ -497,7 +497,7 @@
           "size": [ 48, 13 ],
           "anchor_from": "top_right",
           "anchor_to": "top_right",
-          "offset": [ -40, -26 ],
+          "offset": [ -40, -25 ],
           "layer": 20,
           "controls": [
             { "outline@server_form.splitscreen_fill": { "color": [ 0.118, 0.118, 0.122 ] } },
@@ -523,7 +523,7 @@
           "size": [ 76, 13 ],
           "anchor_from": "top_right",
           "anchor_to": "top_right",
-          "offset": [ -40, -26 ],
+          "offset": [ -40, -25 ],
           "layer": 20,
           "controls": [
             { "outline@server_form.splitscreen_fill": { "color": [ 0.118, 0.118, 0.122 ] } },
@@ -549,7 +549,7 @@
           "size": [ 66, 13 ],
           "anchor_from": "top_right",
           "anchor_to": "top_right",
-          "offset": [ -40, -26 ],
+          "offset": [ -40, -25 ],
           "layer": 20,
           "controls": [
             { "outline@server_form.splitscreen_fill": { "color": [ 0.118, 0.118, 0.122 ] } },
@@ -621,9 +621,9 @@
     "pressed_control": "pressed",
     "bindings": [ { "binding_type": "collection_details", "binding_collection_name": "form_buttons" } ],
     "controls": [
-      { "default@server_form.splitscreen_button_look": { "$bg": "$tex", "$face_y": 0 } },
-      { "hover@server_form.splitscreen_button_look": { "$bg": "$tex_hover", "$face_y": 0 } },
-      { "pressed@server_form.splitscreen_button_look": { "$bg": "$tex_pressed", "$face_y": 2 } }
+      { "default@server_form.splitscreen_button_look": { "$bg": "$tex", "$face_y": 2 } },
+      { "hover@server_form.splitscreen_button_look": { "$bg": "$tex_hover", "$face_y": 2 } },
+      { "pressed@server_form.splitscreen_button_look": { "$bg": "$tex_pressed", "$face_y": 4 } }
     ]
   },
 
