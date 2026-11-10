@@ -605,6 +605,19 @@ static void pollTrigger() {
         gAskLater.erase(gAskLater.begin());
         startJoin(client->getMinecraftGame(), slot);
     }
+    // With several players the game keeps running while someone is paused; stop it when every player is paused.
+    static bool allPaused = false;
+    if (client && gInWorld) {
+        auto clients = client->getMinecraftGame().getClientInstanceMap();
+        bool all     = clients.size() > 1;
+        for (auto& [sub, other] : clients)
+            if (!other || other->getTopScreenName().find("pause") == std::string::npos) all = false;
+        if (all != allPaused) {
+            if (auto level = ll::service::getLevel()) level->setSimPaused(all);
+            note("all players paused: {}", all);
+            allPaused = all;
+        }
+    } else allPaused = false;
     static std::string lastScreen; // logged so the pause check can be fixed if the game renames its screens
     if (auto top = client ? client->getTopScreenName() : std::string(); top != lastScreen) note("screen: {}", lastScreen = top);
     static bool f9WasDown = false; // F9 writes the controller table to the log (edge-detected)
