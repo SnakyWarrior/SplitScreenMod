@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <cctype>
 #include <cstring>
 #include <filesystem>
@@ -43,6 +44,7 @@
 #include "mc/gamecore/GameControllerHandler_GameCore.h"
 #include "mc/deps/input/InputHandler.h"
 #include "mc/locale/Localization.h"
+#include "mc/deps/core/math/Color.h"
 #include "mc/network/LoopbackPacketSender.h"
 #include "mc/network/packet/TextPacket.h"
 #include "mc/world/effect/MobEffectInstance.h"
@@ -1009,7 +1011,22 @@ static void freeFirstPad(IMinecraftGame& game, void* pad) {
 
 // Player pictures: P1-P4 (the same as their part of the screen) for players with a controller, else the name tag.
 static constexpr char const* kNameTag = "textures/items/name_tag";
-static std::string           badge(int sub) { return fmt::format("textures/splitscreen/p{}", sub + 1); }
+// The picture takes that player's own colour (the one the game gives them, e.g. on the locator bar), as the nearest of
+// 24 hues, or white when it has no colour.
+static std::string badge(int sub) {
+    int shade = 24;
+    if (auto player = serverPlayer(SubClientId(sub)))
+        if (auto level = ll::service::getLevel()) {
+            mce::Color c  = level->getPlayerColor(*player);
+            float      hi = std::max({c.r, c.g, c.b}), lo = std::min({c.r, c.g, c.b});
+            if (hi - lo > 0.15f) {
+                float h = hi == c.r ? (c.g - c.b) / (hi - lo) : hi == c.g ? 2 + (c.b - c.r) / (hi - lo) : 4 + (c.r - c.g) / (hi - lo);
+                h       = std::fmod(h / 6 + 1, 1.f);
+                shade   = int(std::lround(h * 24)) % 24;
+            }
+        }
+    return fmt::format("textures/splitscreen/p{}_{}", sub + 1, shade);
+}
 
 // F7 or the pause menu's "Split screen" button: layout, and removing players.
 // The player whose pause menu is open, else player 1.
