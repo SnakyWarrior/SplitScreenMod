@@ -50,7 +50,6 @@
 #include "mc/client/gui/screens/models/PauseScreenModel.h"
 #include "mc/client/gui/ViewRequest.h"
 #include "mc/client/gui/screens/interfaces/ISceneStack.h"
-#include "src-client/mc/client/game/ClientInstance.h"
 #include "mc/world/actor/player/Player.h"
 #include "mc/world/level/Level.h"
 #include "ll/api/form/SimpleForm.h"
