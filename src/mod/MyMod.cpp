@@ -1013,6 +1013,10 @@ static void newPlayerFor(IMinecraftGame& game, int from, void* device) {
     {
         std::lock_guard lock(*handler->mPlayerInputsLock);
         for (auto& [u, value] : hidden) *u = value;
+        // Player 1 keeps keyboard and mouse, so their slot is still connected. Left "disconnected", the game hid its
+        // "Join as Player" prompt from player 1's screen.
+        if (from == 0 && handler->mPlayerInputs->contains(0))
+            handler->mPlayerInputs->at(0).mConnectionState = PlayerInputConnectionState::Connected;
     }
     note("picker: controller left slot {} for a new player", from);
 }
