@@ -79,7 +79,12 @@ static void writeLine(std::string const& line) {
     static std::mutex m;
     std::lock_guard   lock(m);
     auto&       self = MyMod::getInstance().getSelf();
-    static auto out  = std::ofstream(self.getModDir() / "splitscreen.log", std::ios::trunc);
+    static auto out  = [&] {
+        // the last run's log stays as splitscreen.prev.log: after a crash, that is the one to read
+        std::error_code ignored;
+        std::filesystem::rename(self.getModDir() / "splitscreen.log", self.getModDir() / "splitscreen.prev.log", ignored);
+        return std::ofstream(self.getModDir() / "splitscreen.log", std::ios::trunc);
+    }();
     self.getLogger().info("{}", line);
     out << line << std::endl;
 }
@@ -471,12 +476,14 @@ static void closePauseThen(int who, std::function<void()> next) {
                  ? it->second
                  : nullptr;
     };
-    if (auto c = paused()) c->getClientSceneStack()->schedulePopScreen(1);
+    if (auto c = paused()) c->getClientSceneStack()->schedulePopScreenWithExpectedNames({"pause_screen"});
     ll::thread::ClientThreadExecutor::getDefault().executeAfter(
         [who, paused, next] {
             // player 1's pause menu can sit on the window's main stack instead (only player 1's: the main stack holds
             // player 1's screens)
-            if (auto c = who == 0 ? paused() : nullptr) c->getMainSceneStack()->schedulePopScreen(1);
+            // Only ever pop a named screen there: popping player 1's HUD off it made the game crash when a player
+            // left (it reads that stack's top screen).
+            if (auto c = who == 0 ? paused() : nullptr) c->getMainSceneStack()->schedulePopScreenWithExpectedNames({"pause_screen"});
             ll::thread::ClientThreadExecutor::getDefault().executeAfter(next, std::chrono::milliseconds(300));
         },
         std::chrono::milliseconds(200)
@@ -776,20 +783,6 @@ static void pollTrigger() {
             if (other) state += fmt::format(" {}:{}:{}", int(sub), other->getControllerId(), withPad.contains(other->getControllerId()));
         refreshSettings(state);
     }
-    // With several players the game keeps running while someone is paused; stop it when every player is paused.
-    static bool allPaused = false;
-    if (client && gInWorld) {
-        auto clients = client->getMinecraftGame().getClientInstanceMap();
-        bool all     = clients.size() > 1;
-        for (auto& [sub, other] : clients)
-            if (!other || other->getTopScreenName().find("pause") == std::string::npos) all = false;
-        if (all != allPaused) {
-            // the game's own pause (what a single player's pause menu asks for); Level::setSimPaused did not stop it
-            bool done = client->requestInGamePause(all);
-            note("all players paused: {} (game accepted: {})", all, done);
-            allPaused = all;
-        }
-    } else allPaused = false;
     static std::string lastScreen; // logged so the pause check can be fixed if the game renames its screens
     if (auto top = client ? client->getTopScreenName() : std::string(); top != lastScreen) note("screen: {}", lastScreen = top);
     static bool f9WasDown = false; // F9 writes the controller table to the log (edge-detected)
@@ -1130,8 +1123,8 @@ static void freeFirstPad(IMinecraftGame& game, void* pad) {
     tell(SubClientId::PrimaryClient, "Press start on your controller to choose who plays with it");
     ll::thread::ClientThreadExecutor::getDefault().executeAfter(
         [] {
-            if (auto c = ll::service::getClientInstance(); c && c->getTopScreenName().find("gamepad_disconnected") != std::string::npos)
-                c->getMainSceneStack()->schedulePopScreen(1);
+            if (auto c = ll::service::getClientInstance())
+                c->getMainSceneStack()->schedulePopScreenWithExpectedNames({"gamepad_disconnected_screen"});
         },
         std::chrono::milliseconds(300)
     );
@@ -1340,6 +1333,7 @@ static void rejoinAs(SubClientId leaving, int controllerId, int sub, int tries =
     if (!client) return;
     auto& game    = client->getMinecraftGame();
     auto  clients = game.getClientInstanceMap();
+    if (tries == 0) quietFor(std::chrono::seconds(30)); // a swap is one player going on: no left/joined lines
     if (tries == 0 && clients.contains(leaving)) clients.at(leaving)->requestLeaveGameAsync();
     if (clients.contains(leaving) && tries < 40) { // wait up to 20 s for the player to be gone
         ll::thread::ClientThreadExecutor::getDefault().executeAfter(

@@ -62,7 +62,7 @@ To leave, press the red X next to the player in the Split screen menu, or unplug
 
 ## Troubleshooting
 
-The mod writes a log to `mods\SplitScreenMod\splitscreen.log`. If controllers go to the wrong player, press **F9** in the game first: it writes which controller belongs to which player into the log. Please attach the log when you [report a problem](../../issues/new/choose).
+The mod writes a log to `mods\SplitScreenMod\splitscreen.log`; the run before is kept as `splitscreen.prev.log`, so after a crash attach that one. If controllers go to the wrong player, press **F9** in the game first: it writes which controller belongs to which player into the log. Please attach the log when you [report a problem](../../issues/new/choose).
 
 ## Building
 
