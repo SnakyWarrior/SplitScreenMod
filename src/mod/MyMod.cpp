@@ -515,7 +515,8 @@ LL_AUTO_TYPE_INSTANCE_HOOK(
                 if (auto it = clients.find(SubClientId(who)); it != clients.end() && it->second)
                     it->second->getClientSceneStack()->schedulePopScreen(1);
             }
-            openSettings(who);
+            // after the pause menu is gone, so the pop cannot take the new menu with it and the world runs again
+            ll::thread::ClientThreadExecutor::getDefault().executeAfter([who] { openSettings(who); }, std::chrono::milliseconds(400));
         });
         return ui::ViewRequest::None;
     });
@@ -925,11 +926,19 @@ static Player* serverPlayer(SubClientId sub) {
 
 // The mod's menus are the game's own forms, shown on one player's part of the screen. Player buttons carry the
 // game's name tag picture. `done` gets the chosen index, or -1 when closed, on the client thread.
+// Button texts the resource pack draws specially (see its server_form.json): a square button laid over the right end
+// of the row above it (remove that player / take player 1's controller), a row that leaves room for that square,
+// and the green closing button.
+static constexpr char const* kKickButton = "[x]";
+static constexpr char const* kPadButton  = "[p]";
+static constexpr char const* kRoomForSquare = " "; // a leading space: not seen, but the UI can test for it
+static constexpr char const* kDoneButton = "Done";
+
 static void showMenu(
     SubClientId                     who,
     std::string const&              text,
     std::vector<std::string> const& buttons,
-    std::vector<bool> const&        tagged,
+    std::vector<bool> const&        tagged, // the button shows the name tag picture
     std::function<void(int)>        done,
     std::string const&              title
 ) {
@@ -941,6 +950,7 @@ static void showMenu(
     ll::form::SimpleForm form(title, text);
     for (size_t i = 0; i < buttons.size(); ++i)
         if (i < tagged.size() && tagged[i]) form.appendButton(buttons[i], "textures/items/name_tag", "path");
+        else if (buttons[i] == kPadButton) form.appendButton(buttons[i], "textures/ui/controller_glyph", "path");
         else form.appendButton(buttons[i]);
     form.sendTo(*player, [done, sub = int(who)](Player&, int pick, ll::form::FormCancelReason) {
         ll::thread::ClientThreadExecutor::getDefault().execute([done, pick, sub] {
@@ -960,63 +970,89 @@ static int pausedPlayer() {
     return 0;
 }
 
+static void rejoinAs(SubClientId leaving, int controllerId, int sub, int tries);
+
 static void openSettings(int who) {
     auto client = ll::service::getClientInstance();
     if (!client) return;
     if (who < 0) who = pausedPlayer();
     if (menuOpen(who)) return;
-    auto clients  = client->getMinecraftGame().getClientInstanceMap();
-    bool vertical = int(client->getOptions().getSplitscreenDirection()) == 1;
-    std::vector<std::string>   buttons{vertical ? "Layout: side by side" : "Layout: top and bottom"};
-    std::vector<bool>          tagged{false};
-    std::vector<int>           subs{-1};
-    void*                      firstPad = nullptr; // player 1's controller, if they have one
+    auto& game     = client->getMinecraftGame();
+    auto  clients  = game.getClientInstanceMap();
+    bool  vertical = int(client->getOptions().getSplitscreenDirection()) == 1;
+
+    std::set<int> withPad;
+    void*         firstPad = nullptr; // player 1's controller, if they have one
     if (auto handler = controllerHandler()) {
         std::lock_guard lock(*handler->mPlayerInputsLock);
-        auto&           inputs = *handler->mPlayerInputs;
-        if (inputs.contains(0))
-            if (auto pads = gamepadsOf(inputs.at(0)); !pads.empty()) firstPad = pads.front();
+        for (auto& [id, input] : *handler->mPlayerInputs)
+            if (auto pads = gamepadsOf(input); !pads.empty()) {
+                withPad.insert(id);
+                if (id == 0) firstPad = pads.front();
+            }
     }
-    if (firstPad) {
-        buttons.push_back("Free player 1's controller");
-        tagged.push_back(false);
-        subs.push_back(-3);
-    }
-    for (auto& [sub, other] : clients)
-        if (other && sub != SubClientId::PrimaryClient) {
-            buttons.push_back(fmt::format("Remove {}", localName(clients, int(sub))));
+    enum class Act { Layout, Swap, Kick, FreePad, Join, Done };
+    struct Item {
+        Act act;
+        int sub;
+    };
+    std::vector<Item>        items{{Act::Layout, -1}};
+    std::vector<std::string> buttons{vertical ? "Layout: §9side by side" : "Layout: §9top and bottom"};
+    std::vector<bool>        tagged{false};
+    for (int sub = 0; sub <= 3; ++sub) {
+        auto it   = clients.find(SubClientId(sub));
+        auto name = localName(clients, sub);
+        if (it != clients.end() && it->second) { // playing: pick to play as them, square to remove / free controller
+            int  controller = it->second->getControllerId();
+            auto status     = sub == 0 ? "§2- Player 1" : withPad.contains(controller) ? "§2- Playing" : "§6- No controller";
+            items.push_back({Act::Swap, sub});
+            buttons.push_back(fmt::format("{}{} {}", kRoomForSquare, name, status));
             tagged.push_back(true);
-            subs.push_back(int(sub));
+            items.push_back({sub == 0 ? Act::FreePad : Act::Kick, sub});
+            buttons.push_back(sub == 0 ? kPadButton : kKickButton);
+            tagged.push_back(false);
+        } else if (who != 0) { // a saved player who is not playing: this player switches to them
+            items.push_back({Act::Join, sub});
+            buttons.push_back(fmt::format("{} §8- Not playing", name));
+            tagged.push_back(true);
         }
-    buttons.push_back("Close");
+    }
+    items.push_back({Act::Done, -1});
+    buttons.push_back(kDoneButton);
     tagged.push_back(false);
-    subs.push_back(-2);
-    showMenu(SubClientId(who), "Split screen", buttons, tagged, [subs, vertical, who, firstPad](int pick) {
+
+    showMenu(SubClientId(who), "", buttons, tagged, [items, vertical, who, firstPad](int pick) {
         auto client = ll::service::getClientInstance();
-        if (!client || pick < 0 || subs[pick] == -2) return;
-        if (subs[pick] == -3) {
-            // Player 1 goes back to keyboard and mouse; the controller gets a slot of its own and asks who it is for,
-            // without unplugging it.
-            auto& game = client->getMinecraftGame();
-            note("settings: controller taken from player 1");
-            newPlayerFor(game, 0, firstPad);
-            ll::thread::ClientThreadExecutor::getDefault().executeAfter(
-                [firstPad] {
-                    int slot = slotOfDevice(firstPad);
-                    if (auto c = ll::service::getClientInstance(); c && slot > 0) startJoin(c->getMinecraftGame(), slot);
-                },
-                std::chrono::milliseconds(500)
-            );
-            return;
-        }
-        if (subs[pick] == -1) {
+        if (!client || pick < 0 || pick >= int(items.size())) return;
+        auto& game    = client->getMinecraftGame();
+        auto  clients = game.getClientInstanceMap();
+        auto  item    = items[pick];
+        auto  mine    = clients.find(SubClientId(who));
+        int   myPad   = mine != clients.end() && mine->second ? mine->second->getControllerId() : -1;
+        switch (item.act) {
+        case Act::Layout:
             client->getOptions().setSplitscreenDirection(vertical ? 0 : 1);
-            return openSettings(who); // show the new layout's name
-        }
-        auto clients = client->getMinecraftGame().getClientInstanceMap();
-        if (auto it = clients.find(SubClientId(subs[pick])); it != clients.end() && it->second) {
-            note("settings: player {} removed", subs[pick] + 1);
-            it->second->requestLeaveGameAsync();
+            return openSettings(who); // show the new layout
+        case Act::Swap: // this controller plays as that player; theirs (if any) comes here
+            if (auto it = clients.find(SubClientId(item.sub)); item.sub != who && it != clients.end() && it->second && myPad >= 0)
+                moveController(game, myPad, it->second->getControllerId());
+            return;
+        case Act::Kick:
+            if (auto it = clients.find(SubClientId(item.sub)); it != clients.end() && it->second) {
+                note("settings: player {} removed", item.sub + 1);
+                it->second->requestLeaveGameAsync();
+            }
+            return;
+        case Act::FreePad: // player 1 goes back to keyboard and mouse; the controller waits for start to be pressed
+            if (firstPad) {
+                note("settings: controller taken from player 1");
+                newPlayerFor(game, 0, firstPad);
+            }
+            return;
+        case Act::Join:
+            if (who > 0 && myPad >= 0) rejoinAs(SubClientId(who), myPad, item.sub, 0);
+            return;
+        default: return;
         }
     }, "Split screen");
 }
@@ -1082,9 +1118,10 @@ static void offerPicker(SubClientId owner, bool fresh) {
     std::vector<bool>        tagged;
     for (auto& c : choices) {
         auto name = localName(clients, int(c.sub));
-        buttons.push_back(c.kind == Kind::Offline ? fmt::format("{} §7(not playing)", name)
-                          : c.kind == Kind::TakeOver ? fmt::format("{} §7(no controller)", name)
-                                                     : name);
+        // the stand-in of a new controller is not really playing yet
+        buttons.push_back(c.kind == Kind::Offline || (c.kind == Kind::Keep && fresh) ? fmt::format("{} §8- Not playing", name)
+                          : c.kind == Kind::TakeOver ? fmt::format("{} §6- No controller", name)
+                                                     : fmt::format("{} §2- Playing", name));
         tagged.push_back(true);
     }
     if (!fresh && clients.size() < 4) {
@@ -1161,6 +1198,23 @@ static void offerPicker(SubClientId owner, bool fresh) {
         default: break;
         }
     }, fresh ? "Choose your player" : "Who is playing?");
+    if (fresh && gMenus.contains(int(owner))) {
+        auto shown = gMenus.at(int(owner));
+        ll::thread::ClientThreadExecutor::getDefault().executeAfter(
+            [owner, shown] {
+                auto it = gMenus.find(int(owner));
+                if (it == gMenus.end() || it->second != shown) return; // answered
+                gMenus.erase(it);
+                note("picker: nobody chosen for player {} in 10 s", int(owner) + 1);
+                quietFor(std::chrono::seconds(30));
+                if (auto client = ll::service::getClientInstance()) {
+                    auto clients = client->getMinecraftGame().getClientInstanceMap();
+                    if (auto c = clients.find(owner); c != clients.end() && c->second) c->second->requestLeaveGameAsync();
+                }
+            },
+            std::chrono::seconds(10)
+        );
+    }
 }
 
 // A new controller joins at once as the first free saved player, and its own part of the screen (black, see the
