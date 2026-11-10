@@ -512,11 +512,20 @@ LL_AUTO_TYPE_INSTANCE_HOOK(
         ll::thread::ClientThreadExecutor::getDefault().execute([who = pausedPlayer()] {
             if (auto client = ll::service::getClientInstance()) {
                 auto clients = client->getMinecraftGame().getClientInstanceMap();
-                if (auto it = clients.find(SubClientId(who)); it != clients.end() && it->second)
-                    it->second->getClientSceneStack()->schedulePopScreen(1);
+                if (auto it = clients.find(SubClientId(who)); it != clients.end() && it->second) {
+                    // player 1's screens are on the window's main stack, the other players' on their own
+                    if (who == 0) it->second->getMainSceneStack()->schedulePopScreen(1);
+                    else it->second->getClientSceneStack()->schedulePopScreen(1);
+                }
             }
             // after the pause menu is gone, so the pop cannot take the new menu with it and the world runs again
-            ll::thread::ClientThreadExecutor::getDefault().executeAfter([who] { openSettings(who); }, std::chrono::milliseconds(400));
+            ll::thread::ClientThreadExecutor::getDefault().executeAfter(
+                [who] {
+                    if (auto c = ll::service::getClientInstance()) note("pause menu closed: top screen now {}", c->getTopScreenName());
+                    openSettings(who);
+                },
+                std::chrono::milliseconds(400)
+            );
         });
         return ui::ViewRequest::None;
     });
