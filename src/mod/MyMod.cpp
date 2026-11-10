@@ -922,12 +922,13 @@ static void showMenu(
     std::string const&              text,
     std::vector<std::string> const& buttons,
     std::vector<bool> const&        tagged,
-    std::function<void(int)>        done
+    std::function<void(int)>        done,
+    std::string const&              title = "Bedrock Splitscreen"
 ) {
     auto player = serverPlayer(who);
     if (!player || buttons.empty() || menuOpen(int(who))) return;
     gMenus[int(who)] = std::chrono::steady_clock::now();
-    ll::form::SimpleForm form("Bedrock Splitscreen", text);
+    ll::form::SimpleForm form(title, text);
     for (size_t i = 0; i < buttons.size(); ++i)
         if (i < tagged.size() && tagged[i]) form.appendButton(buttons[i], "textures/items/name_tag", "path");
         else form.appendButton(buttons[i]);
@@ -1115,7 +1116,7 @@ static void offerPicker(SubClientId owner, bool fresh) {
         }
         default: break;
         }
-    });
+    }, fresh ? "Choose your player" : "Bedrock Splitscreen");
 }
 
 // A new controller joins at once as the first free saved player, and its own part of the screen (black, see the

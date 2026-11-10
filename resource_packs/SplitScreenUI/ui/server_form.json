@@ -1,9 +1,9 @@
 {
   "namespace": "server_form",
 
-  // The mod's menus (title "Bedrock Splitscreen") get a black background over the whole of that player's part of
-  // the screen, so a player who has not been chosen yet sees nothing of the world.
-  "long_form": {
+  // The menu of a player who has not been chosen yet (title "Choose your player") gets a black background over the whole of that player's part of
+  // the screen, under the menu window, so a player who has not been chosen yet sees nothing of the world.
+  "main_screen_content": {
     "modifications": [
       {
         "array_name": "controls",
@@ -20,13 +20,13 @@
   "splitscreen_black": {
     "type": "image",
     "texture": "textures/ui/Black",
-    "size": [ "1000%", "1000%" ],
-    "layer": -1,
+    "size": [ 4000, 4000 ],
+    "layer": 0,
     "bindings": [
       { "binding_name": "#title_text" },
       {
         "binding_type": "view",
-        "source_property_name": "(#title_text = 'Bedrock Splitscreen')",
+        "source_property_name": "(#title_text = 'Choose your player')",
         "target_property_name": "#visible"
       }
     ]
