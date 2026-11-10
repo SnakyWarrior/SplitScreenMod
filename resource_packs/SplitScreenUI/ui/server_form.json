@@ -1,9 +1,10 @@
 {
   "namespace": "server_form",
 
-  // The mod's menus (titles "Bedrock Splitscreen" and "Choose your player") are drawn in the style of the game's new
-  // settings screens instead of the classic form window. "Choose your player" also gets a black background over the
-  // whole of that player's part of the screen, so a player who has not been chosen yet sees nothing of the world.
+  // The mod's menus (titles "Bedrock Splitscreen" and "Choose your player") use the look of the game's new UI
+  // instead of the classic form window: a grey panel, Minecraft Ten title, secondary (light) and destructive (red)
+  // buttons, and coloured status tags. "Choose your player" also gets a black background over the whole of that
+  // player's part of the screen, so a player who has not been chosen yet sees nothing of the world.
 
   "main_screen_content": {
     "modifications": [
@@ -45,9 +46,15 @@
     ]
   },
 
+  "splitscreen_fill": {
+    "type": "image",
+    "texture": "textures/ui/White",
+    "size": [ "100%", "100%" ]
+  },
+
   "splitscreen_menu": {
     "type": "panel",
-    "size": [ 250, "100%c" ],
+    "size": [ 240, "100%c" ],
     "layer": 10,
     "bindings": [
       { "binding_name": "#title_text" },
@@ -58,29 +65,13 @@
       }
     ],
     "controls": [
-      {
-        "border": {
-          "type": "image",
-          "texture": "textures/ui/White",
-          "color": [ 0.36, 0.36, 0.37 ],
-          "size": [ "100%", "100%" ],
-          "layer": 0
-        }
-      },
-      {
-        "background": {
-          "type": "image",
-          "texture": "textures/ui/White",
-          "color": [ 0.12, 0.12, 0.13 ],
-          "size": [ "100% - 2px", "100% - 2px" ],
-          "layer": 1
-        }
-      },
+      { "outline@server_form.splitscreen_fill": { "color": [ 0.12, 0.12, 0.12 ], "layer": 0 } },
+      { "panel@server_form.splitscreen_fill": { "color": [ 0.28, 0.29, 0.29 ], "size": [ "100% - 2px", "100% - 2px" ], "layer": 1 } },
       {
         "content": {
           "type": "stack_panel",
           "orientation": "vertical",
-          "size": [ "100% - 16px", "100%c" ],
+          "size": [ "100% - 14px", "100%c" ],
           "layer": 2,
           "controls": [
             { "top_pad": { "type": "panel", "size": [ "100%", 8 ] } },
@@ -89,23 +80,24 @@
                 "type": "label",
                 "text": "#title_text",
                 "font_type": "MinecraftTen",
-                "font_scale_factor": 1.2,
                 "color": [ 1, 1, 1 ],
                 "size": [ "100%", "default" ],
                 "bindings": [ { "binding_name": "#title_text" } ]
               }
             },
-            { "title_pad": { "type": "panel", "size": [ "100%", 4 ] } },
+            { "title_pad": { "type": "panel", "size": [ "100%", 3 ] } },
             {
               "text": {
                 "type": "label",
                 "text": "#form_text",
-                "color": [ 0.75, 0.75, 0.76 ],
+                "color": [ 0.82, 0.82, 0.83 ],
                 "size": [ "100%", "default" ],
                 "bindings": [ { "binding_name": "#form_text" } ]
               }
             },
-            { "text_pad": { "type": "panel", "size": [ "100%", 8 ] } },
+            { "text_pad": { "type": "panel", "size": [ "100%", 6 ] } },
+            { "divider@server_form.splitscreen_fill": { "color": [ 0.19, 0.2, 0.2 ], "size": [ "100%", 1 ] } },
+            { "divider_pad": { "type": "panel", "size": [ "100%", 6 ] } },
             {
               "rows": {
                 "type": "stack_panel",
@@ -121,96 +113,132 @@
                 ]
               }
             },
-            { "bottom_pad": { "type": "panel", "size": [ "100%", 6 ] } }
+            { "bottom_pad": { "type": "panel", "size": [ "100%", 4 ] } }
           ]
         }
       }
     ]
   },
 
+  // One row: a red "Remove ..." button or a light one, never both.
   "splitscreen_row": {
     "type": "panel",
-    "size": [ "100%", 30 ],
+    "size": [ "100%", 28 ],
     "controls": [
       {
-        "button@common.button": {
-          "size": [ "100%", 28 ],
-          "anchor_from": "top_middle",
-          "anchor_to": "top_middle",
-          "$pressed_button_name": "button.form_button_click",
-          "default_control": "default",
-          "hover_control": "hover",
-          "pressed_control": "pressed",
-          "bindings": [ { "binding_type": "collection_details", "binding_collection_name": "form_buttons" } ],
-          "controls": [
-            { "default@server_form.splitscreen_row_look": { "$row_color": [ 0.19, 0.2, 0.2 ] } },
-            { "hover@server_form.splitscreen_row_look": { "$row_color": [ 0.24, 0.52, 0.15 ] } },
-            { "pressed@server_form.splitscreen_row_look": { "$row_color": [ 0.16, 0.42, 0.11 ] } }
-          ]
+        "light@server_form.splitscreen_button": {
+          "$show_when": "(not (('%.7s' * #form_button_text) = 'Remove '))",
+          "$normal": [ 0.82, 0.82, 0.83 ], "$hover": [ 0.93, 0.93, 0.94 ], "$pressed": [ 0.7, 0.7, 0.71 ],
+          "$edge": [ 0.35, 0.35, 0.36 ], "$shine": [ 0.93, 0.93, 0.94 ], "$text_color": [ 0.19, 0.2, 0.2 ]
+        }
+      },
+      {
+        "red@server_form.splitscreen_button": {
+          "$show_when": "(('%.7s' * #form_button_text) = 'Remove ')",
+          "$normal": [ 0.79, 0.21, 0.21 ], "$hover": [ 1, 0.5, 0.5 ], "$pressed": [ 0.75, 0.17, 0.17 ],
+          "$edge": [ 0.55, 0.1, 0.1 ], "$shine": [ 0.88, 0.36, 0.36 ], "$text_color": [ 1, 1, 1 ]
         }
       }
     ]
   },
 
-  "splitscreen_row_look": {
+  "splitscreen_button@common.button": {
+    "size": [ "100%", 26 ],
+    "anchor_from": "top_middle",
+    "anchor_to": "top_middle",
+    "$pressed_button_name": "button.form_button_click",
+    "default_control": "default",
+    "hover_control": "hover",
+    "pressed_control": "pressed",
+    "bindings": [
+      { "binding_type": "collection_details", "binding_collection_name": "form_buttons" },
+      { "binding_name": "#form_button_text", "binding_type": "collection", "binding_collection_name": "form_buttons" },
+      { "binding_type": "view", "source_property_name": "$show_when", "target_property_name": "#visible" }
+    ],
+    "controls": [
+      { "default@server_form.splitscreen_button_look": { "$fill": "$normal", "$frame": [ 0.12, 0.12, 0.12 ], "$sink": 0 } },
+      { "hover@server_form.splitscreen_button_look": { "$fill": "$hover", "$frame": [ 1, 1, 1 ], "$sink": 0 } },
+      { "pressed@server_form.splitscreen_button_look": { "$fill": "$pressed", "$frame": [ 0.12, 0.12, 0.12 ], "$sink": 2 } }
+    ]
+  },
+
+  // Outline, fill with a light line on top and a dark edge below (the edge sinks away when pressed), picture,
+  // name and a status tag.
+  "splitscreen_button_look": {
     "type": "panel",
     "size": [ "100%", "100%" ],
     "controls": [
+      { "frame@server_form.splitscreen_fill": { "color": "$frame", "layer": 1 } },
+      { "edge@server_form.splitscreen_fill": { "color": "$edge", "size": [ "100% - 2px", "100% - 2px" ], "layer": 2 } },
       {
-        "fill": {
-          "type": "image",
-          "texture": "textures/ui/White",
-          "color": "$row_color",
-          "size": [ "100%", "100%" ],
-          "layer": 1
-        }
-      },
-      {
-        "icon": {
-          "type": "image",
-          "size": [ 18, 18 ],
-          "offset": [ 6, 0 ],
-          "anchor_from": "left_middle",
-          "anchor_to": "left_middle",
-          "layer": 2,
-          "bindings": [
+        "face": {
+          "type": "panel",
+          "size": [ "100% - 2px", "100% - 5px" ],
+          "offset": [ 0, "$sink" ],
+          "anchor_from": "top_middle",
+          "anchor_to": "top_middle",
+          "layer": 3,
+          "controls": [
+            { "fill@server_form.splitscreen_fill": { "color": "$fill", "offset": [ 0, 1 ], "anchor_from": "top_middle", "anchor_to": "top_middle" } },
+            { "shine@server_form.splitscreen_fill": { "color": "$shine", "size": [ "100%", 1 ], "anchor_from": "top_middle", "anchor_to": "top_middle", "offset": [ 0, 1 ], "layer": 1 } },
             {
-              "binding_name": "#form_button_texture",
-              "binding_name_override": "#texture",
-              "binding_type": "collection",
-              "binding_collection_name": "form_buttons"
+              "icon": {
+                "type": "image",
+                "size": [ 16, 16 ],
+                "offset": [ 5, 0 ],
+                "anchor_from": "left_middle",
+                "anchor_to": "left_middle",
+                "layer": 2,
+                "bindings": [
+                  { "binding_name": "#form_button_texture", "binding_name_override": "#texture", "binding_type": "collection", "binding_collection_name": "form_buttons" },
+                  { "binding_name": "#form_button_texture_file_system", "binding_name_override": "#texture_file_system", "binding_type": "collection", "binding_collection_name": "form_buttons" },
+                  { "binding_type": "view", "source_property_name": "(not ((#texture = '') or (#texture = 'loading')))", "target_property_name": "#visible" }
+                ]
+              }
             },
             {
-              "binding_name": "#form_button_texture_file_system",
-              "binding_name_override": "#texture_file_system",
-              "binding_type": "collection",
-              "binding_collection_name": "form_buttons"
+              "name": {
+                "type": "label",
+                "color": "$text_color",
+                "size": [ "default", "default" ],
+                "offset": [ 26, 0 ],
+                "anchor_from": "left_middle",
+                "anchor_to": "left_middle",
+                "layer": 2,
+                "bindings": [
+                  { "binding_name": "#form_button_text", "binding_type": "collection", "binding_collection_name": "form_buttons" },
+                  { "binding_type": "view", "source_property_name": "((#form_button_text - ' - not playing') - ' - no controller')", "target_property_name": "#text" }
+                ]
+              }
             },
-            {
-              "binding_type": "view",
-              "source_property_name": "(not ((#texture = '') or (#texture = 'loading')))",
-              "target_property_name": "#visible"
-            }
+            { "tag_off@server_form.splitscreen_tag": { "$tag_text": "Not playing", "$tag_color": [ 0.12, 0.12, 0.12 ], "$tag_text_color": [ 1, 1, 1 ], "$tag_when": "(not ((#form_button_text - ' - not playing') = #form_button_text))" } },
+            { "tag_free@server_form.splitscreen_tag": { "$tag_text": "No controller", "$tag_color": [ 1, 0.9, 0.42 ], "$tag_text_color": [ 0.12, 0.12, 0.12 ], "$tag_when": "(not ((#form_button_text - ' - no controller') = #form_button_text))" } }
           ]
         }
-      },
+      }
+    ]
+  },
+
+  "splitscreen_tag": {
+    "type": "panel",
+    "size": [ "100%c + 6px", 11 ],
+    "offset": [ -4, 0 ],
+    "anchor_from": "right_middle",
+    "anchor_to": "right_middle",
+    "layer": 2,
+    "bindings": [
+      { "binding_name": "#form_button_text", "binding_type": "collection", "binding_collection_name": "form_buttons" },
+      { "binding_type": "view", "source_property_name": "$tag_when", "target_property_name": "#visible" }
+    ],
+    "controls": [
+      { "back@server_form.splitscreen_fill": { "color": "$tag_color" } },
       {
         "label": {
           "type": "label",
-          "text": "#form_button_text",
-          "color": [ 1, 1, 1 ],
-          "size": [ "100% - 36px", "default" ],
-          "offset": [ 30, 0 ],
-          "anchor_from": "left_middle",
-          "anchor_to": "left_middle",
-          "layer": 2,
-          "bindings": [
-            {
-              "binding_name": "#form_button_text",
-              "binding_type": "collection",
-              "binding_collection_name": "form_buttons"
-            }
-          ]
+          "text": "$tag_text",
+          "color": "$tag_text_color",
+          "size": [ "default", "default" ],
+          "layer": 1
         }
       }
     ]
