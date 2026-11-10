@@ -423,6 +423,7 @@ static bool menuOpen(int sub) {
     return it != gMenus.end() && std::chrono::steady_clock::now() - it->second < std::chrono::minutes(1);
 }
 static void          startJoin(IMinecraftGame& game, int slot);
+static void          freeFirstPad(IMinecraftGame& game, void* pad);
 static Player*       serverPlayer(SubClientId sub);
 static int           gFreshSub = -1; // saved player that just joined and still has to be asked about (client thread)
 static std::chrono::steady_clock::time_point gFreshAt;
@@ -619,13 +620,15 @@ static void pollTrigger() {
     if (!gInWorld) askedFirst = false;
     if (!askedFirst && worldTicks >= 60 && seesHud(0)) { // a controller already on player 1 asks who it is for
         askedFirst = true;
-        bool padOnFirst = false;
+        // (a menu on player 1 would hide every other player's part of the screen while it is open)
+        void* pad = nullptr;
         if (auto handler = controllerHandler()) {
             std::lock_guard lock(*handler->mPlayerInputsLock);
             auto&           inputs = *handler->mPlayerInputs;
-            padOnFirst             = inputs.contains(0) && !gamepadsOf(inputs.at(0)).empty();
+            if (inputs.contains(0))
+                if (auto pads = gamepadsOf(inputs.at(0)); !pads.empty()) pad = pads.front();
         }
-        if (padOnFirst) offerPicker(SubClientId::PrimaryClient, false);
+        if (pad) freeFirstPad(client->getMinecraftGame(), pad);
     }
     if (gFreshSub >= 0 && client) {
         static int hidden = -1; // the stand-in is hidden as soon as it is in the world
@@ -990,6 +993,21 @@ static void tell(SubClientId sub, std::string const& text) {
     if (auto player = serverPlayer(sub)) TextPacketPayload::createJukeboxPopup(text, {}).sendTo(*player);
 }
 
+// Player 1 goes back to keyboard and mouse; the controller gets a slot of its own and waits for start to be pressed,
+// then asks who it is for. The game's "connect your controller" screen for player 1 is closed again.
+static void freeFirstPad(IMinecraftGame& game, void* pad) {
+    note("controller taken from player 1");
+    newPlayerFor(game, 0, pad);
+    tell(SubClientId::PrimaryClient, "Press start on your controller to choose who plays with it");
+    ll::thread::ClientThreadExecutor::getDefault().executeAfter(
+        [] {
+            if (auto c = ll::service::getClientInstance(); c && c->getTopScreenName().find("gamepad_disconnected") != std::string::npos)
+                c->getMainSceneStack()->schedulePopScreen(1);
+        },
+        std::chrono::milliseconds(300)
+    );
+}
+
 // "P2 SnakyWarrior (1)": players in the game carry their number, the same as their part of the screen.
 static std::string numbered(ClientMap const& clients, int sub) { return fmt::format("§9P{}§r {}", sub + 1, localName(clients, sub)); }
 
@@ -1081,18 +1099,7 @@ static void openSettings(int who) {
             return;
         case Act::FreePad: // player 1 goes back to keyboard and mouse; the controller waits for start to be pressed
             if (firstPad) {
-                note("settings: controller taken from player 1");
-                newPlayerFor(game, 0, firstPad);
-                tell(SubClientId::PrimaryClient, "Controller freed: press start on it to choose a player");
-                // player 1 is on keyboard and mouse now: the game's "connect your controller" screen must not stay
-                ll::thread::ClientThreadExecutor::getDefault().executeAfter(
-                    [] {
-                        if (auto c = ll::service::getClientInstance();
-                            c && c->getTopScreenName().find("gamepad_disconnected") != std::string::npos)
-                            c->getMainSceneStack()->schedulePopScreen(1);
-                    },
-                    std::chrono::milliseconds(300)
-                );
+                freeFirstPad(game, firstPad);
             }
             return;
         case Act::Join:
