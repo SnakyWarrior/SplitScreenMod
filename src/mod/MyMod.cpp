@@ -1004,6 +1004,9 @@ static void newPlayerFor(IMinecraftGame& game, int from, void* device) {
                 break;
             }
     }
+    // Tell the player in `from` first that their controller is gone: that also hides the game's "Join as Player N"
+    // prompt, which the reconnect below then shows for the controller's new slot.
+    if (auto c = clientWithController(game.getClientInstanceMap(), from)) fireConnection(*c, false, from);
     tHideUser = true;
     gDeviceCallback(gLastConnect.token, gLastConnect.context, device, gLastConnect.time, 1, 0); // connect it again
     tHideUser = false;
@@ -1012,8 +1015,6 @@ static void newPlayerFor(IMinecraftGame& game, int from, void* device) {
         for (auto& [u, value] : hidden) *u = value;
     }
     note("picker: controller left slot {} for a new player", from);
-    auto clients = game.getClientInstanceMap();
-    if (auto c = clientWithController(clients, from)) fireConnection(*c, false, from);
 }
 
 static int slotOfDevice(void* device) {
