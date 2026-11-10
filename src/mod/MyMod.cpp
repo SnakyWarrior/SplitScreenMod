@@ -279,6 +279,13 @@ static std::set<int> gNoMenuFor; // sub ids that just joined through the menu it
 static thread_local bool tOurJoin = false; // joins the mod makes itself go through unchanged
 static GameControllerHandler_GameCore* controllerHandler();
 
+// Pops the top screen of a scene stack only when it is `name`. The game's schedulePopScreenWithExpectedNames pops
+// whatever is on top: it took player 1's toast screen, and with it every toast, the "Join as Player" prompt too.
+template <class Stack>
+static void popIfTop(Stack const& stack, std::string_view name) {
+    if (stack->getScreenName() == name) stack->schedulePopScreen(1);
+}
+
 static void dumpPlayers(IMinecraftGame& game);
 // The state of a player's SplitscreenJoinListener (MinecraftInputHandler + 0x88 in 1.26.60): the game shows its
 // "Join as Player" prompt on that player's screen only while it is 1 or 2 (ClientInputHandler's prompt check).
@@ -330,7 +337,7 @@ static void runTrigger(std::string const& cmd, int arg) {
                 if (!c) return;
                 c->setOpenControllerDisconnectScreen(false);
                 c->setConnectGamepadScreenActive(false);
-                c->getMainSceneStack()->schedulePopScreenWithExpectedNames({"gamepad_disconnected_screen"});
+                popIfTop(c->getMainSceneStack(), "gamepad_disconnected_screen");
                 c->updateControllerHandling();
                 note("p1off: done");
                 dumpPlayers(c->getMinecraftGame());
@@ -533,14 +540,14 @@ static void closePauseThen(int who, std::function<void()> next) {
                  ? it->second
                  : nullptr;
     };
-    if (auto c = paused()) c->getClientSceneStack()->schedulePopScreenWithExpectedNames({"pause_screen"});
+    if (auto c = paused()) popIfTop(c->getClientSceneStack(), "pause_screen");
     ll::thread::ClientThreadExecutor::getDefault().executeAfter(
         [who, paused, next] {
             // player 1's pause menu can sit on the window's main stack instead (only player 1's: the main stack holds
             // player 1's screens)
-            // Only ever pop a named screen there: popping player 1's HUD off it made the game crash when a player
-            // left (it reads that stack's top screen).
-            if (auto c = who == 0 ? paused() : nullptr) c->getMainSceneStack()->schedulePopScreenWithExpectedNames({"pause_screen"});
+            // Only ever pop the pause menu there: popping player 1's HUD off it made the game crash when a player
+            // left (it reads that stack's top screen), and popping the toast screen hid every toast.
+            if (auto c = who == 0 ? paused() : nullptr) popIfTop(c->getMainSceneStack(), "pause_screen");
             ll::thread::ClientThreadExecutor::getDefault().executeAfter(next, std::chrono::milliseconds(300));
         },
         std::chrono::milliseconds(200)
@@ -1206,7 +1213,7 @@ static void freeFirstPad(IMinecraftGame& game, void* pad) {
     ll::thread::ClientThreadExecutor::getDefault().executeAfter(
         [] {
             if (auto c = ll::service::getClientInstance())
-                c->getMainSceneStack()->schedulePopScreenWithExpectedNames({"gamepad_disconnected_screen"});
+                popIfTop(c->getMainSceneStack(), "gamepad_disconnected_screen");
         },
         std::chrono::milliseconds(300)
     );
