@@ -71,3 +71,5 @@ xmake
 ## Licence
 
 [GPL-3.0](LICENSE) © SnakyWarrior. This mod is not affiliated with Mojang or Microsoft.
+
+The menu colours follow the Ore UI design values collected by [Spectrollay-OreUI](https://github.com/Spectrollay-OreUI/OreUI) (MIT).
