@@ -210,12 +210,14 @@ static bool autoAllow(void* ret) {
     return yes;
 }
 
+static std::set<uintptr_t> gAllowSites; // experiment: "allow <rva>" in trigger.txt says yes at that caller
 static bool decide(char const* name, void* ret, bool original) {
     static std::mutex m;
     std::lock_guard   lock(m);
     auto& c   = gCfg[name];
     auto  rva = reinterpret_cast<uintptr_t>(ret) - gameBase();
-    bool  res = autoAllow(ret) || original;
+    static std::set<uintptr_t> const& forced = gAllowSites;
+    bool  res = autoAllow(ret) || original || forced.contains(rva);
     if (c.seen.insert(rva).second) note("{} called from {:X}: game said {}, returning {}", name, rva, original, res);
     return res;
 }
@@ -313,6 +315,11 @@ static void runTrigger(std::string const& cmd, int arg) {
     if (cmd == "join") {
         note("adding player on controller {}", arg);
         game.addSubClientInstanceAndAssociateToUser(arg); // goes through the menu like the game's join prompt
+    }
+    if (cmd == "allow") {
+        if (arg) gAllowSites.insert(uintptr_t(arg));
+        else gAllowSites.clear();
+        note("allow: {} caller(s) forced to yes", gAllowSites.size());
     }
     if (cmd == "vvc") {
         if (arg) gVvCountSites.insert(uintptr_t(arg));
