@@ -931,7 +931,7 @@ static void showMenu(
     std::vector<std::string> const& buttons,
     std::vector<bool> const&        tagged,
     std::function<void(int)>        done,
-    std::string const&              title = "Bedrock Splitscreen"
+    std::string const&              title
 ) {
     auto player = serverPlayer(who);
     if (!player || buttons.empty() || menuOpen(int(who)))
@@ -1018,7 +1018,7 @@ static void openSettings(int who) {
             note("settings: player {} removed", subs[pick] + 1);
             it->second->requestLeaveGameAsync();
         }
-    });
+    }, "Split screen");
 }
 
 static void joinAs(IMinecraftGame& game, int controllerId, int sub) {
@@ -1160,7 +1160,7 @@ static void offerPicker(SubClientId owner, bool fresh) {
         }
         default: break;
         }
-    }, fresh ? "Choose your player" : "Bedrock Splitscreen");
+    }, fresh ? "Choose your player" : "Who is playing?");
 }
 
 // A new controller joins at once as the first free saved player, and its own part of the screen (black, see the

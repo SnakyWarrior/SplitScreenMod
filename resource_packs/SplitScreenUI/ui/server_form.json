@@ -1,7 +1,7 @@
 {
   "namespace": "server_form",
 
-  // The mod's menus (titles "Bedrock Splitscreen" and "Choose your player") use the look of the game's new UI
+  // The mod's menus (titles "Split screen", "Who is playing?" and "Choose your player") use the look of the game's new UI
   // instead of the classic form window: a grey panel, Minecraft Ten title, secondary (light) and destructive (red)
   // buttons,. "Choose your player" also gets a black background over the whole of that
   // player's part of the screen, so a player who has not been chosen yet sees nothing of the world.
@@ -25,7 +25,7 @@
       { "binding_name": "#title_text" },
       {
         "binding_type": "view",
-        "source_property_name": "(not ((#title_text = 'Bedrock Splitscreen') or (#title_text = 'Choose your player')))",
+        "source_property_name": "(not ((#title_text = 'Split screen') or (#title_text = 'Who is playing?') or (#title_text = 'Choose your player')))",
         "target_property_name": "#visible"
       }
     ]
@@ -60,7 +60,7 @@
       { "binding_name": "#title_text" },
       {
         "binding_type": "view",
-        "source_property_name": "((#title_text = 'Bedrock Splitscreen') or (#title_text = 'Choose your player'))",
+        "source_property_name": "((#title_text = 'Split screen') or (#title_text = 'Who is playing?') or (#title_text = 'Choose your player'))",
         "target_property_name": "#visible"
       }
     ],
