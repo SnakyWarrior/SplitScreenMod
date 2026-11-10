@@ -86,9 +86,12 @@ jobs:
 
       - run: |
           zip -r ../../${{ github.event.repository.name }}-${{ matrix.target_type }}-windows-x64.zip *
+          # the same package for LeviLauncher's "Import .mcmod" button
+          cp ../../${{ github.event.repository.name }}-${{ matrix.target_type }}-windows-x64.zip ../../${{ github.event.repository.name }}.mcmod
         working-directory: artifact/${{ github.event.repository.name }}
 
       - uses: softprops/action-gh-release@v3
         with:
           files: |
             ${{ github.event.repository.name }}-${{ matrix.target_type }}-windows-x64.zip
+            ${{ github.event.repository.name }}.mcmod
