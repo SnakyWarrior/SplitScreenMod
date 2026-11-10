@@ -571,6 +571,13 @@ LL_AUTO_TYPE_INSTANCE_HOOK(
     // read from values the poll loop keeps up to date: the UI asks often, and must never wait on the game's locks
     bindBool(StringHash("#splitscreen_many_players"), [] { return gPlayerCount > 1; }, [] { return true; });
     bindBool(StringHash("#splitscreen_free_controller"), [] { return gPlayerCount == 1 && gFirstHasPad; }, [] { return true; });
+    // One plain bool for the gap before the buttons: an "(#a or #b)" binding expression made the game's UI layout
+    // loop forever when the pause menu opened with two players.
+    bindBool(
+        StringHash("#splitscreen_any_button"),
+        [] { return gPlayerCount > 1 || (gPlayerCount == 1 && gFirstHasPad); },
+        [] { return true; }
+    );
     registerButtonPressedHandler(_getNameId("button.splitscreen_free_controller"), [](UIPropertyBag*) {
         ll::thread::ClientThreadExecutor::getDefault().execute([] {
             auto client = ll::service::getClientInstance();
@@ -712,6 +719,19 @@ static void watchdog() {
             continue;
         }
         if (reported) continue;
+        // our poll also stops while a one-player world is paused; only a window Windows calls hung is stuck
+        bool hung = false;
+        EnumWindows(
+            [](HWND window, LPARAM out) {
+                DWORD pid = 0;
+                GetWindowThreadProcessId(window, &pid);
+                if (pid == GetCurrentProcessId() && IsWindowVisible(window) && IsHungAppWindow(window))
+                    *reinterpret_cast<bool*>(out) = true;
+                return TRUE;
+            },
+            reinterpret_cast<LPARAM>(&hung)
+        );
+        if (!hung) continue;
         reported = true;
         HANDLE thread = OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION, FALSE, id);
         if (!thread) continue;

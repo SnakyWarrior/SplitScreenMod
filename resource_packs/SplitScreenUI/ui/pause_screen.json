@@ -14,7 +14,7 @@
               "type": "panel",
               "size": [ "2%", 0 ],
               "bindings": [
-                { "binding_name": "(#splitscreen_many_players or #splitscreen_free_controller)", "binding_name_override": "#visible" }
+                { "binding_name": "#splitscreen_any_button", "binding_name_override": "#visible" }
               ]
             }
           },
