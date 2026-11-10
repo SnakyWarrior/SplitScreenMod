@@ -1,6 +1,6 @@
 format = 4
 id = "github.com/SnakyWarrior/SplitScreenMod"
-version = "1.1.1"
+version = "1.2.0"
 
 [info]
 name = "SplitScreenMod"
@@ -12,7 +12,7 @@ side = "client"
 platform = "win-x64"
 
 [variants."".deps]
-"github.com/LiteLDev/LeviLamina" = ">=26.60.0 <26.61.0"
+"github.com/LiteLDev/LeviLamina" = ">=26.60.5 <26.61.0"
 
 [[variants."".assets]]
 type = "mcmod"

@@ -20,7 +20,7 @@ if not has_config("vs_runtime") then
 end
 
 target("SplitScreenMod")
-    set_version("1.1.1")
+    set_version("1.2.0")
     add_rules("@levibuildscript/linkrule")
     add_rules("@levibuildscript/modpacker")
     if is_plat("windows") then
