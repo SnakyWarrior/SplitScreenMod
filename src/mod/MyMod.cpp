@@ -531,7 +531,7 @@ static void hideStandIn(Player& player, bool hide) {
 }
 
 // Which player each open pause menu belongs to: a pause menu is created just before it shows, so the poll loop gives
-// the oldest unclaimed one to the next player whose screen turns into a pause menu.
+// the newest unclaimed one to the next player whose screen turns into a pause menu.
 static std::recursive_mutex   gPauseLock;
 static std::vector<void*>     gUnclaimedPause;
 static std::map<void*, int>   gPauseOwner;
@@ -544,8 +544,9 @@ static void claimPauseMenus(std::map<SubClientId, std::shared_ptr<IClientInstanc
     std::lock_guard lock(gPauseLock);
     for (auto& [sub, paused] : pausedNow) {
         if (paused && !wasPaused[sub] && !gUnclaimedPause.empty()) {
-            gPauseOwner[gUnclaimedPause.front()] = sub;
-            gUnclaimedPause.erase(gUnclaimedPause.begin());
+            // the newest one: the game also makes pause menus ahead of time (e.g. while a world loads)
+            gPauseOwner[gUnclaimedPause.back()] = sub;
+            gUnclaimedPause.clear();
         }
         wasPaused[sub] = paused;
     }
