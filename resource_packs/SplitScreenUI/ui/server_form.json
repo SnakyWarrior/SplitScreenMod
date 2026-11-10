@@ -10,7 +10,9 @@
   // "Choose your player" also gets a black background over that player's whole part of the screen, so a player who
   // has not been chosen yet sees nothing of the world, and a 10 second countdown (the mod closes it then).
 
+  // full size (the game's is 0 x 0): the mouse only reaches controls inside their parent
   "main_screen_content": {
+    "size": [ "100%", "100%" ],
     "modifications": [
       {
         "array_name": "controls",

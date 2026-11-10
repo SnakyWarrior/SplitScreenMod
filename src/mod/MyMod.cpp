@@ -608,7 +608,17 @@ static void pollTrigger() {
     f7WasDown = f7;
     static int worldTicks = 0; // how long the world has been up, in polls
     worldTicks            = gInWorld ? worldTicks + 1 : 0;
-    if (worldTicks == 60 && client) { // 3 s in: a controller already on player 1 asks who it is for
+    // A menu sent while that player is still loading is lost: wait until they see their HUD.
+    auto seesHud = [&](int sub) {
+        if (!client) return false;
+        auto clients = client->getMinecraftGame().getClientInstanceMap();
+        auto it      = clients.find(SubClientId(sub));
+        return it != clients.end() && it->second && it->second->getTopScreenName().find("hud_screen") != std::string::npos;
+    };
+    static bool askedFirst = false; // once per world
+    if (!gInWorld) askedFirst = false;
+    if (!askedFirst && worldTicks >= 60 && seesHud(0)) { // a controller already on player 1 asks who it is for
+        askedFirst = true;
         bool padOnFirst = false;
         if (auto handler = controllerHandler()) {
             std::lock_guard lock(*handler->mPlayerInputsLock);
@@ -618,11 +628,17 @@ static void pollTrigger() {
         if (padOnFirst) offerPicker(SubClientId::PrimaryClient, false);
     }
     if (gFreshSub >= 0 && client) {
-        if (auto standIn = serverPlayer(SubClientId(gFreshSub)); standIn && !menuOpen(gFreshSub)) {
+        static int hidden = -1; // the stand-in is hidden as soon as it is in the world
+        auto standIn = serverPlayer(SubClientId(gFreshSub));
+        if (standIn && hidden != gFreshSub) {
             hideStandIn(*standIn, true);
+            hidden = gFreshSub;
+        }
+        if (standIn && seesHud(gFreshSub) && !menuOpen(gFreshSub)) {
             offerPicker(SubClientId(gFreshSub), true);
             gFreshSub = -1;
-        } else if (std::chrono::steady_clock::now() - gFreshAt > std::chrono::seconds(20)) gFreshSub = -1;
+            hidden    = -1;
+        } else if (std::chrono::steady_clock::now() - gFreshAt > std::chrono::seconds(60)) gFreshSub = -1, hidden = -1;
     }
     if (worldTicks > 60 && !gAskLater.empty() && gFreshSub < 0) { // 3 s in: the players have spawned
         int slot = *gAskLater.begin();
