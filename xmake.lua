@@ -11,7 +11,9 @@ option_end()
 -- add_requires("levilamina x.x.x") for a specific version
 -- add_requires("levilamina develop") to use develop version
 -- please note that you should add bdslibrary yourself if using dev version
-add_requires("levilamina 26.60.5", {configs = {target_type = get_config("target_type")}})
+-- The newest LeviLamina for this game version; CI falls back to a known-good one (LEVILAMINA_VERSION) when the
+-- newest does not build.
+add_requires("levilamina " .. (os.getenv("LEVILAMINA_VERSION") or "26.60.*"), {configs = {target_type = get_config("target_type")}})
 
 add_requires("levibuildscript")
 

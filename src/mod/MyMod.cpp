@@ -46,6 +46,7 @@
 #include "mc/locale/Localization.h"
 #include "mc/deps/core/math/Color.h"
 #include "mc/network/LoopbackPacketSender.h"
+#include "mc/network/MinecraftPackets.h"
 #include "mc/network/packet/TextPacket.h"
 #include "mc/world/level/GameType.h"
 #include "mc/client/gui/screens/controllers/PauseScreenController.h"
@@ -431,6 +432,8 @@ static int           gFreshSub = -1; // saved player that just joined and still 
 static std::chrono::steady_clock::time_point gFreshAt;
 static void          openSettings(int who = -1);
 static int           pausedPlayer();
+static std::map<int, std::chrono::steady_clock::time_point> gSettingsOpen; // player -> when their Split screen menu opened
+static void          refreshSettings(std::string const& state);
 
 static std::atomic<int> gSecondsLeft = -1; // shown in the "controller lost" prompt; -1 when nobody is leaving
 
@@ -698,6 +701,18 @@ static void pollTrigger() {
         startJoin(client->getMinecraftGame(), slot);
     }
     if (client && gInWorld) claimPauseMenus(client->getMinecraftGame().getClientInstanceMap());
+    if (client && gInWorld && tick % 10 == 0 && !gSettingsOpen.empty()) {
+        std::string state = std::to_string(int(client->getOptions().getSplitscreenDirection()));
+        std::set<int> withPad;
+        if (auto handler = controllerHandler()) {
+            std::lock_guard lock(*handler->mPlayerInputsLock);
+            for (auto& [id, input] : *handler->mPlayerInputs)
+                if (!gamepadsOf(input).empty()) withPad.insert(id);
+        }
+        for (auto& [sub, other] : client->getMinecraftGame().getClientInstanceMap())
+            if (other) state += fmt::format(" {}:{}:{}", int(sub), other->getControllerId(), withPad.contains(other->getControllerId()));
+        refreshSettings(state);
+    }
     // With several players the game keeps running while someone is paused; stop it when every player is paused.
     static bool allPaused = false;
     if (client && gInWorld) {
@@ -1076,6 +1091,25 @@ static std::string badge(int sub) {
     return fmt::format("textures/splitscreen/p{}_{}", sub + 1, shade);
 }
 
+// When the layout, the players or their controllers change, every open Split screen menu is closed and opened again
+// with what is true now. `state` sums those up; a menu opened in the last second is already up to date.
+static void refreshSettings(std::string const& state) {
+    static std::string last;
+    if (state == last) return;
+    bool first = last.empty();
+    last       = state;
+    if (first) return;
+    auto now = std::chrono::steady_clock::now();
+    for (auto [sub, opened] : std::map(gSettingsOpen)) {
+        if (now - opened < std::chrono::seconds(1)) continue;
+        auto player = serverPlayer(SubClientId(sub));
+        if (!player) continue;
+        note("settings: refreshing player {}'s menu", sub + 1);
+        if (auto packet = MinecraftPackets::createPacket(MinecraftPacketIds::ClientboundCloseScreen)) packet->sendTo(*player);
+        ll::thread::ClientThreadExecutor::getDefault().executeAfter([sub] { openSettings(sub); }, std::chrono::milliseconds(400));
+    }
+}
+
 // F7 or the pause menu's "Split screen" button: layout, and removing players.
 // The player whose pause menu is open, else player 1.
 static int pausedPlayer() {
@@ -1163,7 +1197,9 @@ static void openSettings(int who) {
     buttons.push_back(kDoneButton);
     pictures.emplace_back();
 
+    gSettingsOpen[who] = std::chrono::steady_clock::now();
     showMenu(SubClientId(who), "", buttons, pictures, [items, who, firstPad](int pick) {
+        gSettingsOpen.erase(who);
         auto client = ll::service::getClientInstance();
         if (!client || pick < 0 || pick >= int(items.size())) return;
         auto& game    = client->getMinecraftGame();

@@ -31,8 +31,16 @@ jobs:
       - run: |
           xmake repo -u
 
+      # newest LeviLamina 26.60.x first; if it does not build, the last version known to work
       - run: |
           xmake f -a x64 -m release -p windows -v --target_type=${{ matrix.target_type }} -y
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "Newest LeviLamina failed to build, using 26.60.5"
+            "LEVILAMINA_VERSION=26.60.5" >> $env:GITHUB_ENV
+            $env:LEVILAMINA_VERSION = "26.60.5"
+            xmake f -a x64 -m release -p windows -v --target_type=${{ matrix.target_type }} -y
+            exit $LASTEXITCODE
+          }
 
       - run: |
           xmake -v -y
