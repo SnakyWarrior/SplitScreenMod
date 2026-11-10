@@ -488,13 +488,19 @@ LL_AUTO_TYPE_INSTANCE_HOOK(QuietSendHook, ll::memory::HookPriority::Normal, Loop
 }
 
 static void hideStandIn(Player& player, bool hide) {
-    constexpr uint kResistance = 11; // level 5 resistance: no damage
-    player.setInvisible(hide);
+    constexpr uint kResistance   = 11; // level 5 resistance: no damage
+    constexpr uint kInvisibility = 14; // the effect, so the other players' games hide it too
     if (hide) {
-        MobEffectInstance effect(kResistance, EffectDuration{20 * 60 * 10});
-        effect.mAmplifier = 4;
-        player.addEffect(effect);
-    } else player.removeEffect(kResistance);
+        MobEffectInstance resistance(kResistance, EffectDuration{20 * 60 * 10});
+        resistance.mAmplifier = 4;
+        player.addEffect(resistance);
+        MobEffectInstance invisible(kInvisibility, EffectDuration{20 * 60 * 10});
+        invisible.mEffectVisible = false;
+        player.addEffect(invisible);
+    } else {
+        player.removeEffect(kResistance);
+        player.removeEffect(kInvisibility);
+    }
 }
 
 // The pause menu's "Split screen" button (added by the mod's resource pack) sends "button.splitscreen_menu".
@@ -1160,6 +1166,30 @@ static void rejoinAs(SubClientId leaving, int controllerId, int sub, int tries =
     joinAs(game, controllerId, sub);
 }
 
+// "Choose your player" closes by itself 10 s after it appears on that player's screen (it can arrive a few seconds
+// after it was sent); nobody joins then and the stand-in leaves.
+static void watchChoice(SubClientId owner, std::chrono::steady_clock::time_point sent, std::chrono::steady_clock::time_point seen) {
+    auto it = gMenus.find(int(owner));
+    if (it == gMenus.end() || it->second != sent) return; // answered
+    auto now    = std::chrono::steady_clock::now();
+    auto client = ll::service::getClientInstance();
+    if (!client) return;
+    auto clients = client->getMinecraftGame().getClientInstanceMap();
+    auto c       = clients.find(owner);
+    if (c == clients.end() || !c->second) return;
+    if (seen == std::chrono::steady_clock::time_point{} && c->second->getTopScreenName().find("third_party_server_screen") != std::string::npos)
+        seen = now;
+    if (seen != std::chrono::steady_clock::time_point{} && now - seen >= std::chrono::seconds(10)) {
+        gMenus.erase(it);
+        note("picker: nobody chosen for player {} in 10 s", int(owner) + 1);
+        quietFor(std::chrono::seconds(30));
+        c->second->requestLeaveGameAsync();
+        return;
+    }
+    ll::thread::ClientThreadExecutor::getDefault().executeAfter([=] { watchChoice(owner, sent, seen); },
+                                                                std::chrono::milliseconds(200));
+}
+
 // Show the menu on player `owner`'s screen. `fresh`: the player just joined (rather than picking up a controller).
 static void offerPicker(SubClientId owner, bool fresh) {
     auto client = ll::service::getClientInstance();
@@ -1285,23 +1315,7 @@ static void offerPicker(SubClientId owner, bool fresh) {
         default: break;
         }
     }, fresh ? "Choose your player" : "Who is playing?");
-    if (fresh && gMenus.contains(int(owner))) {
-        auto shown = gMenus.at(int(owner));
-        ll::thread::ClientThreadExecutor::getDefault().executeAfter(
-            [owner, shown] {
-                auto it = gMenus.find(int(owner));
-                if (it == gMenus.end() || it->second != shown) return; // answered
-                gMenus.erase(it);
-                note("picker: nobody chosen for player {} in 10 s", int(owner) + 1);
-                quietFor(std::chrono::seconds(30));
-                if (auto client = ll::service::getClientInstance()) {
-                    auto clients = client->getMinecraftGame().getClientInstanceMap();
-                    if (auto c = clients.find(owner); c != clients.end() && c->second) c->second->requestLeaveGameAsync();
-                }
-            },
-            std::chrono::seconds(10)
-        );
-    }
+    if (fresh && gMenus.contains(int(owner))) watchChoice(owner, gMenus.at(int(owner)), {});
 }
 
 // A new controller joins at once as the first free saved player, and its own part of the screen (black, see the
