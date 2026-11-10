@@ -456,7 +456,9 @@ LL_AUTO_TYPE_INSTANCE_HOOK(
     bool                              overlaySocialDrawerOnce
 ) {
     auto result = origin(std::move(model), overlaySocialDrawerOnce);
+    note("pause menu opened: Split screen button ready");
     registerButtonPressedHandler(_getNameId("button.splitscreen_menu"), [](UIPropertyBag*) {
+        note("pause menu: Split screen pressed");
         ll::thread::ClientThreadExecutor::getDefault().execute(openSettings);
         return ui::ViewRequest::None;
     });
