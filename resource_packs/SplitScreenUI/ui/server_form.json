@@ -213,10 +213,10 @@
     "bindings": [
       { "binding_type": "collection_details", "binding_collection_name": "form_buttons" },
       { "binding_name": "#form_button_text", "binding_type": "collection", "binding_collection_name": "form_buttons" },
-      { "binding_type": "view", "source_property_name": "(#form_button_text = '[h:Layout]')", "target_property_name": "#visible" }
+      { "binding_type": "view", "source_property_name": "(#form_button_text = '[h:Settings]')", "target_property_name": "#visible" }
     ],
     "controls": [
-      { "label": { "type": "label", "text": "Layout", "color": [ 0.82, 0.82, 0.83 ], "size": [ "default", "default" ], "anchor_from": "left_middle", "anchor_to": "left_middle" } }
+      { "label": { "type": "label", "text": "Settings", "color": [ 0.82, 0.82, 0.83 ], "size": [ "default", "default" ], "anchor_from": "left_middle", "anchor_to": "left_middle" } }
     ]
   },
   "splitscreen_header_1": {

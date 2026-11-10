@@ -429,7 +429,7 @@ static void          freeFirstPad(IMinecraftGame& game, void* pad);
 static Player*       serverPlayer(SubClientId sub);
 static int           gFreshSub = -1; // saved player that just joined and still has to be asked about (client thread)
 static std::chrono::steady_clock::time_point gFreshAt;
-static void          openSettings(int who = -1, bool layoutOpen = false);
+static void          openSettings(int who = -1);
 static int           pausedPlayer();
 
 static std::atomic<int> gSecondsLeft = -1; // shown in the "controller lost" prompt; -1 when nobody is leaving
@@ -522,19 +522,31 @@ LL_AUTO_TYPE_INSTANCE_HOOK(
     std::shared_ptr<PauseScreenModel> model,
     bool                              overlaySocialDrawerOnce
 ) {
-    // the player this pause menu belongs to, and the screen stack it sits on
-    int          who   = model ? int(model->mClient->getClientSubId()) : 0;
-    ISceneStack* stack = model ? model->mSceneStack.get().get() : nullptr;
-    auto         result = origin(std::move(model), overlaySocialDrawerOnce);
-    note("pause menu opened for player {}: Split screen button ready", who + 1);
-    registerButtonPressedHandler(_getNameId("button.splitscreen_menu"), [who, stack](UIPropertyBag*) {
-        note("pause menu: Split screen pressed by player {}", who + 1);
-        // close this pause menu first: while it is open the world may be paused and its menus (forms) do not arrive
-        ll::thread::ClientThreadExecutor::getDefault().execute([who, stack] {
-            if (stack) stack->schedulePopScreen(1);
-            // after the pause menu is gone, so the pop cannot take the new menu with it and the world runs again
-            ll::thread::ClientThreadExecutor::getDefault().executeAfter([who] { openSettings(who); },
-                                                                        std::chrono::milliseconds(400));
+    auto result = origin(std::move(model), overlaySocialDrawerOnce);
+    note("pause menu opened: Split screen button ready");
+    registerButtonPressedHandler(_getNameId("button.splitscreen_menu"), [](UIPropertyBag*) {
+        note("pause menu: Split screen pressed");
+        // close the pause menu first: while it is open the world may be paused and its menus (forms) do not arrive
+        ll::thread::ClientThreadExecutor::getDefault().execute([who = pausedPlayer()] {
+            auto paused = [who]() -> std::shared_ptr<IClientInstance> {
+                auto client = ll::service::getClientInstance();
+                if (!client) return nullptr;
+                auto clients = client->getMinecraftGame().getClientInstanceMap();
+                auto it      = clients.find(SubClientId(who));
+                return it != clients.end() && it->second && it->second->getTopScreenName().find("pause") != std::string::npos
+                         ? it->second
+                         : nullptr;
+            };
+            if (auto c = paused()) c->getClientSceneStack()->schedulePopScreen(1);
+            ll::thread::ClientThreadExecutor::getDefault().executeAfter(
+                [who, paused] {
+                    // player 1's pause menu can sit on the window's main stack instead
+                    if (auto c = paused()) c->getMainSceneStack()->schedulePopScreen(1);
+                    ll::thread::ClientThreadExecutor::getDefault().executeAfter([who] { openSettings(who); },
+                                                                                std::chrono::milliseconds(300));
+                },
+                std::chrono::milliseconds(200)
+            );
         });
         return ui::ViewRequest::None;
     });
@@ -1046,8 +1058,7 @@ static int pausedPlayer() {
 
 static void rejoinAs(SubClientId leaving, int controllerId, int sub, int tries);
 
-// `layoutOpen`: the "Layout" dropdown is open, its two choices listed under it.
-static void openSettings(int who, bool layoutOpen) {
+static void openSettings(int who) {
     auto client = ll::service::getClientInstance();
     if (!client) return;
     if (who < 0) who = pausedPlayer();
@@ -1066,24 +1077,21 @@ static void openSettings(int who, bool layoutOpen) {
                 if (id == 0) firstPad = pads.front();
             }
     }
-    enum class Act { Layout, Horizontal, Vertical, Swap, Kick, FreePad, Join, Done, Nothing };
+    enum class Act { Horizontal, Vertical, Swap, Kick, FreePad, Join, Done, Nothing };
     struct Item {
         Act act;
         int sub;
     };
     // "Layout" shows the current choice and opens a small menu to change it; section titles and tags are drawn
     // by the resource pack
-    std::vector<Item>        items{{Act::Layout, -1}, {Act::Nothing, -1}};
-    std::vector<std::string> buttons{"Layout", vertical ? "[tag:Side by side]" : "[tag:Top and bottom]"};
-    std::vector<std::string> pictures{"", ""};
-    if (layoutOpen) { // the dropdown's choices, the current one marked
-        items.push_back({Act::Horizontal, -1});
-        buttons.push_back("Top and bottom");
-        pictures.push_back(vertical ? "textures/ui/ore-styled/radio/unselected" : "textures/ui/ore-styled/radio/selected");
-        items.push_back({Act::Vertical, -1});
-        buttons.push_back("Side by side");
-        pictures.push_back(vertical ? "textures/ui/ore-styled/radio/selected" : "textures/ui/ore-styled/radio/unselected");
-    }
+    // "Settings": the layout as two choices, the current one marked
+    std::vector<Item>        items{{Act::Nothing, -1}, {Act::Horizontal, -1}, {Act::Vertical, -1}};
+    std::vector<std::string> buttons{"[h:Settings]", "Top and bottom", "Side by side"};
+    std::vector<std::string> pictures{
+        "",
+        vertical ? "textures/ui/ore-styled/radio/unselected" : "textures/ui/ore-styled/radio/selected",
+        vertical ? "textures/ui/ore-styled/radio/selected" : "textures/ui/ore-styled/radio/unselected"
+    };
     items.push_back({Act::Nothing, -1});
     buttons.push_back("[h:Players]");
     pictures.emplace_back();
@@ -1124,7 +1132,7 @@ static void openSettings(int who, bool layoutOpen) {
     buttons.push_back(kDoneButton);
     pictures.emplace_back();
 
-    showMenu(SubClientId(who), "", buttons, pictures, [items, who, firstPad, layoutOpen](int pick) {
+    showMenu(SubClientId(who), "", buttons, pictures, [items, who, firstPad](int pick) {
         auto client = ll::service::getClientInstance();
         if (!client || pick < 0 || pick >= int(items.size())) return;
         auto& game    = client->getMinecraftGame();
@@ -1133,7 +1141,6 @@ static void openSettings(int who, bool layoutOpen) {
         auto  mine    = clients.find(SubClientId(who));
         int   myPad   = mine != clients.end() && mine->second ? mine->second->getControllerId() : -1;
         switch (item.act) {
-        case Act::Layout: return openSettings(who, !layoutOpen);
         case Act::Horizontal:
         case Act::Vertical:
             client->getOptions().setSplitscreenDirection(item.act == Act::Vertical ? 1 : 0);
