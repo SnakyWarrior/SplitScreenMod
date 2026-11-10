@@ -188,6 +188,7 @@
       { "done@server_form.splitscreen_row_done": {} },
       { "kick@server_form.splitscreen_row_kick": {} },
       { "pad@server_form.splitscreen_row_pad": {} },
+      { "dropdown_arrow@server_form.splitscreen_dropdown_arrow": {} },
       { "splitscreen_layout_tag_0@server_form.splitscreen_layout_tag_0": {} },
       { "splitscreen_layout_tag_1@server_form.splitscreen_layout_tag_1": {} },
       { "splitscreen_you_tag_0@server_form.splitscreen_you_tag_0": {} },
@@ -246,7 +247,7 @@
           "size": [ 82, 13 ],
           "anchor_from": "top_right",
           "anchor_to": "top_right",
-          "offset": [ -6, -26 ],
+          "offset": [ -22, -26 ],
           "layer": 20,
           "controls": [
             { "outline@server_form.splitscreen_fill": { "color": [ 0.118, 0.118, 0.122 ] } },
@@ -272,7 +273,7 @@
           "size": [ 70, 13 ],
           "anchor_from": "top_right",
           "anchor_to": "top_right",
-          "offset": [ -6, -26 ],
+          "offset": [ -22, -26 ],
           "layer": 20,
           "controls": [
             { "outline@server_form.splitscreen_fill": { "color": [ 0.118, 0.118, 0.122 ] } },
@@ -333,6 +334,20 @@
           ]
         }
       }
+    ]
+  },
+
+  // the dropdown arrow at the end of the "Layout" row
+  "splitscreen_dropdown_arrow": {
+    "type": "panel",
+    "size": [ "100%", 0 ],
+    "bindings": [
+      { "binding_type": "collection_details", "binding_collection_name": "form_buttons" },
+      { "binding_name": "#form_button_text", "binding_type": "collection", "binding_collection_name": "form_buttons" },
+      { "binding_type": "view", "source_property_name": "(('%.11s' * #form_button_text) = '[tag:Top an') or (('%.11s' * #form_button_text) = '[tag:Side ')", "target_property_name": "#visible" }
+    ],
+    "controls": [
+      { "arrow": { "type": "image", "texture": "textures/ui/ore-styled/dropdown/arrow", "size": [ 7, 4 ], "anchor_from": "top_right", "anchor_to": "top_right", "offset": [ -8, -21 ], "layer": 20 } }
     ]
   },
 
@@ -553,7 +568,7 @@
       { "binding_name": "#form_button_text", "binding_type": "collection", "binding_collection_name": "form_buttons" },
       { "binding_type": "view", "source_property_name": "(not ((#form_button_text = '[x]') or (#form_button_text = '[p]') or (#form_button_text = 'Done') or (('%.1s' * #form_button_text) = ' ') or (('%.1s' * #form_button_text) = '[')))", "target_property_name": "#visible" }
     ],
-    "controls": [ { "button@server_form.splitscreen_button": { "size": [ "100%", 30 ], "$normal": [ 0.816, 0.82, 0.831 ], "$hover": [ 0.694, 0.698, 0.71 ], "$pressed": [ 0.694, 0.698, 0.71 ], "$edge": [ 0.345, 0.345, 0.353 ], "$shine": [ 1, 1, 1 ], "$text_color": [ 0.118, 0.118, 0.122 ] } } ]
+    "controls": [ { "button@server_form.splitscreen_button": { "size": [ "100%", 30 ], "$tex": "textures/ui/ore-styled/button/secondary/background", "$tex_hover": "textures/ui/ore-styled/button/secondary/background_hover", "$tex_pressed": "textures/ui/ore-styled/button/secondary/background_pressed", "$text_color": [ 0.118, 0.118, 0.122 ] } } ]
   },
   "splitscreen_row_narrow": {
     "type": "panel",
@@ -563,7 +578,7 @@
       { "binding_name": "#form_button_text", "binding_type": "collection", "binding_collection_name": "form_buttons" },
       { "binding_type": "view", "source_property_name": "(('%.1s' * #form_button_text) = ' ')", "target_property_name": "#visible" }
     ],
-    "controls": [ { "button@server_form.splitscreen_button": { "size": [ "100% - 34px", 30 ], "anchor_from": "top_left", "anchor_to": "top_left", "$normal": [ 0.816, 0.82, 0.831 ], "$hover": [ 0.694, 0.698, 0.71 ], "$pressed": [ 0.694, 0.698, 0.71 ], "$edge": [ 0.345, 0.345, 0.353 ], "$shine": [ 1, 1, 1 ], "$text_color": [ 0.118, 0.118, 0.122 ] } } ]
+    "controls": [ { "button@server_form.splitscreen_button": { "size": [ "100% - 34px", 30 ], "anchor_from": "top_left", "anchor_to": "top_left", "$tex": "textures/ui/ore-styled/button/secondary/background", "$tex_hover": "textures/ui/ore-styled/button/secondary/background_hover", "$tex_pressed": "textures/ui/ore-styled/button/secondary/background_pressed", "$text_color": [ 0.118, 0.118, 0.122 ] } } ]
   },
   "splitscreen_row_done": {
     "type": "panel",
@@ -573,7 +588,7 @@
       { "binding_name": "#form_button_text", "binding_type": "collection", "binding_collection_name": "form_buttons" },
       { "binding_type": "view", "source_property_name": "(#form_button_text = 'Done')", "target_property_name": "#visible" }
     ],
-    "controls": [ { "button@server_form.splitscreen_button": { "size": [ "100%", 30 ], "anchor_from": "bottom_middle", "anchor_to": "bottom_middle", "$normal": [ 0.235, 0.522, 0.153 ], "$hover": [ 0.165, 0.392, 0.11 ], "$pressed": [ 0.114, 0.302, 0.075 ], "$edge": [ 0.114, 0.302, 0.075 ], "$shine": [ 1, 1, 1 ], "$text_color": [ 1, 1, 1 ] } } ]
+    "controls": [ { "button@server_form.splitscreen_button": { "size": [ "100%", 30 ], "anchor_from": "bottom_middle", "anchor_to": "bottom_middle", "$tex": "textures/ui/ore-styled/button/primary/background", "$tex_hover": "textures/ui/ore-styled/button/primary/background_hover", "$tex_pressed": "textures/ui/ore-styled/button/primary/background_pressed", "$text_color": [ 1, 1, 1 ] } } ]
   },
   "splitscreen_row_kick": {
     "type": "panel",
@@ -583,7 +598,7 @@
       { "binding_name": "#form_button_text", "binding_type": "collection", "binding_collection_name": "form_buttons" },
       { "binding_type": "view", "source_property_name": "(#form_button_text = '[x]')", "target_property_name": "#visible" }
     ],
-    "controls": [ { "button@server_form.splitscreen_button": { "size": [ 30, 30 ], "anchor_from": "top_right", "anchor_to": "top_right", "offset": [ 0, -32 ], "$square": true, "$normal": [ 0.792, 0.212, 0.212 ], "$hover": [ 0.753, 0.176, 0.176 ], "$pressed": [ 0.678, 0.114, 0.114 ], "$edge": [ 0.678, 0.114, 0.114 ], "$shine": [ 1, 1, 1 ], "$text_color": [ 1, 1, 1 ] } } ]
+    "controls": [ { "button@server_form.splitscreen_button": { "size": [ 30, 30 ], "anchor_from": "top_right", "anchor_to": "top_right", "offset": [ 0, -32 ], "$square": true, "$tex": "textures/ui/ore-styled/button/danger/background", "$tex_hover": "textures/ui/ore-styled/button/danger/background_hover", "$tex_pressed": "textures/ui/ore-styled/button/danger/background_pressed", "$text_color": [ 1, 1, 1 ] } } ]
   },
   "splitscreen_row_pad": {
     "type": "panel",
@@ -593,7 +608,7 @@
       { "binding_name": "#form_button_text", "binding_type": "collection", "binding_collection_name": "form_buttons" },
       { "binding_type": "view", "source_property_name": "(#form_button_text = '[p]')", "target_property_name": "#visible" }
     ],
-    "controls": [ { "button@server_form.splitscreen_button": { "size": [ 30, 30 ], "anchor_from": "top_right", "anchor_to": "top_right", "offset": [ 0, -32 ], "$square": true, "$normal": [ 0.792, 0.212, 0.212 ], "$hover": [ 0.753, 0.176, 0.176 ], "$pressed": [ 0.678, 0.114, 0.114 ], "$edge": [ 0.678, 0.114, 0.114 ], "$shine": [ 1, 1, 1 ], "$text_color": [ 1, 1, 1 ] } } ]
+    "controls": [ { "button@server_form.splitscreen_button": { "size": [ 30, 30 ], "anchor_from": "top_right", "anchor_to": "top_right", "offset": [ 0, -32 ], "$square": true, "$tex": "textures/ui/ore-styled/button/danger/background", "$tex_hover": "textures/ui/ore-styled/button/danger/background_hover", "$tex_pressed": "textures/ui/ore-styled/button/danger/background_pressed", "$text_color": [ 1, 1, 1 ] } } ]
   },
 
   // Secondary (light), destructive (red) and primary (green) buttons of the game's new UI: outline, fill with a
@@ -606,9 +621,9 @@
     "pressed_control": "pressed",
     "bindings": [ { "binding_type": "collection_details", "binding_collection_name": "form_buttons" } ],
     "controls": [
-      { "default@server_form.splitscreen_button_look": { "$fill": "$normal", "$frame": [ 0.12, 0.12, 0.12 ], "$face_y": 2 } },
-      { "hover@server_form.splitscreen_button_look": { "$fill": "$hover", "$frame": [ 1, 1, 1 ], "$face_y": 2 } },
-      { "pressed@server_form.splitscreen_button_look": { "$fill": "$pressed", "$frame": [ 0.12, 0.12, 0.12 ], "$face_y": 6 } }
+      { "default@server_form.splitscreen_button_look": { "$bg": "$tex", "$face_y": 0 } },
+      { "hover@server_form.splitscreen_button_look": { "$bg": "$tex_hover", "$face_y": 0 } },
+      { "pressed@server_form.splitscreen_button_look": { "$bg": "$tex_pressed", "$face_y": 2 } }
     ]
   },
 
@@ -616,22 +631,16 @@
     "type": "panel",
     "size": [ "100%", "100%" ],
     "controls": [
-      { "frame@server_form.splitscreen_fill": { "color": "$frame", "layer": 1 } },
-      { "edge@server_form.splitscreen_fill": { "color": "$edge", "size": [ "100% - 4px", "100% - 4px" ], "layer": 2 } },
+      { "bg": { "type": "image", "texture": "$bg", "size": [ "100%", "100%" ], "layer": 1 } },
       {
         "face": {
           "type": "panel",
-          "size": [ "100% - 4px", "100% - 8px" ],
+          "size": [ "100% - 4px", "100% - 6px" ],
           "offset": [ 0, "$face_y" ],
           "anchor_from": "top_middle",
           "anchor_to": "top_middle",
           "layer": 3,
           "controls": [
-            { "fill@server_form.splitscreen_fill": { "color": "$fill" } },
-            { "spec_top@server_form.splitscreen_fill": { "color": [ 1, 1, 1 ], "alpha": 0.6, "size": [ "100%", 1 ], "anchor_from": "top_left", "anchor_to": "top_left", "layer": 1 } },
-            { "spec_left@server_form.splitscreen_fill": { "color": [ 1, 1, 1 ], "alpha": 0.6, "size": [ 1, "100%" ], "anchor_from": "top_left", "anchor_to": "top_left", "layer": 1 } },
-            { "spec_right@server_form.splitscreen_fill": { "color": [ 1, 1, 1 ], "alpha": 0.4, "size": [ 1, "100%" ], "anchor_from": "top_right", "anchor_to": "top_right", "layer": 1 } },
-            { "spec_bottom@server_form.splitscreen_fill": { "color": [ 1, 1, 1 ], "alpha": 0.4, "size": [ "100%", 1 ], "anchor_from": "bottom_left", "anchor_to": "bottom_left", "layer": 1 } },
             {
               "icon": {
                 "type": "image",

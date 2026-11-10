@@ -1064,8 +1064,8 @@ static void openLayout(int who) {
         SubClientId(who),
         "",
         {"Top and bottom", "Side by side"},
-        {vertical ? "textures/splitscreen/radio_off" : "textures/splitscreen/radio_on",
-         vertical ? "textures/splitscreen/radio_on" : "textures/splitscreen/radio_off"},
+        {vertical ? "textures/ui/ore-styled/radio/unselected" : "textures/ui/ore-styled/radio/selected",
+         vertical ? "textures/ui/ore-styled/radio/selected" : "textures/ui/ore-styled/radio/unselected"},
         [who](int pick) {
             if (auto c = ll::service::getClientInstance(); c && pick >= 0) c->getOptions().setSplitscreenDirection(pick);
             openSettings(who);
