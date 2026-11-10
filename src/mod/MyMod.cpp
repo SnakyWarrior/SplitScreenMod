@@ -1055,6 +1055,25 @@ static int pausedPlayer() {
 
 static void rejoinAs(SubClientId leaving, int controllerId, int sub, int tries);
 
+// The layout choice, opened from "Layout" in the Split screen menu; it goes back there afterwards.
+static void openLayout(int who) {
+    auto client = ll::service::getClientInstance();
+    if (!client) return;
+    bool vertical = int(client->getOptions().getSplitscreenDirection()) == 1;
+    showMenu(
+        SubClientId(who),
+        "",
+        {"Top and bottom", "Side by side"},
+        {vertical ? "textures/splitscreen/radio_off" : "textures/splitscreen/radio_on",
+         vertical ? "textures/splitscreen/radio_on" : "textures/splitscreen/radio_off"},
+        [who](int pick) {
+            if (auto c = ll::service::getClientInstance(); c && pick >= 0) c->getOptions().setSplitscreenDirection(pick);
+            openSettings(who);
+        },
+        "Layout"
+    );
+}
+
 static void openSettings(int who) {
     auto client = ll::service::getClientInstance();
     if (!client) return;
@@ -1074,35 +1093,40 @@ static void openSettings(int who) {
                 if (id == 0) firstPad = pads.front();
             }
     }
-    enum class Act { Horizontal, Vertical, Swap, Kick, FreePad, Join, Done, Nothing };
+    enum class Act { Layout, Swap, Kick, FreePad, Join, Done, Nothing };
     struct Item {
         Act act;
         int sub;
     };
-    // the layout as two options, the chosen one marked; section titles are drawn by the resource pack
-    std::vector<Item>        items{{Act::Nothing, -1}, {Act::Horizontal, -1}, {Act::Vertical, -1}, {Act::Nothing, -1}};
-    std::vector<std::string> buttons{"[h:Layout]", "Top and bottom", "Side by side", "[h:Players]"};
-    std::vector<std::string> pictures{
-        "",
-        vertical ? "textures/splitscreen/radio_off" : "textures/splitscreen/radio_on",
-        vertical ? "textures/splitscreen/radio_on" : "textures/splitscreen/radio_off",
-        ""
-    };
+    // "Layout" shows the current choice and opens a small menu to change it; section titles and tags are drawn
+    // by the resource pack
+    std::vector<Item>        items{{Act::Layout, -1}, {Act::Nothing, -1}, {Act::Nothing, -1}};
+    std::vector<std::string> buttons{"Layout", vertical ? "[tag:Side by side]" : "[tag:Top and bottom]", "[h:Players]"};
+    std::vector<std::string> pictures{"", "", ""};
     for (int sub = 0; sub <= 3; ++sub) {
         auto it   = clients.find(SubClientId(sub));
         auto name = localName(clients, sub);
         if (it != clients.end() && it->second) { // playing: pick to play as them, square to remove / free controller
             int  controller = it->second->getControllerId();
             auto status     = sub == 0 ? "Player 1" : withPad.contains(controller) ? "Playing" : "No controller";
+            // a square button at the end of the row: remove players 2-4, or take player 1's controller if they have one
+            bool square = sub != 0 || firstPad;
             items.push_back({Act::Swap, sub});
-            buttons.push_back(fmt::format("{}{}{}", kRoomForSquare, name, sub == who ? " §3(You)" : ""));
+            buttons.push_back(fmt::format("{}{}", square ? kRoomForSquare : "", name));
             pictures.push_back(withPad.contains(controller) ? badge(sub) : kNameTag);
+            if (sub == who) { // "You", drawn on the row above
+                items.push_back({Act::Nothing, -1});
+                buttons.push_back(square ? "[syou]" : "[you]");
+                pictures.emplace_back();
+            }
             items.push_back({Act::Nothing, -1}); // the status tag, drawn on the row above
-            buttons.push_back(fmt::format("[stag:{}]", status));
+            buttons.push_back(fmt::format("[{}:{}]", square ? "stag" : "tag", status));
             pictures.emplace_back();
-            items.push_back({sub == 0 ? Act::FreePad : Act::Kick, sub});
-            buttons.push_back(sub == 0 ? kPadButton : kKickButton);
-            pictures.push_back(sub == 0 ? "textures/ui/controller_glyph" : "textures/splitscreen/cross");
+            if (square) {
+                items.push_back({sub == 0 ? Act::FreePad : Act::Kick, sub});
+                buttons.push_back(sub == 0 ? kPadButton : kKickButton);
+                pictures.push_back(sub == 0 ? "textures/ui/controller_glyph" : "textures/splitscreen/cross");
+            }
         } else if (who != 0) { // a saved player who is not playing: this player switches to them
             items.push_back({Act::Join, sub});
             buttons.push_back(name);
@@ -1125,10 +1149,7 @@ static void openSettings(int who) {
         auto  mine    = clients.find(SubClientId(who));
         int   myPad   = mine != clients.end() && mine->second ? mine->second->getControllerId() : -1;
         switch (item.act) {
-        case Act::Horizontal:
-        case Act::Vertical:
-            client->getOptions().setSplitscreenDirection(item.act == Act::Vertical ? 1 : 0);
-            return openSettings(who); // show the new choice
+        case Act::Layout: return openLayout(who);
         case Act::Swap: // this controller plays as that player; theirs (if any) comes here
             if (auto it = clients.find(SubClientId(item.sub)); item.sub != who && it != clients.end() && it->second && myPad >= 0) {
                 moveController(game, myPad, it->second->getControllerId());
