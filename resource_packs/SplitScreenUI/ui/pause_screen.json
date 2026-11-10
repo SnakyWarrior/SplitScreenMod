@@ -6,9 +6,8 @@
   "smaller_buttons_panel/stacked_column": {
     "modifications": [
       {
-        "array_name": "controls",
+        "control_name": "fill_3",
         "operation": "insert_before",
-        "where": { "control_name": "fill_3" },
         "value": [
           {
             "splitscreen_padding": {

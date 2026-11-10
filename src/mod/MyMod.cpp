@@ -414,7 +414,13 @@ static std::atomic_bool gInWorld = false; // refreshed on the client thread, rea
 // Controllers that asked to join while no world was loaded (e.g. the game bringing players back when a world opens):
 // they are asked who they are once the world is up, so no controller keeps its player from the last world.
 static std::set<int> gAskLater; // client thread only
-static std::atomic_bool gMenuOpen = false; // one of the mod's menus is open (see showMenu)
+// The mod's menus that are open, per player (see showMenu). A menu that got no answer in a minute is taken as
+// gone (e.g. it was sent while that player was still loading). Client thread only.
+static std::map<int, std::chrono::steady_clock::time_point> gMenus;
+static bool menuOpen(int sub) {
+    auto it = gMenus.find(sub);
+    return it != gMenus.end() && std::chrono::steady_clock::now() - it->second < std::chrono::minutes(1);
+}
 static void          startJoin(IMinecraftGame& game, int slot);
 static Player*       serverPlayer(SubClientId sub);
 static int           gFreshSub = -1; // saved player that just joined and still has to be asked about (client thread)
@@ -580,7 +586,7 @@ static void pollTrigger() {
     GetWindowThreadProcessId(window, &pid);
     static bool f7WasDown = false; // F7 opens the layout menu
     bool        f7        = (GetAsyncKeyState(VK_F7) & 0x8000) && pid == GetCurrentProcessId();
-    if (f7 && !f7WasDown && client && !gMenuOpen) openSettings();
+    if (f7 && !f7WasDown && client && !menuOpen(pausedPlayer())) openSettings();
     f7WasDown = f7;
     static int worldTicks = 0; // how long the world has been up, in polls
     worldTicks            = gInWorld ? worldTicks + 1 : 0;
@@ -594,13 +600,13 @@ static void pollTrigger() {
         if (padOnFirst) offerPicker(SubClientId::PrimaryClient, false);
     }
     if (gFreshSub >= 0 && client) {
-        if (auto standIn = serverPlayer(SubClientId(gFreshSub)); standIn && !gMenuOpen) {
+        if (auto standIn = serverPlayer(SubClientId(gFreshSub)); standIn && !menuOpen(gFreshSub)) {
             hideStandIn(*standIn, true);
             offerPicker(SubClientId(gFreshSub), true);
             gFreshSub = -1;
         } else if (std::chrono::steady_clock::now() - gFreshAt > std::chrono::seconds(20)) gFreshSub = -1;
     }
-    if (worldTicks > 60 && !gAskLater.empty() && !gMenuOpen) { // 3 s in: the players have spawned
+    if (worldTicks > 60 && !gAskLater.empty() && gFreshSub < 0) { // 3 s in: the players have spawned
         int slot = *gAskLater.begin();
         gAskLater.erase(gAskLater.begin());
         startJoin(client->getMinecraftGame(), slot);
@@ -919,14 +925,15 @@ static void showMenu(
     std::function<void(int)>        done
 ) {
     auto player = serverPlayer(who);
-    if (!player || buttons.empty() || gMenuOpen.exchange(true)) return;
+    if (!player || buttons.empty() || menuOpen(int(who))) return;
+    gMenus[int(who)] = std::chrono::steady_clock::now();
     ll::form::SimpleForm form("Bedrock Splitscreen", text);
     for (size_t i = 0; i < buttons.size(); ++i)
         if (i < tagged.size() && tagged[i]) form.appendButton(buttons[i], "textures/items/name_tag", "path");
         else form.appendButton(buttons[i]);
-    form.sendTo(*player, [done](Player&, int pick, ll::form::FormCancelReason) {
-        ll::thread::ClientThreadExecutor::getDefault().execute([done, pick] {
-            gMenuOpen = false;
+    form.sendTo(*player, [done, sub = int(who)](Player&, int pick, ll::form::FormCancelReason) {
+        ll::thread::ClientThreadExecutor::getDefault().execute([done, pick, sub] {
+            gMenus.erase(sub);
             done(pick);
         });
     });
@@ -944,8 +951,9 @@ static int pausedPlayer() {
 
 static void openSettings(int who) {
     auto client = ll::service::getClientInstance();
-    if (!client || gMenuOpen) return;
+    if (!client) return;
     if (who < 0) who = pausedPlayer();
+    if (menuOpen(who)) return;
     auto clients  = client->getMinecraftGame().getClientInstanceMap();
     bool vertical = int(client->getOptions().getSplitscreenDirection()) == 1;
     std::vector<std::string>   buttons{vertical ? "Layout: side by side" : "Layout: top and bottom"};
@@ -1133,7 +1141,7 @@ static void joinRequestDetour(void* self, int controllerId) {
         gAskLater.insert(controllerId);
         return;
     }
-    if (gFreshSub >= 0 || gMenuOpen) return; // someone is joining or a menu is open already
+    if (gFreshSub >= 0) return; // someone is joining already
     startJoin(*static_cast<IMinecraftGame*>(self), controllerId);
 }
 
