@@ -434,9 +434,18 @@ static int           pausedPlayer();
 
 static std::atomic<int> gSecondsLeft = -1; // shown in the "controller lost" prompt; -1 when nobody is leaving
 
+static std::vector<void*> gamepadsOf(GameCorePlayerInput& input);
+
 static void checkControllers(IMinecraftGame& game) {
     auto now  = std::chrono::steady_clock::now();
     int  left = -1;
+    // A slot that has a controller again is not missing one, whatever older events said (a new player may have
+    // joined on a slot whose earlier controller was unplugged long ago).
+    if (auto handler = controllerHandler()) {
+        std::lock_guard lock(*handler->mPlayerInputsLock);
+        for (auto& [id, input] : *handler->mPlayerInputs)
+            if (!gamepadsOf(input).empty()) gMissingSince.erase(id);
+    }
     {
         std::lock_guard lock(gPlayerIdsLock);
         gPlayerIds.clear();
