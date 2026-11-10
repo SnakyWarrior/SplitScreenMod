@@ -1,18 +1,31 @@
 {
   "namespace": "server_form",
 
-  // The menu of a player who has not been chosen yet (title "Choose your player") gets a black background over the whole of that player's part of
-  // the screen, under the menu window, so a player who has not been chosen yet sees nothing of the world.
+  // The mod's menus (titles "Bedrock Splitscreen" and "Choose your player") are drawn in the style of the game's new
+  // settings screens instead of the classic form window. "Choose your player" also gets a black background over the
+  // whole of that player's part of the screen, so a player who has not been chosen yet sees nothing of the world.
+
   "main_screen_content": {
     "modifications": [
       {
         "array_name": "controls",
-        "operation": "insert_front",
+        "operation": "insert_back",
         "value": [
-          {
-            "splitscreen_black@server_form.splitscreen_black": {}
-          }
+          { "splitscreen_black@server_form.splitscreen_black": {} },
+          { "splitscreen_menu@server_form.splitscreen_menu": {} }
         ]
+      }
+    ]
+  },
+
+  // the classic window is hidden for the mod's menus
+  "long_form": {
+    "bindings": [
+      { "binding_name": "#title_text" },
+      {
+        "binding_type": "view",
+        "source_property_name": "(not ((#title_text = 'Bedrock Splitscreen') or (#title_text = 'Choose your player')))",
+        "target_property_name": "#visible"
       }
     ]
   },
@@ -21,13 +34,184 @@
     "type": "image",
     "texture": "textures/ui/Black",
     "size": [ 4000, 4000 ],
-    "layer": 0,
+    "layer": 1,
     "bindings": [
       { "binding_name": "#title_text" },
       {
         "binding_type": "view",
         "source_property_name": "(#title_text = 'Choose your player')",
         "target_property_name": "#visible"
+      }
+    ]
+  },
+
+  "splitscreen_menu": {
+    "type": "panel",
+    "size": [ 250, "100%c" ],
+    "layer": 10,
+    "bindings": [
+      { "binding_name": "#title_text" },
+      {
+        "binding_type": "view",
+        "source_property_name": "((#title_text = 'Bedrock Splitscreen') or (#title_text = 'Choose your player'))",
+        "target_property_name": "#visible"
+      }
+    ],
+    "controls": [
+      {
+        "border": {
+          "type": "image",
+          "texture": "textures/ui/White",
+          "color": [ 0.36, 0.36, 0.37 ],
+          "size": [ "100%", "100%" ],
+          "layer": 0
+        }
+      },
+      {
+        "background": {
+          "type": "image",
+          "texture": "textures/ui/White",
+          "color": [ 0.12, 0.12, 0.13 ],
+          "size": [ "100% - 2px", "100% - 2px" ],
+          "layer": 1
+        }
+      },
+      {
+        "content": {
+          "type": "stack_panel",
+          "orientation": "vertical",
+          "size": [ "100% - 16px", "100%c" ],
+          "layer": 2,
+          "controls": [
+            { "top_pad": { "type": "panel", "size": [ "100%", 8 ] } },
+            {
+              "title": {
+                "type": "label",
+                "text": "#title_text",
+                "font_type": "MinecraftTen",
+                "font_scale_factor": 1.2,
+                "color": [ 1, 1, 1 ],
+                "size": [ "100%", "default" ],
+                "bindings": [ { "binding_name": "#title_text" } ]
+              }
+            },
+            { "title_pad": { "type": "panel", "size": [ "100%", 4 ] } },
+            {
+              "text": {
+                "type": "label",
+                "text": "#form_text",
+                "color": [ 0.75, 0.75, 0.76 ],
+                "size": [ "100%", "default" ],
+                "bindings": [ { "binding_name": "#form_text" } ]
+              }
+            },
+            { "text_pad": { "type": "panel", "size": [ "100%", 8 ] } },
+            {
+              "rows": {
+                "type": "stack_panel",
+                "orientation": "vertical",
+                "size": [ "100%", "100%c" ],
+                "factory": {
+                  "name": "buttons",
+                  "control_ids": { "button": "server_form.splitscreen_row" }
+                },
+                "collection_name": "form_buttons",
+                "bindings": [
+                  { "binding_name": "#form_button_contents", "binding_name_override": "#collection_length" }
+                ]
+              }
+            },
+            { "bottom_pad": { "type": "panel", "size": [ "100%", 6 ] } }
+          ]
+        }
+      }
+    ]
+  },
+
+  "splitscreen_row": {
+    "type": "panel",
+    "size": [ "100%", 30 ],
+    "controls": [
+      {
+        "button@common.button": {
+          "size": [ "100%", 28 ],
+          "anchor_from": "top_middle",
+          "anchor_to": "top_middle",
+          "$pressed_button_name": "button.form_button_click",
+          "default_control": "default",
+          "hover_control": "hover",
+          "pressed_control": "pressed",
+          "bindings": [ { "binding_type": "collection_details", "binding_collection_name": "form_buttons" } ],
+          "controls": [
+            { "default@server_form.splitscreen_row_look": { "$row_color": [ 0.19, 0.2, 0.2 ] } },
+            { "hover@server_form.splitscreen_row_look": { "$row_color": [ 0.24, 0.52, 0.15 ] } },
+            { "pressed@server_form.splitscreen_row_look": { "$row_color": [ 0.16, 0.42, 0.11 ] } }
+          ]
+        }
+      }
+    ]
+  },
+
+  "splitscreen_row_look": {
+    "type": "panel",
+    "size": [ "100%", "100%" ],
+    "controls": [
+      {
+        "fill": {
+          "type": "image",
+          "texture": "textures/ui/White",
+          "color": "$row_color",
+          "size": [ "100%", "100%" ],
+          "layer": 1
+        }
+      },
+      {
+        "icon": {
+          "type": "image",
+          "size": [ 18, 18 ],
+          "offset": [ 6, 0 ],
+          "anchor_from": "left_middle",
+          "anchor_to": "left_middle",
+          "layer": 2,
+          "bindings": [
+            {
+              "binding_name": "#form_button_texture",
+              "binding_name_override": "#texture",
+              "binding_type": "collection",
+              "binding_collection_name": "form_buttons"
+            },
+            {
+              "binding_name": "#form_button_texture_file_system",
+              "binding_name_override": "#texture_file_system",
+              "binding_type": "collection",
+              "binding_collection_name": "form_buttons"
+            },
+            {
+              "binding_type": "view",
+              "source_property_name": "(not ((#texture = '') or (#texture = 'loading')))",
+              "target_property_name": "#visible"
+            }
+          ]
+        }
+      },
+      {
+        "label": {
+          "type": "label",
+          "text": "#form_button_text",
+          "color": [ 1, 1, 1 ],
+          "size": [ "100% - 36px", "default" ],
+          "offset": [ 30, 0 ],
+          "anchor_from": "left_middle",
+          "anchor_to": "left_middle",
+          "layer": 2,
+          "bindings": [
+            {
+              "binding_name": "#form_button_text",
+              "binding_type": "collection",
+              "binding_collection_name": "form_buttons"
+            }
+          ]
+        }
       }
     ]
   }
