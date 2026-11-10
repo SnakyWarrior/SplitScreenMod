@@ -1084,6 +1084,15 @@ static void openSettings(int who) {
                 note("settings: controller taken from player 1");
                 newPlayerFor(game, 0, firstPad);
                 tell(SubClientId::PrimaryClient, "Controller freed: press start on it to choose a player");
+                // player 1 is on keyboard and mouse now: the game's "connect your controller" screen must not stay
+                ll::thread::ClientThreadExecutor::getDefault().executeAfter(
+                    [] {
+                        if (auto c = ll::service::getClientInstance();
+                            c && c->getTopScreenName().find("gamepad_disconnected") != std::string::npos)
+                            c->getMainSceneStack()->schedulePopScreen(1);
+                    },
+                    std::chrono::milliseconds(300)
+                );
             }
             return;
         case Act::Join:
