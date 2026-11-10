@@ -31,7 +31,7 @@
       { "binding_name": "#title_text" },
       {
         "binding_type": "view",
-        "source_property_name": "(not ((#title_text = 'Split screen') or (#title_text = 'Who is playing?') or (#title_text = 'Choose your player') or (#title_text = 'Layout')))",
+        "source_property_name": "(not ((#title_text = '[ss:m]') or (#title_text = '[ss:w]') or (#title_text = '[ss:c]')))",
         "target_property_name": "#visible"
       }
     ]
@@ -44,7 +44,7 @@
     "layer": 1,
     "bindings": [
       { "binding_name": "#title_text" },
-      { "binding_type": "view", "source_property_name": "(#title_text = 'Choose your player')", "target_property_name": "#visible" }
+      { "binding_type": "view", "source_property_name": "(#title_text = '[ss:c]')", "target_property_name": "#visible" }
     ]
   },
 
@@ -62,7 +62,7 @@
       { "binding_name": "#title_text" },
       {
         "binding_type": "view",
-        "source_property_name": "((#title_text = 'Split screen') or (#title_text = 'Who is playing?') or (#title_text = 'Choose your player') or (#title_text = 'Layout'))",
+        "source_property_name": "((#title_text = '[ss:m]') or (#title_text = '[ss:w]') or (#title_text = '[ss:c]'))",
         "target_property_name": "#visible"
       }
     ],
@@ -91,15 +91,48 @@
                 "size": [ "100%", 13 ],
                 "controls": [
                   {
-                    "title": {
+                    "title_menu": {
                       "type": "label",
-                      "text": "#title_text",
+                      "text": "splitscreen.title.menu",
                       "font_type": "MinecraftTen",
                       "color": [ 1, 1, 1 ],
                       "size": [ "100% - 30px", "default" ],
                       "anchor_from": "left_middle",
                       "anchor_to": "left_middle",
-                      "bindings": [ { "binding_name": "#title_text" } ]
+                      "bindings": [
+                        { "binding_name": "#title_text" },
+                        { "binding_type": "view", "source_property_name": "(#title_text = '[ss:m]')", "target_property_name": "#visible" }
+                      ]
+                    }
+                  },
+                  {
+                    "title_who": {
+                      "type": "label",
+                      "text": "splitscreen.title.who",
+                      "font_type": "MinecraftTen",
+                      "color": [ 1, 1, 1 ],
+                      "size": [ "100% - 30px", "default" ],
+                      "anchor_from": "left_middle",
+                      "anchor_to": "left_middle",
+                      "bindings": [
+                        { "binding_name": "#title_text" },
+                        { "binding_type": "view", "source_property_name": "(#title_text = '[ss:w]')", "target_property_name": "#visible" }
+                      ]
+                    }
+                  },
+                  {
+                    "title_choose": {
+                      "type": "label",
+                      "text": "splitscreen.title.choose",
+                      "font_type": "MinecraftTen",
+                      "color": [ 1, 1, 1 ],
+                      "size": [ "100% - 30px", "default" ],
+                      "anchor_from": "left_middle",
+                      "anchor_to": "left_middle",
+                      "bindings": [
+                        { "binding_name": "#title_text" },
+                        { "binding_type": "view", "source_property_name": "(#title_text = '[ss:c]')", "target_property_name": "#visible" }
+                      ]
                     }
                   },
                   { "timer@server_form.splitscreen_timer": {} }
@@ -139,7 +172,7 @@
     "anchor_to": "right_middle",
     "bindings": [
       { "binding_name": "#title_text" },
-      { "binding_type": "view", "source_property_name": "(#title_text = 'Choose your player')", "target_property_name": "#visible" }
+      { "binding_type": "view", "source_property_name": "(#title_text = '[ss:c]')", "target_property_name": "#visible" }
     ],
     "controls": [
       { "frame@server_form.splitscreen_fill": { "color": [ 0.36, 0.36, 0.37 ], "layer": 0 } },
@@ -212,7 +245,7 @@
     "bindings": [
       { "binding_type": "collection_details", "binding_collection_name": "form_buttons" },
       { "binding_name": "#form_button_text", "binding_type": "collection", "binding_collection_name": "form_buttons" },
-      { "binding_type": "view", "source_property_name": "((#form_button_text = 'Top and bottom') or (#form_button_text = 'Side by side'))", "target_property_name": "#visible" }
+      { "binding_type": "view", "source_property_name": "(('%.3s' * #form_button_text) = '[r:')", "target_property_name": "#visible" }
     ],
     "controls": [
       {
@@ -251,9 +284,9 @@
         }
       },
       {
-        "label": {
+        "label_top": {
           "type": "label",
-          "text": "#form_button_text",
+          "text": "splitscreen.layout.top",
           "color": [ 1, 1, 1 ],
           "size": [ "default", "default" ],
           "offset": [ 22, 0 ],
@@ -261,7 +294,24 @@
           "anchor_to": "left_middle",
           "layer": 1,
           "bindings": [
-            { "binding_name": "#form_button_text", "binding_type": "collection", "binding_collection_name": "form_buttons" }
+            { "binding_name": "#form_button_text", "binding_type": "collection", "binding_collection_name": "form_buttons" },
+            { "binding_type": "view", "source_property_name": "(#form_button_text = '[r:t]')", "target_property_name": "#visible" }
+          ]
+        }
+      },
+      {
+        "label_side": {
+          "type": "label",
+          "text": "splitscreen.layout.side",
+          "color": [ 1, 1, 1 ],
+          "size": [ "default", "default" ],
+          "offset": [ 22, 0 ],
+          "anchor_from": "left_middle",
+          "anchor_to": "left_middle",
+          "layer": 1,
+          "bindings": [
+            { "binding_name": "#form_button_text", "binding_type": "collection", "binding_collection_name": "form_buttons" },
+            { "binding_type": "view", "source_property_name": "(#form_button_text = '[r:s]')", "target_property_name": "#visible" }
           ]
         }
       }
@@ -278,7 +328,7 @@
       { "binding_type": "view", "source_property_name": "(#form_button_text = '[h:Settings]')", "target_property_name": "#visible" }
     ],
     "controls": [
-      { "label": { "type": "label", "text": "Settings", "color": [ 0.82, 0.82, 0.83 ], "size": [ "default", "default" ], "anchor_from": "left_middle", "anchor_to": "left_middle" } }
+      { "label": { "type": "label", "text": "splitscreen.header.settings", "color": [ 0.82, 0.82, 0.83 ], "size": [ "default", "default" ], "anchor_from": "left_middle", "anchor_to": "left_middle" } }
     ]
   },
   "splitscreen_header_1": {
@@ -290,7 +340,7 @@
       { "binding_type": "view", "source_property_name": "(#form_button_text = '[h:Players]')", "target_property_name": "#visible" }
     ],
     "controls": [
-      { "label": { "type": "label", "text": "Players", "color": [ 0.82, 0.82, 0.83 ], "size": [ "default", "default" ], "anchor_from": "left_middle", "anchor_to": "left_middle" } }
+      { "label": { "type": "label", "text": "splitscreen.header.players", "color": [ 0.82, 0.82, 0.83 ], "size": [ "default", "default" ], "anchor_from": "left_middle", "anchor_to": "left_middle" } }
     ]
   },
   "splitscreen_header_2": {
@@ -302,7 +352,7 @@
       { "binding_type": "view", "source_property_name": "(#form_button_text = '[h:Layout]')", "target_property_name": "#visible" }
     ],
     "controls": [
-      { "label": { "type": "label", "text": "Layout", "color": [ 0.69, 0.7, 0.71 ], "size": [ "default", "default" ], "anchor_from": "left_middle", "anchor_to": "left_middle" } }
+      { "label": { "type": "label", "text": "splitscreen.header.layout", "color": [ 0.69, 0.7, 0.71 ], "size": [ "default", "default" ], "anchor_from": "left_middle", "anchor_to": "left_middle" } }
     ]
   },
 
@@ -326,7 +376,7 @@
           "controls": [
             { "outline@server_form.splitscreen_fill": { "color": [ 0.118, 0.118, 0.122 ] } },
             { "back@server_form.splitscreen_fill": { "color": [0.424, 0.765, 0.286], "size": [ "100% - 2px", "100% - 2px" ], "layer": 1 } },
-            { "label": { "type": "label", "text": "You", "color": [0.118, 0.118, 0.122], "size": [ "default", "default" ], "anchor_from": "center", "anchor_to": "center", "layer": 2 } }
+            { "label": { "type": "label", "text": "splitscreen.tag.you", "color": [0.118, 0.118, 0.122], "size": [ "default", "default" ], "anchor_from": "center", "anchor_to": "center", "layer": 2 } }
           ]
         }
       }
@@ -352,7 +402,7 @@
           "controls": [
             { "outline@server_form.splitscreen_fill": { "color": [ 0.118, 0.118, 0.122 ] } },
             { "back@server_form.splitscreen_fill": { "color": [0.424, 0.765, 0.286], "size": [ "100% - 2px", "100% - 2px" ], "layer": 1 } },
-            { "label": { "type": "label", "text": "You", "color": [0.118, 0.118, 0.122], "size": [ "default", "default" ], "anchor_from": "center", "anchor_to": "center", "layer": 2 } }
+            { "label": { "type": "label", "text": "splitscreen.tag.you", "color": [0.118, 0.118, 0.122], "size": [ "default", "default" ], "anchor_from": "center", "anchor_to": "center", "layer": 2 } }
           ]
         }
       }
@@ -379,7 +429,7 @@
           "controls": [
             { "outline@server_form.splitscreen_fill": { "color": [ 0.118, 0.118, 0.122 ] } },
             { "back@server_form.splitscreen_fill": { "color": [ 0.549, 0.702, 1 ], "size": [ "100% - 2px", "100% - 2px" ], "layer": 1 } },
-            { "label": { "type": "label", "text": "Player 1", "color": [ 0.118, 0.118, 0.122 ], "size": [ "default", "default" ], "anchor_from": "center", "anchor_to": "center", "layer": 2 } }
+            { "label": { "type": "label", "text": "splitscreen.tag.player1", "color": [ 0.118, 0.118, 0.122 ], "size": [ "default", "default" ], "anchor_from": "center", "anchor_to": "center", "layer": 2 } }
           ]
         }
       }
@@ -405,7 +455,7 @@
           "controls": [
             { "outline@server_form.splitscreen_fill": { "color": [ 0.118, 0.118, 0.122 ] } },
             { "back@server_form.splitscreen_fill": { "color": [ 0.424, 0.765, 0.286 ], "size": [ "100% - 2px", "100% - 2px" ], "layer": 1 } },
-            { "label": { "type": "label", "text": "Playing", "color": [ 0.118, 0.118, 0.122 ], "size": [ "default", "default" ], "anchor_from": "center", "anchor_to": "center", "layer": 2 } }
+            { "label": { "type": "label", "text": "splitscreen.tag.playing", "color": [ 0.118, 0.118, 0.122 ], "size": [ "default", "default" ], "anchor_from": "center", "anchor_to": "center", "layer": 2 } }
           ]
         }
       }
@@ -431,7 +481,7 @@
           "controls": [
             { "outline@server_form.splitscreen_fill": { "color": [ 0.118, 0.118, 0.122 ] } },
             { "back@server_form.splitscreen_fill": { "color": [ 1, 0.91, 0.4 ], "size": [ "100% - 2px", "100% - 2px" ], "layer": 1 } },
-            { "label": { "type": "label", "text": "No controller", "color": [ 0.118, 0.118, 0.122 ], "size": [ "default", "default" ], "anchor_from": "center", "anchor_to": "center", "layer": 2 } }
+            { "label": { "type": "label", "text": "splitscreen.tag.noController", "color": [ 0.118, 0.118, 0.122 ], "size": [ "default", "default" ], "anchor_from": "center", "anchor_to": "center", "layer": 2 } }
           ]
         }
       }
@@ -457,7 +507,7 @@
           "controls": [
             { "outline@server_form.splitscreen_fill": { "color": [ 0.118, 0.118, 0.122 ] } },
             { "back@server_form.splitscreen_fill": { "color": [ 0.118, 0.118, 0.122 ], "size": [ "100% - 2px", "100% - 2px" ], "layer": 1 } },
-            { "label": { "type": "label", "text": "Not playing", "color": [1, 1, 1], "size": [ "default", "default" ], "anchor_from": "center", "anchor_to": "center", "layer": 2 } }
+            { "label": { "type": "label", "text": "splitscreen.tag.notPlaying", "color": [1, 1, 1], "size": [ "default", "default" ], "anchor_from": "center", "anchor_to": "center", "layer": 2 } }
           ]
         }
       }
@@ -483,7 +533,7 @@
           "controls": [
             { "outline@server_form.splitscreen_fill": { "color": [ 0.118, 0.118, 0.122 ] } },
             { "back@server_form.splitscreen_fill": { "color": [ 0.549, 0.702, 1 ], "size": [ "100% - 2px", "100% - 2px" ], "layer": 1 } },
-            { "label": { "type": "label", "text": "Player 1", "color": [ 0.118, 0.118, 0.122 ], "size": [ "default", "default" ], "anchor_from": "center", "anchor_to": "center", "layer": 2 } }
+            { "label": { "type": "label", "text": "splitscreen.tag.player1", "color": [ 0.118, 0.118, 0.122 ], "size": [ "default", "default" ], "anchor_from": "center", "anchor_to": "center", "layer": 2 } }
           ]
         }
       }
@@ -509,7 +559,7 @@
           "controls": [
             { "outline@server_form.splitscreen_fill": { "color": [ 0.118, 0.118, 0.122 ] } },
             { "back@server_form.splitscreen_fill": { "color": [ 0.424, 0.765, 0.286 ], "size": [ "100% - 2px", "100% - 2px" ], "layer": 1 } },
-            { "label": { "type": "label", "text": "Playing", "color": [ 0.118, 0.118, 0.122 ], "size": [ "default", "default" ], "anchor_from": "center", "anchor_to": "center", "layer": 2 } }
+            { "label": { "type": "label", "text": "splitscreen.tag.playing", "color": [ 0.118, 0.118, 0.122 ], "size": [ "default", "default" ], "anchor_from": "center", "anchor_to": "center", "layer": 2 } }
           ]
         }
       }
@@ -535,7 +585,7 @@
           "controls": [
             { "outline@server_form.splitscreen_fill": { "color": [ 0.118, 0.118, 0.122 ] } },
             { "back@server_form.splitscreen_fill": { "color": [ 1, 0.91, 0.4 ], "size": [ "100% - 2px", "100% - 2px" ], "layer": 1 } },
-            { "label": { "type": "label", "text": "No controller", "color": [ 0.118, 0.118, 0.122 ], "size": [ "default", "default" ], "anchor_from": "center", "anchor_to": "center", "layer": 2 } }
+            { "label": { "type": "label", "text": "splitscreen.tag.noController", "color": [ 0.118, 0.118, 0.122 ], "size": [ "default", "default" ], "anchor_from": "center", "anchor_to": "center", "layer": 2 } }
           ]
         }
       }
@@ -561,7 +611,7 @@
           "controls": [
             { "outline@server_form.splitscreen_fill": { "color": [ 0.118, 0.118, 0.122 ] } },
             { "back@server_form.splitscreen_fill": { "color": [ 0.118, 0.118, 0.122 ], "size": [ "100% - 2px", "100% - 2px" ], "layer": 1 } },
-            { "label": { "type": "label", "text": "Not playing", "color": [1, 1, 1], "size": [ "default", "default" ], "anchor_from": "center", "anchor_to": "center", "layer": 2 } }
+            { "label": { "type": "label", "text": "splitscreen.tag.notPlaying", "color": [1, 1, 1], "size": [ "default", "default" ], "anchor_from": "center", "anchor_to": "center", "layer": 2 } }
           ]
         }
       }
@@ -573,7 +623,7 @@
     "bindings": [
       { "binding_type": "collection_details", "binding_collection_name": "form_buttons" },
       { "binding_name": "#form_button_text", "binding_type": "collection", "binding_collection_name": "form_buttons" },
-      { "binding_type": "view", "source_property_name": "(not ((('%.1s' * #form_button_text) = '[') or (('%.1s' * #form_button_text) = ' ') or (#form_button_text = 'Done') or (#form_button_text = 'Top and bottom') or (#form_button_text = 'Side by side')))", "target_property_name": "#visible" }
+      { "binding_type": "view", "source_property_name": "(not ((('%.1s' * #form_button_text) = '[') or (('%.1s' * #form_button_text) = ' ')))", "target_property_name": "#visible" }
     ],
     "controls": [ { "button@server_form.splitscreen_button": { "size": [ "100%", 30 ], "$tex": "textures/ui/ore-styled/button/secondary/background", "$tex_hover": "textures/ui/ore-styled/button/secondary/background_hover", "$tex_pressed": "textures/ui/ore-styled/button/secondary/background_pressed", "$text_color": [ 0.118, 0.118, 0.122 ] } } ]
   },
@@ -593,7 +643,7 @@
     "bindings": [
       { "binding_type": "collection_details", "binding_collection_name": "form_buttons" },
       { "binding_name": "#form_button_text", "binding_type": "collection", "binding_collection_name": "form_buttons" },
-      { "binding_type": "view", "source_property_name": "(#form_button_text = 'Done')", "target_property_name": "#visible" }
+      { "binding_type": "view", "source_property_name": "(#form_button_text = '[d]')", "target_property_name": "#visible" }
     ],
     "controls": [ { "button@server_form.splitscreen_button": { "size": [ "100%", 30 ], "anchor_from": "bottom_middle", "anchor_to": "bottom_middle", "$tex": "textures/ui/ore-styled/button/primary/background", "$tex_hover": "textures/ui/ore-styled/button/primary/background_hover", "$tex_pressed": "textures/ui/ore-styled/button/primary/background_pressed", "$text_color": [ 1, 1, 1 ] } } ]
   },
@@ -677,21 +727,21 @@
                 "ignored": "$square",
                 "bindings": [
                   { "binding_name": "#form_button_text", "binding_type": "collection", "binding_collection_name": "form_buttons" },
-                  { "binding_type": "view", "source_property_name": "(not (#form_button_text = 'Done'))", "target_property_name": "#visible" }
+                  { "binding_type": "view", "source_property_name": "(not (#form_button_text = '[d]'))", "target_property_name": "#visible" }
                 ]
               }
             },
             {
               "done_text": {
                 "type": "label",
-                "text": "Done",
+                "text": "splitscreen.done",
                 "color": "$text_color",
                 "size": [ "default", "default" ],
                 "layer": 2,
                 "ignored": "$square",
                 "bindings": [
                   { "binding_name": "#form_button_text", "binding_type": "collection", "binding_collection_name": "form_buttons" },
-                  { "binding_type": "view", "source_property_name": "(#form_button_text = 'Done')", "target_property_name": "#visible" }
+                  { "binding_type": "view", "source_property_name": "(#form_button_text = '[d]')", "target_property_name": "#visible" }
                 ]
               }
             },

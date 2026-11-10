@@ -43,6 +43,7 @@
 #include "mc/gamecore/AppPlatform_GameCore.h"
 #include "mc/gamecore/GameControllerHandler_GameCore.h"
 #include "mc/deps/input/InputHandler.h"
+#include "mc/locale/I18n.h"
 #include "mc/locale/Localization.h"
 #include "mc/deps/core/math/Color.h"
 #include "mc/network/LoopbackPacketSender.h"
@@ -336,7 +337,8 @@ static int           gFreshSlot = -1;  // the controller slot of gFreshSub
 static bool          gFreshRetried = false;
 static int           gFreshSub = -1; // saved player that just joined and still has to be asked about (client thread)
 static std::chrono::steady_clock::time_point gFreshAt;
-static void          openSettings(int who = -1);
+static void          openSettings(int who);
+static std::string   tr(std::string const& key, std::vector<std::string> const& params = {});
 static int           pausedPlayer();
 static bool          everyonePaused();
 static std::map<int, std::chrono::steady_clock::time_point> gSettingsOpen; // player -> when their Split screen menu opened
@@ -551,7 +553,7 @@ LL_AUTO_TYPE_INSTANCE_HOOK(
 ) {
     bool found = origin(id, out, params);
     if (int left = gSecondsLeft; found && left >= 0 && id == "gamepad_disconnect.reconnectController")
-        out += fmt::format("\n\nThe player leaves in {} s.", left);
+        out += "\n\n" + tr("splitscreen.lost.leaves", {std::to_string(left)});
     return found;
 }
 
@@ -690,10 +692,6 @@ static void pollTrigger() {
     auto       window = GetForegroundWindow();
     DWORD      pid    = 0;
     GetWindowThreadProcessId(window, &pid);
-    static bool f7WasDown = false; // F7 opens the layout menu
-    bool        f7        = (GetAsyncKeyState(VK_F7) & 0x8000) && pid == GetCurrentProcessId();
-    if (f7 && !f7WasDown && client && !menuOpen(pausedPlayer())) openSettings();
-    f7WasDown = f7;
     static int worldTicks = 0; // how long the world has been up, in polls
     worldTicks            = gInWorld ? worldTicks + 1 : 0;
     // A menu sent while that player is still loading is lost: wait until they see their HUD.
@@ -1082,7 +1080,16 @@ static Player* serverPlayer(SubClientId sub) {
 static constexpr char const* kKickButton = "[x]";
 static constexpr char const* kPadButton  = "[p]";
 static constexpr char const* kRoomForSquare = " "; // a leading space: not seen, but the UI can test for it
-static constexpr char const* kDoneButton = "Done";
+// Menu texts come from resource_packs/SplitScreenUI/texts/<language>.lang, in the game's language. Fixed texts are
+// sent as markers the resource pack draws in the player's language: "[d]" Done, "[r:t]"/"[r:s]" the layout choices,
+// "[h:..]" section titles, "[tag:..]" status tags and the titles below.
+static std::string tr(std::string const& key, std::vector<std::string> const& params) {
+    auto& i18n = getI18n();
+    return i18n.get(key, params, i18n.getCurrentLanguage().get());
+}
+static constexpr char const* kTitleMenu   = "[ss:m]"; // Split screen
+static constexpr char const* kTitleWho    = "[ss:w]"; // Who is playing?
+static constexpr char const* kTitleChoose = "[ss:c]"; // Choose your player (black background, countdown)
 
 static void showMenu(
     SubClientId                     who,
@@ -1121,7 +1128,7 @@ static void freeFirstPad(IMinecraftGame& game, void* pad) {
     newPlayerFor(game, 0, pad);
     // the sticks and buttons it held stay pressed on player 1 otherwise (walking or turning by itself)
     if (auto client = ll::service::getClientInstance(); client && client->getInput()) client->getInput()->releaseButtonsAndSticks();
-    tell(SubClientId::PrimaryClient, "Press start on your controller to choose who plays with it");
+    tell(SubClientId::PrimaryClient, tr("splitscreen.tell.pressStart"));
     ll::thread::ClientThreadExecutor::getDefault().executeAfter(
         [] {
             if (auto c = ll::service::getClientInstance())
@@ -1169,7 +1176,7 @@ static void refreshSettings(std::string const& state) {
     }
 }
 
-// F7 or the pause menu's "Split screen" button: layout, and removing players.
+// The pause menu's "Split screen" button: layout, and removing players.
 // Every player is in a pause menu: the world is stopped (alone, or all of them).
 static bool everyonePaused() {
     auto client = ll::service::getClientInstance();
@@ -1193,7 +1200,6 @@ static void rejoinAs(SubClientId leaving, int controllerId, int sub, int tries);
 static void openSettings(int who) {
     auto client = ll::service::getClientInstance();
     if (!client) return;
-    if (who < 0) who = pausedPlayer();
     if (menuOpen(who)) return;
     auto& game     = client->getMinecraftGame();
     auto  clients  = game.getClientInstanceMap();
@@ -1218,7 +1224,9 @@ static void openSettings(int who) {
     // by the resource pack
     // "Settings": the layout as two choices, the current one marked
     std::vector<Item>        items{{Act::Nothing, -1}, {Act::Nothing, -1}, {Act::Horizontal, -1}, {Act::Vertical, -1}};
-    std::vector<std::string> buttons{"[h:Settings]", "[h:Layout]", "Top and bottom", "Side by side"};
+    std::vector<std::string> buttons{
+        "[h:Settings]", "[h:Layout]", "[r:t]", "[r:s]"
+    };
     std::vector<std::string> pictures{
         "",
         "",
@@ -1262,7 +1270,7 @@ static void openSettings(int who) {
         }
     }
     items.push_back({Act::Done, -1});
-    buttons.push_back(kDoneButton);
+    buttons.push_back("[d]");
     pictures.emplace_back();
 
     gSettingsOpen[who] = std::chrono::steady_clock::now();
@@ -1291,9 +1299,9 @@ static void openSettings(int who) {
                 iHavePad    = inputs.contains(myPad) && !gamepadsOf(inputs.at(myPad)).empty();
                 theyHavePad = inputs.contains(it->second->getControllerId()) && !gamepadsOf(inputs.at(it->second->getControllerId())).empty();
             }
-            if (!iHavePad) return tell(SubClientId(who), "You need a controller to take another player");
+            if (!iHavePad) return tell(SubClientId(who), tr("splitscreen.tell.needController"));
             moveController(game, myPad, it->second->getControllerId());
-            tell(SubClientId(item.sub), fmt::format("You are now {}", localName(clients, item.sub)));
+            tell(SubClientId(item.sub), tr("splitscreen.tell.youAreNow", {localName(clients, item.sub)}));
             // nothing comes back to this player (the other one had no controller): it leaves instead of waiting
             if (!theyHavePad && who != 0 && mine != clients.end() && mine->second) mine->second->requestLeaveGameAsync();
             return;
@@ -1301,7 +1309,7 @@ static void openSettings(int who) {
         case Act::Kick:
             if (auto it = clients.find(SubClientId(item.sub)); it != clients.end() && it->second) {
                 note("settings: player {} removed", item.sub + 1);
-                tell(SubClientId(who), fmt::format("{} left the game", localName(clients, item.sub)));
+                tell(SubClientId(who), tr("splitscreen.tell.left", {localName(clients, item.sub)}));
                 it->second->requestLeaveGameAsync();
             }
             return;
@@ -1315,7 +1323,7 @@ static void openSettings(int who) {
             return;
         default: return;
         }
-    }, "Split screen");
+    }, kTitleMenu);
 }
 
 static void joinAs(IMinecraftGame& game, int controllerId, int sub) {
@@ -1431,21 +1439,21 @@ static void offerPicker(SubClientId owner, bool fresh) {
     if (!fresh && clients.size() < 4) {
         toChoice.push_back(int(choices.size()));
         choices.push_back({Kind::NewPlayer, 0, owner});
-        buttons.push_back("New player");
+        buttons.push_back(tr("splitscreen.newPlayer"));
         pictures.emplace_back();
     }
     int const keep = int(std::find_if(choices.begin(), choices.end(), [](Choice const& c) { return c.kind == Kind::Keep; })
                          - choices.begin());
     if (choices.size() < 2) return;
     note("picker: menu for player {} ({} choices)", int(owner) + 1, choices.size());
-    showMenu(owner, "Who is playing with this controller?", buttons, pictures, [=](int pick) {
+    showMenu(owner, tr("splitscreen.picker.body"), buttons, pictures, [=](int pick) {
         pick        = pick >= 0 && pick < int(toChoice.size()) ? toChoice[pick] : -1;
         auto client = ll::service::getClientInstance();
         if (fresh) {
             if (pick == keep || pick < 0 || pick >= int(choices.size())) { // kept: the stand-in is the chosen player
                 if (auto player = serverPlayer(owner)) hideStandIn(*player, false);
                 if (auto c = ll::service::getClientInstance())
-                    tell(owner, fmt::format("You are {}", localName(c->getMinecraftGame().getClientInstanceMap(), int(owner))));
+                    tell(owner, tr("splitscreen.tell.youAre", {localName(c->getMinecraftGame().getClientInstanceMap(), int(owner))}));
                 quietFor(std::chrono::seconds(10)); // its skin line can still come
             } else { // the stand-in leaves (with its own game mode back) and the chosen player comes in quietly
                 if (auto player = serverPlayer(owner)) hideStandIn(*player, false);
@@ -1458,7 +1466,7 @@ static void offerPicker(SubClientId owner, bool fresh) {
         switch (choice.kind) {
         case Kind::TakeOver:
             moveController(game, controller, choice.value);
-            tell(choice.sub, fmt::format("You are now {}", localName(game.getClientInstanceMap(), int(choice.sub))));
+            tell(choice.sub, tr("splitscreen.tell.youAreNow", {localName(game.getClientInstanceMap(), int(choice.sub))}));
             if (fresh) { // the player made for this controller is not needed any more
                 auto now = game.getClientInstanceMap();
                 if (now.contains(owner)) now.at(owner)->requestLeaveGameAsync();
@@ -1509,7 +1517,7 @@ static void offerPicker(SubClientId owner, bool fresh) {
         }
         default: break;
         }
-    }, fresh ? "Choose your player" : "Who is playing?");
+    }, fresh ? kTitleChoose : kTitleWho);
     if (fresh && gMenus.contains(int(owner))) watchChoice(owner, gMenus.at(int(owner)), {});
 }
 
@@ -1541,7 +1549,7 @@ static void joinRequestDetour(void* self, int controllerId) {
     if (everyonePaused()) { // a player cannot join a stopped world (the game hangs): join once it runs again
         note("controller {} asked to join while the world is paused: joining when it runs again", controllerId);
         gAskLater.insert(controllerId);
-        tell(SubClientId::PrimaryClient, "Resume the game to add the new player");
+        tell(SubClientId::PrimaryClient, tr("splitscreen.tell.resume"));
         return;
     }
     gFreshRetried = false; // a new start: one retry again if the game drops the player

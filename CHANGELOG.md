@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The menus follow the game's language (16 languages, including Chinese, Japanese and Korean).
+
+### Removed
+
+- The F7 shortcut (it clashed with other mods' keys); the Split screen menu opens from the pause menu.
+
+### Fixed
+
+- After taking player 1's controller away, the game's "Join as Player" prompt did not show.
+
 ## [1.3.0] - 2026-11-10
 
 ### Added

@@ -13,10 +13,11 @@ Minecraft Bedrock already contains split-screen (it is used on Xbox), but the Wi
 ## Features
 
 - **Choose who plays.** Press start on a free controller: the screen splits and the new player's part stays black with a menu until you choose a saved local player (each keeps their own inventory), player 1, or a player whose controller was lost. The menu closes by itself after 10 seconds.
-- **Split screen menu.** The name tag button in the pause menu (or **F7**) opens it: pick the layout (top and bottom or side by side), take another player's place, remove a player, or take player 1's controller away so it can choose another player.
+- **Split screen menu.** The name tag button in the pause menu opens it: pick the layout (top and bottom or side by side), take another player's place, remove a player, or take player 1's controller away so it can choose another player.
 - **Looks like the game's new UI.** Every player has a P1-P4 picture in their own colour, and tags show who is playing, who has no controller and who you are.
 - **Player 1 keeps keyboard and mouse.** A controller only plays as player 1 when you choose that. A controller that is already connected when you enter a world waits for you to press start.
 - **One controller per player.** A controller that reconnects can pick up the player who lost theirs. A player whose controller stays disconnected for 20 seconds leaves; the game's "Controller lost connection" prompt counts down the seconds.
+- **In your language.** The menus follow the game's language: English, Greek, Chinese (simplified and traditional), Japanese, Korean, German, French, Spanish, Portuguese, Russian, Ukrainian, Italian, Polish and Turkish.
 - **Made to survive updates.** The mod finds the places it needs by the shape of the game code, not by fixed addresses, so a new game version normally needs only a rebuild against the matching LeviLamina.
 
 ## Screenshots
@@ -25,7 +26,7 @@ Minecraft Bedrock already contains split-screen (it is used on Xbox), but the Wi
 
 ![Choose your player](docs/menu-choose.png)
 
-**The Split screen menu**, from the pause menu or F7: the layout, the players with their status, swapping places, removing a player (X):
+**The Split screen menu**, from the pause menu: the layout, the players with their status, swapping places, removing a player (X):
 
 <p align="center"><img src="docs/menu-splitscreen-close.png" alt="Split screen menu" width="460"></p>
 
@@ -57,7 +58,7 @@ Minecraft Bedrock already contains split-screen (it is used on Xbox), but the Wi
 1. Start the game and enter a world (with keyboard and mouse, or a controller).
 2. Press start on another controller. The screen splits and that player's part shows a menu: pick who plays with that controller.
 3. Repeat for players 3 and 4.
-4. In the pause menu, press the name tag button under Save & Quit (or **F7**) to change the layout, swap or remove players.
+4. In the pause menu, press the name tag button under Save & Quit to change the layout, swap or remove players.
 
 To leave, press the red X next to the player in the Split screen menu, or unplug or switch off that controller: the "Controller lost connection" prompt counts down, and after 20 seconds the player is removed. Plug a controller back in before that to pick up the player again.
 

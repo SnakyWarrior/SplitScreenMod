@@ -50,7 +50,7 @@
     "$pressed_button_name": "button.splitscreen_menu",
     "$focus_id": "icon_panel_main_focus",
     "focus_change_down": "return_to_game",
-    "$button_tts_header": "Split screen",
+    "$button_tts_header": "splitscreen.title.menu",
     "size": [ 24, 24 ],
     "$button_content": "pause.splitscreen_icon",
     "$pressed_alpha": 0.65
@@ -74,7 +74,7 @@
     "$pressed_button_texture": "textures/ui/button_red_pressed",
     "$focus_id": "icon_panel_main_focus",
     "focus_change_down": "return_to_game",
-    "$button_tts_header": "Disconnect controller",
+    "$button_tts_header": "splitscreen.pause.freeController",
     "size": [ 24, 24 ],
     "$button_content": "pause.splitscreen_free_icon",
     "$pressed_alpha": 0.65
@@ -85,7 +85,7 @@
     "size": [ 24, 24 ],
     "controls": [
       { "button@pause.splitscreen_free_button_small": {} },
-      { "tooltip_trigger@pause.icon_button_tooltip_trigger": { "$tooltip_text": "Disconnect controller" } }
+      { "tooltip_trigger@pause.icon_button_tooltip_trigger": { "$tooltip_text": "splitscreen.pause.freeController" } }
     ]
   },
 
@@ -94,7 +94,7 @@
     "size": [ 24, 24 ],
     "controls": [
       { "button@pause.splitscreen_button_small": {} },
-      { "tooltip_trigger@pause.icon_button_tooltip_trigger": { "$tooltip_text": "Split screen" } }
+      { "tooltip_trigger@pause.icon_button_tooltip_trigger": { "$tooltip_text": "splitscreen.title.menu" } }
     ]
   }
 }
