@@ -430,6 +430,8 @@ static void          startJoin(IMinecraftGame& game, int slot);
 static void          freeFirstPad(IMinecraftGame& game, void* pad);
 static void*         firstPlayerPad();
 static Player*       serverPlayer(SubClientId sub);
+static int           gFreshSlot = -1;  // the controller slot of gFreshSub
+static bool          gFreshRetried = false;
 static int           gFreshSub = -1; // saved player that just joined and still has to be asked about (client thread)
 static std::chrono::steady_clock::time_point gFreshAt;
 static void          openSettings(int who = -1);
@@ -709,11 +711,27 @@ static void pollTrigger() {
             hideStandIn(*standIn, true);
             hidden = gFreshSub;
         }
-        if (standIn && seesHud(gFreshSub) && !menuOpen(gFreshSub)) {
+        // The game sometimes drops a new player at once (right after a controller left player 1); try once more.
+        static bool seen = false;
+        bool        inGame = client->getMinecraftGame().getClientInstanceMap().contains(SubClientId(gFreshSub));
+        if (inGame) seen = true;
+        else if (seen) {
+            seen = false;
+            int slot = gFreshSlot;
+            gFreshSub = -1, hidden = -1;
+            if (!gFreshRetried) {
+                gFreshRetried = true;
+                note("picker: the new player was dropped by the game, joining again");
+                startJoin(client->getMinecraftGame(), slot);
+            }
+        }
+        if (gFreshSub >= 0 && standIn && seesHud(gFreshSub) && !menuOpen(gFreshSub)) {
             offerPicker(SubClientId(gFreshSub), true);
-            gFreshSub = -1;
-            hidden    = -1;
-        } else if (std::chrono::steady_clock::now() - gFreshAt > std::chrono::seconds(60)) gFreshSub = -1, hidden = -1;
+            gFreshSub     = -1;
+            hidden        = -1;
+            seen          = false;
+            gFreshRetried = false;
+        } else if (gFreshSub >= 0 && std::chrono::steady_clock::now() - gFreshAt > std::chrono::seconds(60)) gFreshSub = -1, hidden = -1;
     }
     if (worldTicks > 60 && !gAskLater.empty() && gFreshSub < 0 && !everyonePaused()) { // 3 s in: the players have spawned
         int slot = *gAskLater.begin();
@@ -1480,8 +1498,9 @@ static void startJoin(IMinecraftGame& game, int slot) {
     int  sub     = 1;
     while (sub <= 3 && clients.contains(SubClientId(sub))) ++sub;
     if (sub > 3) return;
-    gFreshSub = sub;
-    gFreshAt  = std::chrono::steady_clock::now();
+    gFreshSub  = sub;
+    gFreshSlot = slot;
+    gFreshAt   = std::chrono::steady_clock::now();
     quietFor(std::chrono::seconds(30));
     joinAs(game, slot, sub);
 }
@@ -1503,6 +1522,7 @@ static void joinRequestDetour(void* self, int controllerId) {
         tell(SubClientId::PrimaryClient, "Resume the game to add the new player");
         return;
     }
+    gFreshRetried = false; // a new start: one retry again if the game drops the player
     startJoin(*static_cast<IMinecraftGame*>(self), controllerId);
 }
 
@@ -1514,7 +1534,7 @@ static void onControllerConnected(void* device) {
     auto& game    = client->getMinecraftGame();
     auto  clients = game.getClientInstanceMap();
     for (auto& [sub, other] : clients)
-        if (other && other->getControllerId() == slot) return offerPicker(sub, false);
+        if (other && other->getControllerId() == slot && sub != SubClientId::PrimaryClient) return offerPicker(sub, false);
     // no player yet: pressing start on it opens the menu (see joinRequestDetour)
 }
 
