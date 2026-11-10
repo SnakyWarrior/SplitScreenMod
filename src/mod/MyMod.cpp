@@ -1736,9 +1736,15 @@ bool MyMod::enable() {
             }
         if (!gTryGetSubId) note("sub id choice not found: picking a saved player will not work");
     }
-    hookSlot(client.as_ptr(), &IClientInstance::isSplitScreenActive, fn(&splitActiveDetour), "isSplitScreenActive");
-    hookSlot(client.as_ptr(), &IClientInstance::getSplitScreenCount, fn(&splitCountDetour<0>), "client getSplitScreenCount");
-    hookSlot(&game, &IMinecraftGame::getSplitScreenCount, fn(&splitCountDetour<1>), "game getSplitScreenCount");
+    // inline hooks on the functions themselves: the game also calls them directly, past the vtable
+    auto inlineHook = [](ll::memory::FuncPtr* slot, ll::memory::FuncPtr detour, char const* name) {
+        if (!slot) return;
+        ll::memory::hook(*slot, detour, &gCfg[name].origin, ll::memory::HookPriority::Normal);
+        note("Hooked {} inline at rva {:X}", name, reinterpret_cast<uintptr_t>(*slot) - gameBase());
+    };
+    inlineHook(findSlot(client.as_ptr(), &IClientInstance::isSplitScreenActive, "isSplitScreenActive"), fn(&splitActiveDetour), "isSplitScreenActive");
+    inlineHook(findSlot(client.as_ptr(), &IClientInstance::getSplitScreenCount, "getSplitScreenCount"), fn(&splitCountDetour<0>), "client getSplitScreenCount");
+    inlineHook(findSlot(&game, &IMinecraftGame::getSplitScreenCount, "getSplitScreenCount"), fn(&splitCountDetour<1>), "game getSplitScreenCount");
     hookSlot(&game, &IMinecraftGame::addSubClientInstanceAndAssociateToUser, fn(&joinRequestDetour),
              "addSubClientInstanceAndAssociateToUser");
     ll::thread::ClientThreadExecutor::getDefault().execute(pollTrigger);
