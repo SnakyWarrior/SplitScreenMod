@@ -511,6 +511,25 @@ static void hideStandIn(Player& player, bool hide) {
     }
 }
 
+// Which player each open pause menu belongs to: a pause menu is created just before it shows, so the poll loop gives
+// the oldest unclaimed one to the next player whose screen turns into a pause menu.
+static std::mutex             gPauseLock;
+static std::vector<void*>     gUnclaimedPause;
+static std::map<void*, int>   gPauseOwner;
+
+static void claimPauseMenus(std::map<SubClientId, std::shared_ptr<IClientInstance>> const& clients) {
+    static std::map<int, bool> wasPaused;
+    std::lock_guard            lock(gPauseLock);
+    for (auto& [sub, other] : clients) {
+        bool paused = other && other->getTopScreenName().find("pause") != std::string::npos;
+        if (paused && !wasPaused[int(sub)] && !gUnclaimedPause.empty()) {
+            gPauseOwner[gUnclaimedPause.front()] = int(sub);
+            gUnclaimedPause.erase(gUnclaimedPause.begin());
+        }
+        wasPaused[int(sub)] = paused;
+    }
+}
+
 // The pause menu's "Split screen" button (added by the mod's resource pack) sends "button.splitscreen_menu".
 LL_AUTO_TYPE_INSTANCE_HOOK(
     PauseButtonHook,
@@ -522,11 +541,21 @@ LL_AUTO_TYPE_INSTANCE_HOOK(
     bool                              overlaySocialDrawerOnce
 ) {
     auto result = origin(std::move(model), overlaySocialDrawerOnce);
+    {
+        std::lock_guard lock(gPauseLock);
+        gUnclaimedPause.push_back(this);
+    }
     note("pause menu opened: Split screen button ready");
-    registerButtonPressedHandler(_getNameId("button.splitscreen_menu"), [](UIPropertyBag*) {
-        note("pause menu: Split screen pressed");
+    registerButtonPressedHandler(_getNameId("button.splitscreen_menu"), [self = (void*)this](UIPropertyBag*) {
+        int who;
+        {
+            std::lock_guard lock(gPauseLock);
+            auto            it = gPauseOwner.find(self);
+            who                = it != gPauseOwner.end() ? it->second : pausedPlayer();
+        }
+        note("pause menu: Split screen pressed by player {}", who + 1);
         // close the pause menu first: while it is open the world may be paused and its menus (forms) do not arrive
-        ll::thread::ClientThreadExecutor::getDefault().execute([who = pausedPlayer()] {
+        ll::thread::ClientThreadExecutor::getDefault().execute([who] {
             auto paused = [who]() -> std::shared_ptr<IClientInstance> {
                 auto client = ll::service::getClientInstance();
                 if (!client) return nullptr;
@@ -667,6 +696,7 @@ static void pollTrigger() {
         gAskLater.erase(gAskLater.begin());
         startJoin(client->getMinecraftGame(), slot);
     }
+    if (client && gInWorld) claimPauseMenus(client->getMinecraftGame().getClientInstanceMap());
     // With several players the game keeps running while someone is paused; stop it when every player is paused.
     static bool allPaused = false;
     if (client && gInWorld) {
