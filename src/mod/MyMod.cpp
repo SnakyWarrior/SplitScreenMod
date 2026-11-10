@@ -281,6 +281,7 @@ static GameControllerHandler_GameCore* controllerHandler();
 
 static void dumpPlayers(IMinecraftGame& game);
 static void fireConnection(IClientInstance& client, bool connected, int id);
+static std::vector<void*> gamepadsOf(GameCorePlayerInput& input);
 static void deviceCallbackDetour(uint64_t token, void* context, void* device, uint64_t time, uint32_t now, uint32_t before);
 struct LastConnect {
     uint64_t token = 0, time = 0;
