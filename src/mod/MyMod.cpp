@@ -664,6 +664,12 @@ static void dumpPlayers(IMinecraftGame& game) {
                      auto state = joinListenerState(*client);
                      return state ? std::to_string(*state) : std::string("none");
                  }());
+    for (auto& [sub, client] : game.getClientInstanceMap())
+        if (client) {
+            auto names = [](auto stack) { return stack ? fmt::format("{}", fmt::join(stack->getScreenNames(), ", ")) : std::string("-"); };
+            note("pads: player {} screens: main [{}], client [{}]", int(sub) + 1, names(client->getMainSceneStack()),
+                 names(client->getClientSceneStack()));
+        }
 }
 
 // ---- Watchdog: when the game's main thread stops for 4 s, write where it is stuck into the log ----
