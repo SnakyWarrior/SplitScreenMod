@@ -47,7 +47,7 @@
 #include "mc/deps/core/math/Color.h"
 #include "mc/network/LoopbackPacketSender.h"
 #include "mc/network/packet/TextPacket.h"
-#include "mc/world/effect/MobEffectInstance.h"
+#include "mc/world/level/GameType.h"
 #include "mc/client/gui/screens/controllers/PauseScreenController.h"
 #include "mc/client/gui/screens/models/PauseScreenModel.h"
 #include "mc/client/gui/ViewRequest.h"
@@ -496,19 +496,18 @@ LL_AUTO_TYPE_INSTANCE_HOOK(QuietSendHook, ll::memory::HookPriority::Normal, Loop
     if (!isQuietJoinMessage(packet)) origin(ids, packet);
 }
 
+// Spectator mode: the other players do not see it, nothing can hurt it and it shows no effect icons. Its own game
+// mode comes back when it is chosen.
+static std::map<int, GameType> gModeBeforeHiding; // client sub id -> game mode (server thread calls are brief)
+
 static void hideStandIn(Player& player, bool hide) {
-    constexpr uint kResistance   = 11; // level 5 resistance: no damage
-    constexpr uint kInvisibility = 14; // the effect, so the other players' games hide it too
+    int sub = int(player.getClientSubId());
     if (hide) {
-        MobEffectInstance resistance(kResistance, EffectDuration{20 * 60 * 10});
-        resistance.mAmplifier = 4;
-        player.addEffect(resistance);
-        MobEffectInstance invisible(kInvisibility, EffectDuration{20 * 60 * 10});
-        invisible.mEffectVisible = false;
-        player.addEffect(invisible);
-    } else {
-        player.removeEffect(kResistance);
-        player.removeEffect(kInvisibility);
+        if (player.getPlayerGameType() != GameType::Spectator) gModeBeforeHiding[sub] = player.getPlayerGameType();
+        player.setPlayerGameType(GameType::Spectator);
+    } else if (auto it = gModeBeforeHiding.find(sub); it != gModeBeforeHiding.end()) {
+        player.setPlayerGameType(it->second);
+        gModeBeforeHiding.erase(it);
     }
 }
 
@@ -1215,6 +1214,7 @@ static void watchChoice(SubClientId owner, std::chrono::steady_clock::time_point
         gMenus.erase(it);
         note("picker: nobody chosen for player {} in 10 s", int(owner) + 1);
         quietFor(std::chrono::seconds(30));
+        if (auto player = serverPlayer(owner)) hideStandIn(*player, false); // its saved game mode stays its own
         c->second->requestLeaveGameAsync();
         return;
     }
@@ -1287,7 +1287,10 @@ static void offerPicker(SubClientId owner, bool fresh) {
                 if (auto c = ll::service::getClientInstance())
                     tell(owner, fmt::format("You are {}", localName(c->getMinecraftGame().getClientInstanceMap(), int(owner))));
                 quietFor(std::chrono::seconds(10)); // its skin line can still come
-            } else quietFor(std::chrono::seconds(30)); // the stand-in leaves and the chosen player comes in quietly
+            } else { // the stand-in leaves (with its own game mode back) and the chosen player comes in quietly
+                if (auto player = serverPlayer(owner)) hideStandIn(*player, false);
+                quietFor(std::chrono::seconds(30));
+            }
         }
         if (!client || pick == keep || pick < 0 || pick >= int(choices.size())) return; // closed, or kept
         auto& game   = client->getMinecraftGame();
