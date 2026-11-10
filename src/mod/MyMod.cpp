@@ -1004,9 +1004,10 @@ static void newPlayerFor(IMinecraftGame& game, int from, void* device) {
                 break;
             }
     }
-    // Tell the player in `from` first that their controller is gone: that also hides the game's "Join as Player N"
-    // prompt, which the reconnect below then shows for the controller's new slot.
-    if (auto c = clientWithController(game.getClientInstanceMap(), from)) fireConnection(*c, false, from);
+    // Tell the player in `from` that their controller is gone, except player 1: they keep keyboard and mouse, and a
+    // "lost" player 1 showed the game's "connect your controller" screen and never the "Join as Player" prompt.
+    if (from != 0)
+        if (auto c = clientWithController(game.getClientInstanceMap(), from)) fireConnection(*c, false, from);
     tHideUser = true;
     gDeviceCallback(gLastConnect.token, gLastConnect.context, device, gLastConnect.time, 1, 0); // connect it again
     tHideUser = false;
