@@ -966,7 +966,7 @@ static void showMenu(
     SubClientId                     who,
     std::string const&              text,
     std::vector<std::string> const& buttons,
-    std::vector<bool> const&        tagged, // the button shows the name tag picture
+    std::vector<std::string> const& pictures, // per button: a texture path, or "" for none
     std::function<void(int)>        done,
     std::string const&              title
 ) {
@@ -977,8 +977,7 @@ static void showMenu(
     gMenus[int(who)] = std::chrono::steady_clock::now();
     ll::form::SimpleForm form(title, text);
     for (size_t i = 0; i < buttons.size(); ++i)
-        if (i < tagged.size() && tagged[i]) form.appendButton(buttons[i], "textures/items/name_tag", "path");
-        else if (buttons[i] == kPadButton) form.appendButton(buttons[i], "textures/ui/controller_glyph", "path");
+        if (i < pictures.size() && !pictures[i].empty()) form.appendButton(buttons[i], pictures[i], "path");
         else form.appendButton(buttons[i]);
     form.sendTo(*player, [done, sub = int(who)](Player&, int pick, ll::form::FormCancelReason) {
         ll::thread::ClientThreadExecutor::getDefault().execute([done, pick, sub] {
@@ -1008,8 +1007,9 @@ static void freeFirstPad(IMinecraftGame& game, void* pad) {
     );
 }
 
-// "P2 SnakyWarrior (1)": players in the game carry their number, the same as their part of the screen.
-static std::string numbered(ClientMap const& clients, int sub) { return fmt::format("§9P{}§r {}", sub + 1, localName(clients, sub)); }
+// Player pictures: P1-P4 (the same as their part of the screen) for players with a controller, else the name tag.
+static constexpr char const* kNameTag = "textures/items/name_tag";
+static std::string           badge(int sub) { return fmt::format("textures/splitscreen/p{}", sub + 1); }
 
 // F7 or the pause menu's "Split screen" button: layout, and removing players.
 // The player whose pause menu is open, else player 1.
@@ -1049,7 +1049,7 @@ static void openSettings(int who) {
     };
     std::vector<Item>        items{{Act::Layout, -1}};
     std::vector<std::string> buttons{vertical ? "Layout: §9side by side" : "Layout: §9top and bottom"};
-    std::vector<bool>        tagged{false};
+    std::vector<std::string> pictures{""};
     for (int sub = 0; sub <= 3; ++sub) {
         auto it   = clients.find(SubClientId(sub));
         auto name = localName(clients, sub);
@@ -1057,28 +1057,28 @@ static void openSettings(int who) {
             int  controller = it->second->getControllerId();
             auto status     = sub == 0 ? "Player 1" : withPad.contains(controller) ? "Playing" : "No controller";
             items.push_back({Act::Swap, sub});
-            buttons.push_back(fmt::format("{}{}{}", kRoomForSquare, numbered(clients, sub), sub == who ? " §3(You)" : ""));
-            tagged.push_back(true);
+            buttons.push_back(fmt::format("{}{}{}", kRoomForSquare, name, sub == who ? " §3(You)" : ""));
+            pictures.push_back(withPad.contains(controller) ? badge(sub) : kNameTag);
             items.push_back({Act::Nothing, -1}); // the status tag, drawn on the row above
             buttons.push_back(fmt::format("[stag:{}]", status));
-            tagged.push_back(false);
+            pictures.emplace_back();
             items.push_back({sub == 0 ? Act::FreePad : Act::Kick, sub});
             buttons.push_back(sub == 0 ? kPadButton : kKickButton);
-            tagged.push_back(false);
+            pictures.push_back(sub == 0 ? "textures/ui/controller_glyph" : "");
         } else if (who != 0) { // a saved player who is not playing: this player switches to them
             items.push_back({Act::Join, sub});
             buttons.push_back(name);
-            tagged.push_back(true);
+            pictures.push_back(kNameTag);
             items.push_back({Act::Nothing, -1});
             buttons.push_back("[tag:Not playing]");
-            tagged.push_back(false);
+            pictures.emplace_back();
         }
     }
     items.push_back({Act::Done, -1});
     buttons.push_back(kDoneButton);
-    tagged.push_back(false);
+    pictures.emplace_back();
 
-    showMenu(SubClientId(who), "", buttons, tagged, [items, vertical, who, firstPad](int pick) {
+    showMenu(SubClientId(who), "", buttons, pictures, [items, vertical, who, firstPad](int pick) {
         auto client = ll::service::getClientInstance();
         if (!client || pick < 0 || pick >= int(items.size())) return;
         auto& game    = client->getMinecraftGame();
@@ -1174,32 +1174,32 @@ static void offerPicker(SubClientId owner, bool fresh) {
         if (!clients.contains(SubClientId(sub))) choices.push_back({Kind::Offline, sub, SubClientId(sub)});
     std::stable_sort(choices.begin(), choices.end(), [](Choice const& a, Choice const& b) { return a.sub < b.sub; });
     std::vector<std::string> buttons;
-    std::vector<bool>        tagged;
+    std::vector<std::string> pictures;
     std::vector<int>         toChoice; // form button -> choice; -1 for the status tags drawn on the row above
     for (int i = 0; i < int(choices.size()); ++i) {
         auto& c       = choices[i];
-        bool  playing = c.kind == Kind::TakeOver || (c.kind == Kind::Keep && !fresh);
-        buttons.push_back(playing ? numbered(clients, int(c.sub)) : localName(clients, int(c.sub)));
-        tagged.push_back(true);
+        bool  hasPad = c.kind == Kind::Keep && !fresh; // only this controller's own player has one in this list
+        buttons.push_back(localName(clients, int(c.sub)));
+        pictures.push_back(hasPad ? badge(int(c.sub)) : kNameTag);
         toChoice.push_back(i);
         // the stand-in of a new controller is not really playing yet
         buttons.push_back(c.kind == Kind::Offline || (c.kind == Kind::Keep && fresh) ? "[tag:Not playing]"
                           : c.kind == Kind::TakeOver                                 ? "[tag:No controller]"
                                                                                      : "[tag:Playing]");
-        tagged.push_back(false);
+        pictures.emplace_back();
         toChoice.push_back(-1);
     }
     if (!fresh && clients.size() < 4) {
         toChoice.push_back(int(choices.size()));
         choices.push_back({Kind::NewPlayer, 0, owner});
         buttons.push_back("New player");
-        tagged.push_back(false);
+        pictures.emplace_back();
     }
     int const keep = int(std::find_if(choices.begin(), choices.end(), [](Choice const& c) { return c.kind == Kind::Keep; })
                          - choices.begin());
     if (choices.size() < 2) return;
     note("picker: menu for player {} ({} choices)", int(owner) + 1, choices.size());
-    showMenu(owner, "Who is playing with this controller?", buttons, tagged, [=](int pick) {
+    showMenu(owner, "Who is playing with this controller?", buttons, pictures, [=](int pick) {
         pick        = pick >= 0 && pick < int(toChoice.size()) ? toChoice[pick] : -1;
         auto client = ll::service::getClientInstance();
         if (fresh) {
