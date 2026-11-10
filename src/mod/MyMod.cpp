@@ -666,7 +666,7 @@ static void dumpPlayers(IMinecraftGame& game) {
                  }());
     for (auto& [sub, client] : game.getClientInstanceMap())
         if (client) {
-            auto names = [](auto stack) { return stack ? fmt::format("{}", fmt::join(stack->getScreenNames(), ", ")) : std::string("-"); };
+            auto names = [](auto const& stack) { return fmt::format("{}", fmt::join(stack->getScreenNames(), ", ")); };
             note("pads: player {} screens: main [{}], client [{}]", int(sub) + 1, names(client->getMainSceneStack()),
                  names(client->getClientSceneStack()));
         }
