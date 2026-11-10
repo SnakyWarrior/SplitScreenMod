@@ -543,6 +543,15 @@ static void pollTrigger() {
     f7WasDown = f7;
     static int worldTicks = 0; // how long the world has been up, in polls
     worldTicks            = gInWorld ? worldTicks + 1 : 0;
+    if (worldTicks == 60 && client) { // 3 s in: a controller already on player 1 asks who it is for
+        bool padOnFirst = false;
+        if (auto handler = controllerHandler()) {
+            std::lock_guard lock(*handler->mPlayerInputsLock);
+            auto&           inputs = *handler->mPlayerInputs;
+            padOnFirst             = inputs.contains(0) && !gamepadsOf(inputs.at(0)).empty();
+        }
+        if (padOnFirst) offerPicker(SubClientId::PrimaryClient, false);
+    }
     if (worldTicks > 60 && !gAskLater.empty() && !gMenuOpen) { // 3 s in: the players have spawned
         int slot = *gAskLater.begin();
         gAskLater.erase(gAskLater.begin());
@@ -715,7 +724,9 @@ static IClientInstance* clientWithController(ClientMap const& clients, int id) {
 }
 
 // The controller in slot `from` moves to slot `to` (the two slots trade their gamepads).
-static void moveController(IMinecraftGame& game, int from, int to) {
+// `announceLoss`: tell the player left in `from` that their controller is gone (false when only giving back a
+// controller that was lent for a menu).
+static void moveController(IMinecraftGame& game, int from, int to, bool announceLoss = true) {
     auto handler = controllerHandler();
     if (!handler) return;
     {
@@ -730,7 +741,7 @@ static void moveController(IMinecraftGame& game, int from, int to) {
     note("picker: controller moved from slot {} to slot {}", from, to);
     auto clients = game.getClientInstanceMap();
     if (auto c = clientWithController(clients, to)) fireConnection(*c, true, to);
-    if (auto c = clientWithController(clients, from)) fireConnection(*c, false, from);
+    if (auto c = clientWithController(clients, from); c && announceLoss) fireConnection(*c, false, from);
 }
 
 // The controller in slot `from` gets a slot of its own; the game then shows its "press to join" prompt.
@@ -933,7 +944,7 @@ static void rejoinAs(SubClientId leaving, int controllerId, int sub, int tries =
 // Show the menu on player `owner`'s screen. `fresh`: the player just joined (rather than picking up a controller).
 static void offerPicker(SubClientId owner, bool fresh) {
     auto client = ll::service::getClientInstance();
-    if (!client || owner == SubClientId::PrimaryClient) return;
+    if (!client) return;
     auto& game    = client->getMinecraftGame();
     auto  clients = game.getClientInstanceMap();
     if (!clients.contains(owner) || !clients.at(owner)) return;
@@ -972,7 +983,7 @@ static void offerPicker(SubClientId owner, bool fresh) {
     }
     if (choices.size() < 2) return;
     note("picker: menu for player {} ({} choices)", int(owner) + 1, choices.size());
-    showMenu(owner, "A controller was connected. Who is playing with it?", buttons, tagged, [=](int pick) {
+    showMenu(owner, "Who is playing with this controller?", buttons, tagged, [=](int pick) {
         auto client = ll::service::getClientInstance();
         if (!client || pick <= 0 || pick >= int(choices.size())) return; // closed, or kept
         auto& game   = client->getMinecraftGame();
@@ -1076,13 +1087,20 @@ static void askBeforeJoin(IMinecraftGame& game, int slot) {
     if (choices.empty()) return;
     gAsking = slot;
     note("picker: controller {} asks who joins ({} choices)", slot, choices.size());
+    // The menu is on player 1's screen; let the new controller drive it until a choice is made.
+    moveController(game, slot, 0);
     showMenu(SubClientId::PrimaryClient, fmt::format("Controller {} wants to play. Who is playing with it?", slot + 1), buttons, tagged, [choices, slot](int pick) {
         gAsking  = -1;
         gAskedAt = std::chrono::steady_clock::now();
         auto client = ll::service::getClientInstance();
-        if (!client || pick < 0 || pick >= int(choices.size())) return note("picker: no one joins");
+        if (!client || pick < 0 || pick >= int(choices.size())) {
+            if (client) moveController(client->getMinecraftGame(), 0, slot, false);
+            return note("picker: no one joins");
+        }
         auto& game   = client->getMinecraftGame();
         auto& choice = choices[pick];
+        if (choice.takeOver && choice.value == 0) return; // player 1: keep the lent controller
+        moveController(game, 0, slot, false);             // give it back
         if (choice.takeOver) moveController(game, slot, choice.value);
         else joinAs(game, slot, choice.value);
     });
