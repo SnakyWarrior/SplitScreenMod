@@ -512,12 +512,21 @@ static std::map<int, GameType> gModeBeforeHiding; // client sub id -> game mode 
 
 static void hideStandIn(Player& player, bool hide) {
     int sub = int(player.getClientSubId());
+    // A stand-in that was dropped while hidden is saved in spectator mode; it then comes back with the world's
+    // default game mode instead.
+    auto worldMode = [] {
+        auto level = ll::service::getLevel();
+        return level ? level->getDefaultGameType() : GameType::Survival;
+    };
     if (hide) {
-        if (player.getPlayerGameType() != GameType::Spectator) gModeBeforeHiding[sub] = player.getPlayerGameType();
+        if (!gModeBeforeHiding.contains(sub))
+            gModeBeforeHiding[sub] = player.getPlayerGameType() != GameType::Spectator ? player.getPlayerGameType() : worldMode();
         player.setPlayerGameType(GameType::Spectator);
-    } else if (auto it = gModeBeforeHiding.find(sub); it != gModeBeforeHiding.end()) {
-        player.setPlayerGameType(it->second);
-        gModeBeforeHiding.erase(it);
+    } else {
+        auto it   = gModeBeforeHiding.find(sub);
+        auto mode = it != gModeBeforeHiding.end() ? it->second : worldMode();
+        if (it != gModeBeforeHiding.end()) gModeBeforeHiding.erase(it);
+        if (player.getPlayerGameType() == GameType::Spectator || mode != GameType::Spectator) player.setPlayerGameType(mode);
     }
 }
 
@@ -667,7 +676,76 @@ static void dumpPlayers(IMinecraftGame& game) {
         if (client) note("pads: player {} uses controller {}", int(sub) + 1, client->getControllerId());
 }
 
+// ---- Watchdog: when the game's main thread stops for 4 s, write where it is stuck into the log ----
+static std::atomic<int64_t> gHeartbeat       = 0; // steady-clock milliseconds of the last poll
+static std::atomic<DWORD>   gClientThreadId  = 0;
+
+static int64_t nowMs() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+static std::string describeAddress(uintptr_t address) {
+    HMODULE module = nullptr;
+    if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                            reinterpret_cast<LPCWSTR>(address), &module))
+        return fmt::format("{:X}", address);
+    wchar_t path[MAX_PATH]{};
+    GetModuleFileNameW(module, path, MAX_PATH);
+    auto name = std::filesystem::path(path).filename().string();
+    auto text = fmt::format("{}+{:X}", name, address - reinterpret_cast<uintptr_t>(module));
+    if (name == "SplitScreenMod.dll" || name.starts_with("LeviLamina"))
+        text += " " + ll::utils::stacktrace_utils::toString(ll::StacktraceEntry(reinterpret_cast<void*>(address)));
+    return text;
+}
+
+static void watchdog() {
+    bool reported = false;
+    for (;;) {
+        Sleep(1000);
+        auto beat = gHeartbeat.load();
+        DWORD id  = gClientThreadId.load();
+        if (!beat || !id) continue;
+        auto stuck = nowMs() - beat;
+        if (stuck < 4000) {
+            reported = false;
+            continue;
+        }
+        if (reported) continue;
+        reported = true;
+        HANDLE thread = OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION, FALSE, id);
+        if (!thread) continue;
+        std::vector<uintptr_t> frames;
+        if (SuspendThread(thread) != DWORD(-1)) {
+            CONTEXT context{};
+            context.ContextFlags = CONTEXT_FULL;
+            if (GetThreadContext(thread, &context))
+                for (int i = 0; i < 48 && context.Rip; ++i) {
+                    frames.push_back(context.Rip);
+                    DWORD64 base  = 0;
+                    auto    entry = RtlLookupFunctionEntry(context.Rip, &base, nullptr);
+                    if (!entry) { // a leaf function: the return address is on top of the stack
+                        context.Rip = *reinterpret_cast<DWORD64*>(context.Rsp);
+                        context.Rsp += 8;
+                        continue;
+                    }
+                    void*   handlerData = nullptr;
+                    DWORD64 frame       = 0;
+                    RtlVirtualUnwind(UNW_FLAG_NHANDLER, base, context.Rip, entry, &context, &handlerData, &frame, nullptr);
+                }
+            ResumeThread(thread);
+        }
+        CloseHandle(thread);
+        note("watchdog: the game's main thread has been stuck for {} s, at:", stuck / 1000);
+        for (auto frame : frames) note("watchdog:   {}", describeAddress(frame));
+    }
+}
+
 static void pollTrigger() {
+    gHeartbeat = nowMs();
+    if (!gClientThreadId) {
+        gClientThreadId = GetCurrentThreadId();
+        std::thread(watchdog).detach();
+    }
     static int tick   = 0;
     auto       client = ll::service::getClientInstance();
     gInWorld          = client && ll::service::getLevel();
