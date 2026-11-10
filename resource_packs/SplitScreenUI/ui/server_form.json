@@ -643,7 +643,7 @@
     "bindings": [
       { "binding_type": "collection_details", "binding_collection_name": "form_buttons" },
       { "binding_name": "#form_button_text", "binding_type": "collection", "binding_collection_name": "form_buttons" },
-      { "binding_type": "view", "source_property_name": "(not ((#form_button_text = '[x]') or (#form_button_text = '[p]') or (#form_button_text = 'Done') or (('%.1s' * #form_button_text) = ' ') or (('%.1s' * #form_button_text) = '[') or ((#form_button_text = 'Top and bottom') or (#form_button_text = 'Side by side'))))", "target_property_name": "#visible" }
+      { "binding_type": "view", "source_property_name": "(not ((('%.1s' * #form_button_text) = '[') or (('%.1s' * #form_button_text) = ' ') or (#form_button_text = 'Done') or (#form_button_text = 'Top and bottom') or (#form_button_text = 'Side by side')))", "target_property_name": "#visible" }
     ],
     "controls": [ { "button@server_form.splitscreen_button": { "size": [ "100%", 30 ], "$tex": "textures/ui/ore-styled/button/secondary/background", "$tex_hover": "textures/ui/ore-styled/button/secondary/background_hover", "$tex_pressed": "textures/ui/ore-styled/button/secondary/background_pressed", "$text_color": [ 0.118, 0.118, 0.122 ] } } ]
   },
