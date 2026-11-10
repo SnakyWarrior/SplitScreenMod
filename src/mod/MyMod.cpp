@@ -413,7 +413,8 @@ static std::atomic_bool gInWorld = false; // refreshed on the client thread, rea
 static std::set<int> gAskLater; // client thread only
 static std::atomic_bool gMenuOpen = false; // one of the mod's menus is open (see showMenu)
 static void          askBeforeJoin(IMinecraftGame& game, int slot);
-static void          openSettings();
+static void          openSettings(int who = -1);
+static int           pausedPlayer();
 
 static std::atomic<int> gSecondsLeft = -1; // shown in the "controller lost" prompt; -1 when nobody is leaving
 
@@ -459,8 +460,9 @@ LL_AUTO_TYPE_INSTANCE_HOOK(
     note("pause menu opened: Split screen button ready");
     registerButtonPressedHandler(_getNameId("button.splitscreen_menu"), [](UIPropertyBag*) {
         note("pause menu: Split screen pressed");
-        ll::thread::ClientThreadExecutor::getDefault().execute(openSettings);
-        return ui::ViewRequest::None;
+        // close the pause menu: while it is open the local world is paused and its menus (forms) do not arrive
+        ll::thread::ClientThreadExecutor::getDefault().execute([who = pausedPlayer()] { openSettings(who); });
+        return ui::ViewRequest::Exit;
     });
     return result;
 }
@@ -859,13 +861,20 @@ static void showMenu(
 }
 
 // F7 or the pause menu's "Split screen" button: layout, and removing players.
-static void openSettings() {
+// The player whose pause menu is open, else player 1.
+static int pausedPlayer() {
+    auto client = ll::service::getClientInstance();
+    if (client)
+        for (auto& [sub, other] : client->getMinecraftGame().getClientInstanceMap())
+            if (other && other->getTopScreenName().find("pause") != std::string::npos) return int(sub);
+    return 0;
+}
+
+static void openSettings(int who) {
     auto client = ll::service::getClientInstance();
     if (!client || gMenuOpen) return;
+    if (who < 0) who = pausedPlayer();
     auto clients  = client->getMinecraftGame().getClientInstanceMap();
-    auto who      = SubClientId::PrimaryClient; // the player whose pause menu is open, else player 1
-    for (auto& [sub, other] : clients)
-        if (other && other->getTopScreenName().find("pause") != std::string::npos) who = sub;
     bool vertical = int(client->getOptions().getSplitscreenDirection()) == 1;
     std::vector<std::string>   buttons{vertical ? "Layout: side by side" : "Layout: top and bottom"};
     std::vector<bool>          tagged{false};
@@ -879,12 +888,12 @@ static void openSettings() {
     buttons.push_back("Close");
     tagged.push_back(false);
     subs.push_back(-2);
-    showMenu(who, "Split screen", buttons, tagged, [subs, vertical](int pick) {
+    showMenu(SubClientId(who), "Split screen", buttons, tagged, [subs, vertical, who](int pick) {
         auto client = ll::service::getClientInstance();
         if (!client || pick < 0 || subs[pick] == -2) return;
         if (subs[pick] == -1) {
             client->getOptions().setSplitscreenDirection(vertical ? 0 : 1);
-            return openSettings(); // show the new layout's name
+            return openSettings(who); // show the new layout's name
         }
         auto clients = client->getMinecraftGame().getClientInstanceMap();
         if (auto it = clients.find(SubClientId(subs[pick])); it != clients.end() && it->second) {
