@@ -412,7 +412,10 @@ static std::atomic_bool gInWorld = false; // refreshed on the client thread, rea
 // they are asked who they are once the world is up, so no controller keeps its player from the last world.
 static std::set<int> gAskLater; // client thread only
 static std::atomic_bool gMenuOpen = false; // one of the mod's menus is open (see showMenu)
-static void          askBeforeJoin(IMinecraftGame& game, int slot);
+static void          startJoin(IMinecraftGame& game, int slot);
+static Player*       serverPlayer(SubClientId sub);
+static int           gFreshSub = -1; // saved player that just joined and still has to be asked about (client thread)
+static std::chrono::steady_clock::time_point gFreshAt;
 static void          openSettings(int who = -1);
 static int           pausedPlayer();
 
@@ -552,10 +555,16 @@ static void pollTrigger() {
         }
         if (padOnFirst) offerPicker(SubClientId::PrimaryClient, false);
     }
+    if (gFreshSub >= 0 && client) {
+        if (serverPlayer(SubClientId(gFreshSub)) && !gMenuOpen) {
+            offerPicker(SubClientId(gFreshSub), true);
+            gFreshSub = -1;
+        } else if (std::chrono::steady_clock::now() - gFreshAt > std::chrono::seconds(20)) gFreshSub = -1;
+    }
     if (worldTicks > 60 && !gAskLater.empty() && !gMenuOpen) { // 3 s in: the players have spawned
         int slot = *gAskLater.begin();
         gAskLater.erase(gAskLater.begin());
-        askBeforeJoin(client->getMinecraftGame(), slot);
+        startJoin(client->getMinecraftGame(), slot);
     }
     static std::string lastScreen; // logged so the pause check can be fixed if the game renames its screens
     if (auto top = client ? client->getTopScreenName() : std::string(); top != lastScreen) note("screen: {}", lastScreen = top);
@@ -1044,66 +1053,16 @@ static void offerPicker(SubClientId owner, bool fresh) {
     });
 }
 
-// ---- "Press start to join" asks first: the menu opens on player 1's screen (the whole screen before splitting)
-// and the new controller drives it, by trading gamepads with player 1 until a choice is made. ----
-
-static int               gAsking  = -1;    // controller slot whose menu is open (client thread only)
-
-static std::chrono::steady_clock::time_point gAskedAt; // presses that close the menu must not open it again
-
-static void askBeforeJoin(IMinecraftGame& game, int slot) {
+// A new controller joins at once as the first free saved player, and its own part of the screen (black, see the
+// resource pack's server_form.json) asks who is playing; picking someone else swaps that player in.
+static void startJoin(IMinecraftGame& game, int slot) {
     auto clients = game.getClientInstanceMap();
-
-    std::set<int> withPad;
-    if (auto handler = controllerHandler()) {
-        std::lock_guard lock(*handler->mPlayerInputsLock);
-        for (auto& [id, input] : *handler->mPlayerInputs)
-            if (!gamepadsOf(input).empty()) withPad.insert(id);
-    }
-    struct Choice {
-        bool takeOver; // take over a playing player (value = its controller) or join as saved player (value = sub)
-        int  value;
-    };
-    std::vector<Choice>        choices;
-    std::vector<std::string>   buttons;
-    std::vector<bool>          tagged;
-    for (auto& [sub, other] : clients) // playing players without a controller, player 1 included
-        if (other && !withPad.contains(other->getControllerId())) {
-            choices.push_back({true, other->getControllerId()});
-            tagged.push_back(true);
-            buttons.push_back(fmt::format(
-                "{} - {}",
-                localName(clients, int(sub)),
-                sub == SubClientId::PrimaryClient ? "player 1" : "playing, no controller"
-            ));
-        }
-    if (clients.size() < 4)
-        for (int sub = 1; sub <= 3; ++sub)
-            if (!clients.contains(SubClientId(sub))) {
-                choices.push_back({false, sub});
-                tagged.push_back(true);
-                buttons.push_back(fmt::format("{} - join", localName(clients, sub)));
-            }
-    if (choices.empty()) return;
-    gAsking = slot;
-    note("picker: controller {} asks who joins ({} choices)", slot, choices.size());
-    // The menu is on player 1's screen; let the new controller drive it until a choice is made.
-    moveController(game, slot, 0);
-    showMenu(SubClientId::PrimaryClient, fmt::format("Controller {} wants to play. Who is playing with it?", slot + 1), buttons, tagged, [choices, slot](int pick) {
-        gAsking  = -1;
-        gAskedAt = std::chrono::steady_clock::now();
-        auto client = ll::service::getClientInstance();
-        if (!client || pick < 0 || pick >= int(choices.size())) {
-            if (client) moveController(client->getMinecraftGame(), 0, slot, false);
-            return note("picker: no one joins");
-        }
-        auto& game   = client->getMinecraftGame();
-        auto& choice = choices[pick];
-        if (choice.takeOver && choice.value == 0) return; // player 1: keep the lent controller
-        moveController(game, 0, slot, false);             // give it back
-        if (choice.takeOver) moveController(game, slot, choice.value);
-        else joinAs(game, slot, choice.value);
-    });
+    int  sub     = 1;
+    while (sub <= 3 && clients.contains(SubClientId(sub))) ++sub;
+    if (sub > 3) return;
+    gFreshSub = sub;
+    gFreshAt  = std::chrono::steady_clock::now();
+    joinAs(game, slot, sub);
 }
 
 // IMinecraftGame::addSubClientInstanceAndAssociateToUser, as called by the game's join prompt.
@@ -1116,9 +1075,8 @@ static void joinRequestDetour(void* self, int controllerId) {
         gAskLater.insert(controllerId);
         return;
     }
-    if (gAsking >= 0 || gMenuOpen) return; // a menu is open already
-    if (std::chrono::steady_clock::now() - gAskedAt < std::chrono::seconds(1)) return;
-    askBeforeJoin(*static_cast<IMinecraftGame*>(self), controllerId);
+    if (gFreshSub >= 0 || gMenuOpen) return; // someone is joining or a menu is open already
+    startJoin(*static_cast<IMinecraftGame*>(self), controllerId);
 }
 
 // A controller was connected: offer the menu to the player that got it.

@@ -10,7 +10,7 @@ Minecraft Bedrock already contains split-screen (it is used on Xbox), but the Wi
 
 ## Features
 
-- **Choose who plays.** Press start on a free controller and a menu opens in the game (on player 1's screen, driven by the new controller): play as player 1, as one of your saved local players (each keeps their own inventory), or take over a player whose controller was lost. Nobody joins until you choose.
+- **Choose who plays.** Press start on a free controller: the screen splits and the new player's part stays black with a menu until you choose: play as player 1, as one of your saved local players (each keeps their own inventory), or take over a player whose controller was lost. Nobody joins until you choose.
 - **Asks again in every world.** Controllers do not keep their player from the last world: after you enter a world, each controller asks who is playing.
 - **One controller per player.** A controller that reconnects takes the place of a player who lost theirs and asks who should play.
 - **Player 1 keeps keyboard and mouse.** In a world, a controller only controls player 1 when you pick player 1 in the menu. A controller that was already connected asks who it is for when you enter a world.

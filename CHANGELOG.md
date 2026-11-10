@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- A menu in the game (on player 1's screen) asks who plays with a new controller before anyone joins: player 1, a saved local player with their own inventory, or a player who lost their controller.
+- A menu on the new player's own black part of the screen asks who plays with a new controller before anyone joins: player 1, a saved local player with their own inventory, or a player who lost their controller.
 - A name tag button in the pause menu, with the small buttons under Save & Quit (or F7), to switch between a horizontal and vertical split and to remove players.
 
 ### Changed
