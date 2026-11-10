@@ -89,19 +89,11 @@
                 "text": "#title_text",
                 "font_type": "MinecraftTen",
                 "color": [ 1, 1, 1 ],
-                "size": [ "100%", "default" ]
+                "size": [ "100%", "default" ],
+                "bindings": [ { "binding_name": "#title_text" } ]
               }
             },
-            { "title_pad": { "type": "panel", "size": [ "100%", 3 ] } },
-            {
-              "text": {
-                "type": "label",
-                "text": "#form_text",
-                "color": [ 0.82, 0.82, 0.83 ],
-                "size": [ "100%", "default" ]
-              }
-            },
-            { "text_pad": { "type": "panel", "size": [ "100%", 6 ] } },
+            { "title_pad": { "type": "panel", "size": [ "100%", 6 ] } },
             { "divider@server_form.splitscreen_fill": { "color": [ 0.19, 0.2, 0.2 ], "size": [ "100%", 1 ] } },
             { "divider_pad": { "type": "panel", "size": [ "100%", 6 ] } },
             {

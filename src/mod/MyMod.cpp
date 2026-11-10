@@ -978,7 +978,7 @@ static void openSettings(int who) {
             if (auto pads = gamepadsOf(inputs.at(0)); !pads.empty()) firstPad = pads.front();
     }
     if (firstPad) {
-        buttons.push_back(fmt::format("Take the controller from {}", localName(clients, 0)));
+        buttons.push_back("Free player 1's controller");
         tagged.push_back(false);
         subs.push_back(-3);
     }
