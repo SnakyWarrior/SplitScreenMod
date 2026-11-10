@@ -368,14 +368,15 @@
       {
         "pill": {
           "type": "panel",
-          "size": [ 30, 13 ],
+          "size": [ "100%cm", 13 ],
           "anchor_from": "top_right",
           "anchor_to": "top_right",
           "offset": [ -94, -25 ],
           "layer": 20,
           "controls": [
-            { "outline@server_form.splitscreen_fill": { "color": [ 0.118, 0.118, 0.122 ] } },
-            { "back@server_form.splitscreen_fill": { "color": [0.424, 0.765, 0.286], "size": [ "100% - 2px", "100% - 2px" ], "layer": 1 } },
+            { "outline@server_form.splitscreen_fill": { "color": [ 0.118, 0.118, 0.122 ], "size": [ "100%sm + 10px", "100%" ], "controls": [
+              { "back@server_form.splitscreen_fill": { "color": [0.424, 0.765, 0.286], "size": [ "100% - 2px", "100% - 2px" ], "layer": 1 } }
+            ] } },
             { "label": { "type": "label", "text": "splitscreen.tag.you", "color": [0.118, 0.118, 0.122], "size": [ "default", "default" ], "anchor_from": "center", "anchor_to": "center", "layer": 2 } }
           ]
         }
@@ -394,14 +395,15 @@
       {
         "pill": {
           "type": "panel",
-          "size": [ 30, 13 ],
+          "size": [ "100%cm", 13 ],
           "anchor_from": "top_right",
           "anchor_to": "top_right",
           "offset": [ -128, -25 ],
           "layer": 20,
           "controls": [
-            { "outline@server_form.splitscreen_fill": { "color": [ 0.118, 0.118, 0.122 ] } },
-            { "back@server_form.splitscreen_fill": { "color": [0.424, 0.765, 0.286], "size": [ "100% - 2px", "100% - 2px" ], "layer": 1 } },
+            { "outline@server_form.splitscreen_fill": { "color": [ 0.118, 0.118, 0.122 ], "size": [ "100%sm + 10px", "100%" ], "controls": [
+              { "back@server_form.splitscreen_fill": { "color": [0.424, 0.765, 0.286], "size": [ "100% - 2px", "100% - 2px" ], "layer": 1 } }
+            ] } },
             { "label": { "type": "label", "text": "splitscreen.tag.you", "color": [0.118, 0.118, 0.122], "size": [ "default", "default" ], "anchor_from": "center", "anchor_to": "center", "layer": 2 } }
           ]
         }
@@ -421,14 +423,15 @@
       {
         "pill": {
           "type": "panel",
-          "size": [ 54, 13 ],
+          "size": [ "100%cm", 13 ],
           "anchor_from": "top_right",
           "anchor_to": "top_right",
           "offset": [ -6, -25 ],
           "layer": 20,
           "controls": [
-            { "outline@server_form.splitscreen_fill": { "color": [ 0.118, 0.118, 0.122 ] } },
-            { "back@server_form.splitscreen_fill": { "color": [ 0.549, 0.702, 1 ], "size": [ "100% - 2px", "100% - 2px" ], "layer": 1 } },
+            { "outline@server_form.splitscreen_fill": { "color": [ 0.118, 0.118, 0.122 ], "size": [ "100%sm + 10px", "100%" ], "controls": [
+              { "back@server_form.splitscreen_fill": { "color": [ 0.549, 0.702, 1 ], "size": [ "100% - 2px", "100% - 2px" ], "layer": 1 } }
+            ] } },
             { "label": { "type": "label", "text": "splitscreen.tag.player1", "color": [ 0.118, 0.118, 0.122 ], "size": [ "default", "default" ], "anchor_from": "center", "anchor_to": "center", "layer": 2 } }
           ]
         }
@@ -447,14 +450,15 @@
       {
         "pill": {
           "type": "panel",
-          "size": [ 48, 13 ],
+          "size": [ "100%cm", 13 ],
           "anchor_from": "top_right",
           "anchor_to": "top_right",
           "offset": [ -6, -25 ],
           "layer": 20,
           "controls": [
-            { "outline@server_form.splitscreen_fill": { "color": [ 0.118, 0.118, 0.122 ] } },
-            { "back@server_form.splitscreen_fill": { "color": [ 0.424, 0.765, 0.286 ], "size": [ "100% - 2px", "100% - 2px" ], "layer": 1 } },
+            { "outline@server_form.splitscreen_fill": { "color": [ 0.118, 0.118, 0.122 ], "size": [ "100%sm + 10px", "100%" ], "controls": [
+              { "back@server_form.splitscreen_fill": { "color": [ 0.424, 0.765, 0.286 ], "size": [ "100% - 2px", "100% - 2px" ], "layer": 1 } }
+            ] } },
             { "label": { "type": "label", "text": "splitscreen.tag.playing", "color": [ 0.118, 0.118, 0.122 ], "size": [ "default", "default" ], "anchor_from": "center", "anchor_to": "center", "layer": 2 } }
           ]
         }
@@ -473,14 +477,15 @@
       {
         "pill": {
           "type": "panel",
-          "size": [ 76, 13 ],
+          "size": [ "100%cm", 13 ],
           "anchor_from": "top_right",
           "anchor_to": "top_right",
           "offset": [ -6, -25 ],
           "layer": 20,
           "controls": [
-            { "outline@server_form.splitscreen_fill": { "color": [ 0.118, 0.118, 0.122 ] } },
-            { "back@server_form.splitscreen_fill": { "color": [ 1, 0.91, 0.4 ], "size": [ "100% - 2px", "100% - 2px" ], "layer": 1 } },
+            { "outline@server_form.splitscreen_fill": { "color": [ 0.118, 0.118, 0.122 ], "size": [ "100%sm + 10px", "100%" ], "controls": [
+              { "back@server_form.splitscreen_fill": { "color": [ 1, 0.91, 0.4 ], "size": [ "100% - 2px", "100% - 2px" ], "layer": 1 } }
+            ] } },
             { "label": { "type": "label", "text": "splitscreen.tag.noController", "color": [ 0.118, 0.118, 0.122 ], "size": [ "default", "default" ], "anchor_from": "center", "anchor_to": "center", "layer": 2 } }
           ]
         }
@@ -499,14 +504,15 @@
       {
         "pill": {
           "type": "panel",
-          "size": [ 66, 13 ],
+          "size": [ "100%cm", 13 ],
           "anchor_from": "top_right",
           "anchor_to": "top_right",
           "offset": [ -6, -25 ],
           "layer": 20,
           "controls": [
-            { "outline@server_form.splitscreen_fill": { "color": [ 0.118, 0.118, 0.122 ] } },
-            { "back@server_form.splitscreen_fill": { "color": [ 0.118, 0.118, 0.122 ], "size": [ "100% - 2px", "100% - 2px" ], "layer": 1 } },
+            { "outline@server_form.splitscreen_fill": { "color": [ 0.118, 0.118, 0.122 ], "size": [ "100%sm + 10px", "100%" ], "controls": [
+              { "back@server_form.splitscreen_fill": { "color": [ 0.118, 0.118, 0.122 ], "size": [ "100% - 2px", "100% - 2px" ], "layer": 1 } }
+            ] } },
             { "label": { "type": "label", "text": "splitscreen.tag.notPlaying", "color": [1, 1, 1], "size": [ "default", "default" ], "anchor_from": "center", "anchor_to": "center", "layer": 2 } }
           ]
         }
@@ -525,14 +531,15 @@
       {
         "pill": {
           "type": "panel",
-          "size": [ 54, 13 ],
+          "size": [ "100%cm", 13 ],
           "anchor_from": "top_right",
           "anchor_to": "top_right",
           "offset": [ -40, -25 ],
           "layer": 20,
           "controls": [
-            { "outline@server_form.splitscreen_fill": { "color": [ 0.118, 0.118, 0.122 ] } },
-            { "back@server_form.splitscreen_fill": { "color": [ 0.549, 0.702, 1 ], "size": [ "100% - 2px", "100% - 2px" ], "layer": 1 } },
+            { "outline@server_form.splitscreen_fill": { "color": [ 0.118, 0.118, 0.122 ], "size": [ "100%sm + 10px", "100%" ], "controls": [
+              { "back@server_form.splitscreen_fill": { "color": [ 0.549, 0.702, 1 ], "size": [ "100% - 2px", "100% - 2px" ], "layer": 1 } }
+            ] } },
             { "label": { "type": "label", "text": "splitscreen.tag.player1", "color": [ 0.118, 0.118, 0.122 ], "size": [ "default", "default" ], "anchor_from": "center", "anchor_to": "center", "layer": 2 } }
           ]
         }
@@ -551,14 +558,15 @@
       {
         "pill": {
           "type": "panel",
-          "size": [ 48, 13 ],
+          "size": [ "100%cm", 13 ],
           "anchor_from": "top_right",
           "anchor_to": "top_right",
           "offset": [ -40, -25 ],
           "layer": 20,
           "controls": [
-            { "outline@server_form.splitscreen_fill": { "color": [ 0.118, 0.118, 0.122 ] } },
-            { "back@server_form.splitscreen_fill": { "color": [ 0.424, 0.765, 0.286 ], "size": [ "100% - 2px", "100% - 2px" ], "layer": 1 } },
+            { "outline@server_form.splitscreen_fill": { "color": [ 0.118, 0.118, 0.122 ], "size": [ "100%sm + 10px", "100%" ], "controls": [
+              { "back@server_form.splitscreen_fill": { "color": [ 0.424, 0.765, 0.286 ], "size": [ "100% - 2px", "100% - 2px" ], "layer": 1 } }
+            ] } },
             { "label": { "type": "label", "text": "splitscreen.tag.playing", "color": [ 0.118, 0.118, 0.122 ], "size": [ "default", "default" ], "anchor_from": "center", "anchor_to": "center", "layer": 2 } }
           ]
         }
@@ -577,14 +585,15 @@
       {
         "pill": {
           "type": "panel",
-          "size": [ 76, 13 ],
+          "size": [ "100%cm", 13 ],
           "anchor_from": "top_right",
           "anchor_to": "top_right",
           "offset": [ -40, -25 ],
           "layer": 20,
           "controls": [
-            { "outline@server_form.splitscreen_fill": { "color": [ 0.118, 0.118, 0.122 ] } },
-            { "back@server_form.splitscreen_fill": { "color": [ 1, 0.91, 0.4 ], "size": [ "100% - 2px", "100% - 2px" ], "layer": 1 } },
+            { "outline@server_form.splitscreen_fill": { "color": [ 0.118, 0.118, 0.122 ], "size": [ "100%sm + 10px", "100%" ], "controls": [
+              { "back@server_form.splitscreen_fill": { "color": [ 1, 0.91, 0.4 ], "size": [ "100% - 2px", "100% - 2px" ], "layer": 1 } }
+            ] } },
             { "label": { "type": "label", "text": "splitscreen.tag.noController", "color": [ 0.118, 0.118, 0.122 ], "size": [ "default", "default" ], "anchor_from": "center", "anchor_to": "center", "layer": 2 } }
           ]
         }
@@ -603,14 +612,15 @@
       {
         "pill": {
           "type": "panel",
-          "size": [ 66, 13 ],
+          "size": [ "100%cm", 13 ],
           "anchor_from": "top_right",
           "anchor_to": "top_right",
           "offset": [ -40, -25 ],
           "layer": 20,
           "controls": [
-            { "outline@server_form.splitscreen_fill": { "color": [ 0.118, 0.118, 0.122 ] } },
-            { "back@server_form.splitscreen_fill": { "color": [ 0.118, 0.118, 0.122 ], "size": [ "100% - 2px", "100% - 2px" ], "layer": 1 } },
+            { "outline@server_form.splitscreen_fill": { "color": [ 0.118, 0.118, 0.122 ], "size": [ "100%sm + 10px", "100%" ], "controls": [
+              { "back@server_form.splitscreen_fill": { "color": [ 0.118, 0.118, 0.122 ], "size": [ "100% - 2px", "100% - 2px" ], "layer": 1 } }
+            ] } },
             { "label": { "type": "label", "text": "splitscreen.tag.notPlaying", "color": [1, 1, 1], "size": [ "default", "default" ], "anchor_from": "center", "anchor_to": "center", "layer": 2 } }
           ]
         }

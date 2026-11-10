@@ -591,13 +591,15 @@ static void dumpPlayers(IMinecraftGame& game) {
         std::unique_lock lock(*handler->mPlayerInputsLock, std::try_to_lock);
         if (!lock) return note("pads: table busy, try again");
         for (auto& [id, input] : *handler->mPlayerInputs)
-            note("pads: controller {}: state {}, gamepads {}, keyboard {}, mouse {}", id,
+            note("pads: controller {}: state {}, gamepads {}, keyboard {}, mouse {}, user {}, can join {}", id,
                  int(input.mConnectionState), [&] {
                      std::vector<std::string> names;
                      for (auto d : gamepadsOf(input)) names.push_back(deviceName(d));
                      return fmt::format("{}", fmt::join(names, " "));
                  }(), bool(input.mKeyboardSupport),
-                 bool(input.mMouseSupport));
+                 bool(input.mMouseSupport), *reinterpret_cast<void* const*>(&input.mMappedUser),
+                 game.canAddSplitscreenSubClient(id));
+    note("pads: split screen join enabled {}", game.isSplitscreenJoinEnabled());
     } else note("pads: controller table not found");
     for (auto& [sub, client] : game.getClientInstanceMap())
         if (client) note("pads: player {} uses controller {}", int(sub) + 1, client->getControllerId());
