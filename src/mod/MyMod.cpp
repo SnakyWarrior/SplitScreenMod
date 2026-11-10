@@ -52,6 +52,7 @@
 #include "mc/client/gui/screens/controllers/PauseScreenController.h"
 #include "mc/client/gui/screens/models/PauseScreenModel.h"
 #include "mc/client/gui/ViewRequest.h"
+#include "mc/deps/core/string/StringHash.h"
 #include "mc/client/gui/screens/interfaces/ISceneStack.h"
 #include "mc/world/actor/player/Player.h"
 #include "mc/world/level/Level.h"
@@ -427,6 +428,7 @@ static bool menuOpen(int sub) {
 }
 static void          startJoin(IMinecraftGame& game, int slot);
 static void          freeFirstPad(IMinecraftGame& game, void* pad);
+static void*         firstPlayerPad();
 static Player*       serverPlayer(SubClientId sub);
 static int           gFreshSub = -1; // saved player that just joined and still has to be asked about (client thread)
 static std::chrono::steady_clock::time_point gFreshAt;
@@ -549,6 +551,23 @@ LL_AUTO_TYPE_INSTANCE_HOOK(
         gUnclaimedPause.push_back(this);
     }
     note("pause menu opened: Split screen button ready");
+    auto playerCount = [] {
+        auto client = ll::service::getClientInstance();
+        return client ? int(client->getMinecraftGame().getClientInstanceMap().size()) : 1;
+    };
+    bindBool(StringHash("#splitscreen_many_players"), [playerCount] { return playerCount() > 1; }, [] { return true; });
+    bindBool(
+        StringHash("#splitscreen_free_controller"),
+        [playerCount] { return playerCount() == 1 && firstPlayerPad(); },
+        [] { return true; }
+    );
+    registerButtonPressedHandler(_getNameId("button.splitscreen_free_controller"), [](UIPropertyBag*) {
+        ll::thread::ClientThreadExecutor::getDefault().execute([] {
+            auto client = ll::service::getClientInstance();
+            if (auto pad = firstPlayerPad(); client && pad) freeFirstPad(client->getMinecraftGame(), pad);
+        });
+        return ui::ViewRequest::None;
+    });
     registerButtonPressedHandler(_getNameId("button.splitscreen_menu"), [self = (void*)this](UIPropertyBag*) {
         int who;
         {
@@ -1275,6 +1294,17 @@ static void rejoinAs(SubClientId leaving, int controllerId, int sub, int tries =
         return;
     }
     joinAs(game, controllerId, sub);
+}
+
+// Player 1's controller, or nullptr when player 1 plays with keyboard and mouse.
+static void* firstPlayerPad() {
+    auto handler = controllerHandler();
+    if (!handler) return nullptr;
+    std::lock_guard lock(*handler->mPlayerInputsLock);
+    auto&           inputs = *handler->mPlayerInputs;
+    if (!inputs.contains(0)) return nullptr;
+    auto pads = gamepadsOf(inputs.at(0));
+    return pads.empty() ? nullptr : pads.front();
 }
 
 // "Choose your player" closes by itself 10 s after it appears on that player's screen (it can arrive a few seconds
