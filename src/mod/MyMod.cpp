@@ -429,6 +429,8 @@ static bool menuOpen(int sub) {
 static void          startJoin(IMinecraftGame& game, int slot);
 static void          freeFirstPad(IMinecraftGame& game, void* pad);
 static void*         firstPlayerPad();
+static std::atomic<int>  gPlayerCount = 1;     // players in the game, for the pause menu (poll loop)
+static std::atomic_bool  gFirstHasPad = false; // player 1 has a controller, for the pause menu (poll loop)
 static Player*       serverPlayer(SubClientId sub);
 static int           gFreshSlot = -1;  // the controller slot of gFreshSub
 static bool          gFreshRetried = false;
@@ -556,6 +558,16 @@ LL_AUTO_TYPE_INSTANCE_HOOK(
         gUnclaimedPause.push_back(this);
     }
     note("pause menu opened: Split screen button ready");
+    // read from values the poll loop keeps up to date: the UI asks often, and must never wait on the game's locks
+    bindBool(StringHash("#splitscreen_many_players"), [] { return gPlayerCount > 1; }, [] { return true; });
+    bindBool(StringHash("#splitscreen_free_controller"), [] { return gPlayerCount == 1 && gFirstHasPad; }, [] { return true; });
+    registerButtonPressedHandler(_getNameId("button.splitscreen_free_controller"), [](UIPropertyBag*) {
+        ll::thread::ClientThreadExecutor::getDefault().execute([] {
+            auto client = ll::service::getClientInstance();
+            if (auto pad = firstPlayerPad(); client && pad) freeFirstPad(client->getMinecraftGame(), pad);
+        });
+        return ui::ViewRequest::None;
+    });
     registerButtonPressedHandler(_getNameId("button.splitscreen_menu"), [self = (void*)this](UIPropertyBag*) {
         int who;
         {
@@ -724,6 +736,16 @@ static void pollTrigger() {
         startJoin(client->getMinecraftGame(), slot);
     }
     if (client && gInWorld) claimPauseMenus(client->getMinecraftGame().getClientInstanceMap());
+    if (client && tick % 5 == 0) {
+        gPlayerCount = int(client->getMinecraftGame().getClientInstanceMap().size());
+        if (auto handler = controllerHandler()) {
+            std::unique_lock lock(*handler->mPlayerInputsLock, std::try_to_lock);
+            if (lock) {
+                auto& inputs = *handler->mPlayerInputs;
+                gFirstHasPad = inputs.contains(0) && !gamepadsOf(inputs.at(0)).empty();
+            }
+        }
+    }
     if (client && gInWorld && tick % 10 == 0 && !gSettingsOpen.empty()) {
         std::string state = std::to_string(int(client->getOptions().getSplitscreenDirection()));
         std::set<int> withPad;
