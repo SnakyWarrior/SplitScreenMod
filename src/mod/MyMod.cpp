@@ -447,6 +447,32 @@ static void claimPauseMenus(std::map<SubClientId, std::shared_ptr<IClientInstanc
     }
 }
 
+// Closes `who`'s pause menu, then runs `next`: while it is open the world may be paused, so menus (forms) do not
+// arrive and the game holds back its own prompts.
+static void closePauseThen(int who, std::function<void()> next) {
+    ll::thread::ClientThreadExecutor::getDefault().execute([who, next] {
+        auto paused = [who]() -> std::shared_ptr<IClientInstance> {
+            auto client = ll::service::getClientInstance();
+            if (!client) return nullptr;
+            auto clients = client->getMinecraftGame().getClientInstanceMap();
+            auto it      = clients.find(SubClientId(who));
+            return it != clients.end() && it->second && it->second->getTopScreenName().find("pause") != std::string::npos
+                     ? it->second
+                     : nullptr;
+        };
+        if (auto c = paused()) c->getClientSceneStack()->schedulePopScreen(1);
+        ll::thread::ClientThreadExecutor::getDefault().executeAfter(
+            [who, paused, next] {
+                // player 1's pause menu can sit on the window's main stack instead (only player 1's: the main stack
+                // holds player 1's screens)
+                if (auto c = who == 0 ? paused() : nullptr) c->getMainSceneStack()->schedulePopScreen(1);
+                ll::thread::ClientThreadExecutor::getDefault().executeAfter(next, std::chrono::milliseconds(300));
+            },
+            std::chrono::milliseconds(200)
+        );
+    });
+}
+
 // The pause menu's "Split screen" button (added by the mod's resource pack) sends "button.splitscreen_menu".
 LL_AUTO_TYPE_INSTANCE_HOOK(
     PauseButtonHook,
@@ -474,7 +500,8 @@ LL_AUTO_TYPE_INSTANCE_HOOK(
         [] { return true; }
     );
     registerButtonPressedHandler(_getNameId("button.splitscreen_free_controller"), [](UIPropertyBag*) {
-        ll::thread::ClientThreadExecutor::getDefault().execute([] {
+        // only shown to player 1 alone; as from the world's start, so the game shows its "press start to join"
+        closePauseThen(0, [] {
             auto client = ll::service::getClientInstance();
             if (auto pad = firstPlayerPad(); client && pad) freeFirstPad(client->getMinecraftGame(), pad);
         });
@@ -488,29 +515,7 @@ LL_AUTO_TYPE_INSTANCE_HOOK(
             who                = it != gPauseOwner.end() ? it->second : pausedPlayer();
         }
         note("pause menu: Split screen pressed by player {}", who + 1);
-        // close the pause menu first: while it is open the world may be paused and its menus (forms) do not arrive
-        ll::thread::ClientThreadExecutor::getDefault().execute([who] {
-            auto paused = [who]() -> std::shared_ptr<IClientInstance> {
-                auto client = ll::service::getClientInstance();
-                if (!client) return nullptr;
-                auto clients = client->getMinecraftGame().getClientInstanceMap();
-                auto it      = clients.find(SubClientId(who));
-                return it != clients.end() && it->second && it->second->getTopScreenName().find("pause") != std::string::npos
-                         ? it->second
-                         : nullptr;
-            };
-            if (auto c = paused()) c->getClientSceneStack()->schedulePopScreen(1);
-            ll::thread::ClientThreadExecutor::getDefault().executeAfter(
-                [who, paused] {
-                    // player 1's pause menu can sit on the window's main stack instead (only player 1's: the main
-                    // stack holds player 1's screens)
-                    if (auto c = who == 0 ? paused() : nullptr) c->getMainSceneStack()->schedulePopScreen(1);
-                    ll::thread::ClientThreadExecutor::getDefault().executeAfter([who] { openSettings(who); },
-                                                                                std::chrono::milliseconds(300));
-                },
-                std::chrono::milliseconds(200)
-            );
-        });
+        closePauseThen(who, [who] { openSettings(who); });
         return ui::ViewRequest::None;
     });
     return result;
