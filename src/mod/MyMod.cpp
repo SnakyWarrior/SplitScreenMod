@@ -43,6 +43,9 @@
 #include "mc/gamecore/GameControllerHandler_GameCore.h"
 #include "mc/deps/input/InputHandler.h"
 #include "mc/locale/Localization.h"
+#include "mc/network/LoopbackPacketSender.h"
+#include "mc/network/packet/TextPacket.h"
+#include "mc/world/effect/MobEffectInstance.h"
 #include "mc/client/gui/screens/controllers/PauseScreenController.h"
 #include "mc/client/gui/screens/models/PauseScreenModel.h"
 #include "mc/client/gui/ViewRequest.h"
@@ -449,6 +452,41 @@ static void checkControllers(IMinecraftGame& game) {
 
 }
 
+// While a new controller's player is still being chosen, the stand-in player that holds its part of the screen is
+// hidden: no "joined"/"left" chat lines, invisible, and it cannot be hurt.
+static std::atomic<std::chrono::steady_clock::rep> gQuietUntil = 0;
+static void quietFor(std::chrono::seconds s) { gQuietUntil = (std::chrono::steady_clock::now() + s).time_since_epoch().count(); }
+
+static bool isQuietJoinMessage(Packet const& packet) {
+    if (std::chrono::steady_clock::now().time_since_epoch().count() > gQuietUntil || packet.getId() != MinecraftPacketIds::Text)
+        return false;
+    auto& body = *static_cast<TextPacket const&>(packet).mBody;
+    auto  msg  = std::get_if<TextPacketPayload::MessageAndParams>(&body);
+    return msg && (msg->mMessage->find("multiplayer.player.joined") != std::string::npos
+                   || msg->mMessage->find("multiplayer.player.left") != std::string::npos);
+}
+
+LL_AUTO_TYPE_INSTANCE_HOOK(QuietBroadcastHook, ll::memory::HookPriority::Normal, LoopbackPacketSender,
+                           &LoopbackPacketSender::$sendBroadcast, void, Packet const& packet) {
+    if (!isQuietJoinMessage(packet)) origin(packet);
+}
+
+LL_AUTO_TYPE_INSTANCE_HOOK(QuietSendHook, ll::memory::HookPriority::Normal, LoopbackPacketSender,
+                           &LoopbackPacketSender::$sendToClients, void,
+                           std::vector<NetworkIdentifierWithSubId> const& ids, Packet const& packet) {
+    if (!isQuietJoinMessage(packet)) origin(ids, packet);
+}
+
+static void hideStandIn(Player& player, bool hide) {
+    constexpr uint kResistance = 11; // level 5 resistance: no damage
+    player.setInvisible(hide);
+    if (hide) {
+        MobEffectInstance effect(kResistance, EffectDuration{20 * 60 * 10});
+        effect.mAmplifier = 4;
+        player.addEffect(effect);
+    } else player.removeEffect(kResistance);
+}
+
 // The pause menu's "Split screen" button (added by the mod's resource pack) sends "button.splitscreen_menu".
 LL_AUTO_TYPE_INSTANCE_HOOK(
     PauseButtonHook,
@@ -556,7 +594,8 @@ static void pollTrigger() {
         if (padOnFirst) offerPicker(SubClientId::PrimaryClient, false);
     }
     if (gFreshSub >= 0 && client) {
-        if (serverPlayer(SubClientId(gFreshSub)) && !gMenuOpen) {
+        if (auto standIn = serverPlayer(SubClientId(gFreshSub)); standIn && !gMenuOpen) {
+            hideStandIn(*standIn, true);
             offerPicker(SubClientId(gFreshSub), true);
             gFreshSub = -1;
         } else if (std::chrono::steady_clock::now() - gFreshAt > std::chrono::seconds(20)) gFreshSub = -1;
@@ -994,6 +1033,11 @@ static void offerPicker(SubClientId owner, bool fresh) {
     note("picker: menu for player {} ({} choices)", int(owner) + 1, choices.size());
     showMenu(owner, "Who is playing with this controller?", buttons, tagged, [=](int pick) {
         auto client = ll::service::getClientInstance();
+        if (fresh) {
+            if (pick <= 0 || pick >= int(choices.size())) { // kept: the stand-in is the chosen player
+                if (auto player = serverPlayer(owner)) hideStandIn(*player, false);
+            } else quietFor(std::chrono::seconds(30)); // the stand-in leaves and the chosen player comes in quietly
+        }
         if (!client || pick <= 0 || pick >= int(choices.size())) return; // closed, or kept
         auto& game   = client->getMinecraftGame();
         auto& choice = choices[pick];
@@ -1062,6 +1106,7 @@ static void startJoin(IMinecraftGame& game, int slot) {
     if (sub > 3) return;
     gFreshSub = sub;
     gFreshAt  = std::chrono::steady_clock::now();
+    quietFor(std::chrono::seconds(30));
     joinAs(game, slot, sub);
 }
 
