@@ -969,6 +969,14 @@ static void showMenu(
     });
 }
 
+// A short line above that player's hotbar, so they see what a menu choice did.
+static void tell(SubClientId sub, std::string const& text) {
+    if (auto player = serverPlayer(sub)) TextPacketPayload::createJukeboxPopup(text, {}).sendTo(*player);
+}
+
+// "P2 SnakyWarrior (1)": players in the game carry their number, the same as their part of the screen.
+static std::string numbered(ClientMap const& clients, int sub) { return fmt::format("§9P{}§r {}", sub + 1, localName(clients, sub)); }
+
 // F7 or the pause menu's "Split screen" button: layout, and removing players.
 // The player whose pause menu is open, else player 1.
 static int pausedPlayer() {
@@ -1015,7 +1023,7 @@ static void openSettings(int who) {
             int  controller = it->second->getControllerId();
             auto status     = sub == 0 ? "§2- Player 1" : withPad.contains(controller) ? "§2- Playing" : "§6- No controller";
             items.push_back({Act::Swap, sub});
-            buttons.push_back(fmt::format("{}{} {}", kRoomForSquare, name, status));
+            buttons.push_back(fmt::format("{}{} {}{}", kRoomForSquare, numbered(clients, sub), status, sub == who ? " §3(You)" : ""));
             tagged.push_back(true);
             items.push_back({sub == 0 ? Act::FreePad : Act::Kick, sub});
             buttons.push_back(sub == 0 ? kPadButton : kKickButton);
@@ -1043,12 +1051,15 @@ static void openSettings(int who) {
             client->getOptions().setSplitscreenDirection(vertical ? 0 : 1);
             return openSettings(who); // show the new layout
         case Act::Swap: // this controller plays as that player; theirs (if any) comes here
-            if (auto it = clients.find(SubClientId(item.sub)); item.sub != who && it != clients.end() && it->second && myPad >= 0)
+            if (auto it = clients.find(SubClientId(item.sub)); item.sub != who && it != clients.end() && it->second && myPad >= 0) {
                 moveController(game, myPad, it->second->getControllerId());
+                tell(SubClientId(item.sub), fmt::format("You are now {}", localName(clients, item.sub)));
+            }
             return;
         case Act::Kick:
             if (auto it = clients.find(SubClientId(item.sub)); it != clients.end() && it->second) {
                 note("settings: player {} removed", item.sub + 1);
+                tell(SubClientId(who), fmt::format("{} left the game", localName(clients, item.sub)));
                 it->second->requestLeaveGameAsync();
             }
             return;
@@ -1056,6 +1067,7 @@ static void openSettings(int who) {
             if (firstPad) {
                 note("settings: controller taken from player 1");
                 newPlayerFor(game, 0, firstPad);
+                tell(SubClientId::PrimaryClient, "Controller freed: press start on it to choose a player");
             }
             return;
         case Act::Join:
@@ -1126,7 +1138,8 @@ static void offerPicker(SubClientId owner, bool fresh) {
     std::vector<std::string> buttons;
     std::vector<bool>        tagged;
     for (auto& c : choices) {
-        auto name = localName(clients, int(c.sub));
+        bool playing = c.kind == Kind::TakeOver || (c.kind == Kind::Keep && !fresh);
+        auto name    = playing ? numbered(clients, int(c.sub)) : localName(clients, int(c.sub));
         // the stand-in of a new controller is not really playing yet
         buttons.push_back(c.kind == Kind::Offline || (c.kind == Kind::Keep && fresh) ? fmt::format("{} §8- Not playing", name)
                           : c.kind == Kind::TakeOver ? fmt::format("{} §6- No controller", name)
@@ -1147,6 +1160,8 @@ static void offerPicker(SubClientId owner, bool fresh) {
         if (fresh) {
             if (pick == keep || pick < 0 || pick >= int(choices.size())) { // kept: the stand-in is the chosen player
                 if (auto player = serverPlayer(owner)) hideStandIn(*player, false);
+                if (auto c = ll::service::getClientInstance())
+                    tell(owner, fmt::format("You are {}", localName(c->getMinecraftGame().getClientInstanceMap(), int(owner))));
                 quietFor(std::chrono::seconds(10)); // its skin line can still come
             } else quietFor(std::chrono::seconds(30)); // the stand-in leaves and the chosen player comes in quietly
         }
@@ -1156,6 +1171,7 @@ static void offerPicker(SubClientId owner, bool fresh) {
         switch (choice.kind) {
         case Kind::TakeOver:
             moveController(game, controller, choice.value);
+            tell(choice.sub, fmt::format("You are now {}", localName(game.getClientInstanceMap(), int(choice.sub))));
             if (fresh) { // the player made for this controller is not needed any more
                 auto now = game.getClientInstanceMap();
                 if (now.contains(owner)) now.at(owner)->requestLeaveGameAsync();
