@@ -523,20 +523,22 @@ static void hideStandIn(Player& player, bool hide) {
 
 // Which player each open pause menu belongs to: a pause menu is created just before it shows, so the poll loop gives
 // the oldest unclaimed one to the next player whose screen turns into a pause menu.
-static std::mutex             gPauseLock;
+static std::recursive_mutex   gPauseLock;
 static std::vector<void*>     gUnclaimedPause;
 static std::map<void*, int>   gPauseOwner;
 
 static void claimPauseMenus(std::map<SubClientId, std::shared_ptr<IClientInstance>> const& clients) {
     static std::map<int, bool> wasPaused;
-    std::lock_guard            lock(gPauseLock);
-    for (auto& [sub, other] : clients) {
-        bool paused = other && other->getTopScreenName().find("pause") != std::string::npos;
-        if (paused && !wasPaused[int(sub)] && !gUnclaimedPause.empty()) {
-            gPauseOwner[gUnclaimedPause.front()] = int(sub);
+    // read the screens first: asking for one can create a pause menu, whose hook takes gPauseLock
+    std::map<int, bool> pausedNow;
+    for (auto& [sub, other] : clients) pausedNow[int(sub)] = other && other->getTopScreenName().find("pause") != std::string::npos;
+    std::lock_guard lock(gPauseLock);
+    for (auto& [sub, paused] : pausedNow) {
+        if (paused && !wasPaused[sub] && !gUnclaimedPause.empty()) {
+            gPauseOwner[gUnclaimedPause.front()] = sub;
             gUnclaimedPause.erase(gUnclaimedPause.begin());
         }
-        wasPaused[int(sub)] = paused;
+        wasPaused[sub] = paused;
     }
 }
 
