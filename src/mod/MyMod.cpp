@@ -459,7 +459,7 @@ static void checkControllers(IMinecraftGame& game) {
 }
 
 // While a new controller's player is still being chosen, the stand-in player that holds its part of the screen is
-// hidden: no "joined"/"left" chat lines, invisible, and it cannot be hurt.
+// hidden: no "joined"/"left"/"edited the character appearance" chat lines, invisible, and it cannot be hurt.
 static std::atomic<std::chrono::steady_clock::rep> gQuietUntil = 0;
 static void quietFor(std::chrono::seconds s) { gQuietUntil = (std::chrono::steady_clock::now() + s).time_since_epoch().count(); }
 
@@ -468,8 +468,8 @@ static bool isQuietJoinMessage(Packet const& packet) {
         return false;
     auto& body = *static_cast<TextPacket const&>(packet).mBody;
     auto  msg  = std::get_if<TextPacketPayload::MessageAndParams>(&body);
-    return msg && (msg->mMessage->find("multiplayer.player.joined") != std::string::npos
-                   || msg->mMessage->find("multiplayer.player.left") != std::string::npos);
+    // joined, left, and "edited the character appearance" (skin) lines
+    return msg && msg->mMessage->find("multiplayer.player.") != std::string::npos;
 }
 
 LL_AUTO_TYPE_INSTANCE_HOOK(QuietBroadcastHook, ll::memory::HookPriority::Normal, LoopbackPacketSender,
@@ -1058,6 +1058,7 @@ static void offerPicker(SubClientId owner, bool fresh) {
         if (fresh) {
             if (pick <= 0 || pick >= int(choices.size())) { // kept: the stand-in is the chosen player
                 if (auto player = serverPlayer(owner)) hideStandIn(*player, false);
+                quietFor(std::chrono::seconds(10)); // its skin line can still come
             } else quietFor(std::chrono::seconds(30)); // the stand-in leaves and the chosen player comes in quietly
         }
         if (!client || pick <= 0 || pick >= int(choices.size())) return; // closed, or kept
