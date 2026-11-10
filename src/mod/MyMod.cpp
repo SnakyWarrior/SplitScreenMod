@@ -418,7 +418,7 @@ static void          openSettings();
 struct ViewRect {
     float x, y, width, height; // fractions of the window
 };
-static ViewRect* viewportDetour(void* self, ViewRect* out, SubClientId id, uint64_t count, int direction);
+static ViewRect* viewportOf(void* self, ViewRect* out, SubClientId id, uint64_t count, int direction);
 
 static std::atomic<int> gSecondsLeft = -1; // shown in the "controller lost" prompt; -1 when nobody is leaving
 
@@ -539,7 +539,7 @@ static void pollTrigger() {
         for (auto& [sub, other] : clients)
             if (other && !paused && other->getTopScreenName().find("pause") != std::string::npos) {
                 paused = true;
-                viewportDetour(other.get(), &where, sub, clients.size(), int(client->getOptions().getSplitscreenDirection()));
+                viewportOf(other.get(), &where, sub, clients.size(), int(client->getOptions().getSplitscreenDirection()));
             }
     }
     static ViewRect shownAt{};
@@ -1210,22 +1210,14 @@ LL_AUTO_TYPE_INSTANCE_HOOK(
     return result;
 }
 
-// ---- Split-screen layout: IClientInstance::calculateViewPortModifiers gives each player its part of the screen ----
-// Instance methods return structs through a hidden pointer passed after `this`.
+// ---- Each player's part of the screen: IClientInstance::calculateViewPortModifiers (only read, to place the pause
+// button). Instance methods return structs through a hidden pointer passed after `this`.
 using ViewportFn = ViewRect* (*)(void*, ViewRect*, SubClientId, uint64_t, int);
 
-static std::atomic<ll::memory::FuncPtr> gViewportOriginal = nullptr; // read on the render thread: not through gCfg
+static std::atomic<ll::memory::FuncPtr> gViewportFn = nullptr;
 
-static ViewRect* viewportDetour(void* self, ViewRect* out, SubClientId id, uint64_t count, int direction) {
-    auto original = reinterpret_cast<ViewportFn>(gViewportOriginal.load());
-    original(self, out, id, count, direction);
-    if (count != 3) return out;
-    // With three players the game uses quarters and leaves one black. Use three equal parts instead: side by side, or
-    // one above the other. They must be the same size: the game lays out every player's HUD at player 1's scale, so
-    // a bigger part for player 1 shrinks the others' HUD. Order from the game's quarter: top-left, top-right,
-    // bottom-left.
-    float slot = out->y >= 0.5f ? 2.f : out->x >= 0.5f ? 1.f : 0.f;
-    *out       = direction == 1 ? ViewRect{slot / 3, 0, 1.f / 3, 1} : ViewRect{0, slot / 3, 1, 1.f / 3};
+static ViewRect* viewportOf(void* self, ViewRect* out, SubClientId id, uint64_t count, int direction) {
+    if (auto fn = reinterpret_cast<ViewportFn>(gViewportFn.load())) return fn(self, out, id, count, direction);
     return out;
 }
 
@@ -1282,14 +1274,9 @@ bool MyMod::enable() {
     }
     hookSlot(&game, &IMinecraftGame::addSubClientInstanceAndAssociateToUser, fn(&joinRequestDetour),
              "addSubClientInstanceAndAssociateToUser");
-    // Hooked at the function itself, not the vtable slot: the HUD calls it directly, and with only the slot hooked the
-    // HUD of players 2 and 3 stayed in the game's own quarters while their world moved.
     if (auto slot = findSlot(static_cast<IClientInstance*>(client.as_ptr()), &IClientInstance::calculateViewPortModifiers,
-                             "calculateViewPortModifiers")) {
-        ll::memory::hook(*slot, fn(&viewportDetour), reinterpret_cast<ll::memory::FuncPtr*>(&gViewportOriginal),
-                         ll::memory::HookPriority::Normal);
-        note("viewport at rva {:X}", reinterpret_cast<uintptr_t>(*slot) - gameBase());
-    }
+                             "calculateViewPortModifiers"))
+        gViewportFn = *slot;
     if (hooks.contains("isSplitscreenJoinEnabled"))
         hookSlot(&game, &IMinecraftGame::isSplitscreenJoinEnabled, fn(&joinEnabledDetour), "isSplitscreenJoinEnabled");
     if (hooks.contains("canAddSplitscreenSubClient"))
