@@ -281,11 +281,32 @@ static GameControllerHandler_GameCore* controllerHandler();
 
 static void dumpPlayers(IMinecraftGame& game);
 static void fireConnection(IClientInstance& client, bool connected, int id);
+static void deviceCallbackDetour(uint64_t token, void* context, void* device, uint64_t time, uint32_t now, uint32_t before);
+struct LastConnect {
+    uint64_t token = 0, time = 0;
+    void*    context = nullptr;
+};
+static LastConnect gLastConnect;
 static void runTrigger(std::string const& cmd, int arg) {
     auto client = ll::service::getClientInstance();
     if (!client) return note("trigger {}: no client instance", cmd);
     auto& game = client->getMinecraftGame();
     if (cmd == "pads") dumpPlayers(game); // the same as F9
+    if (cmd == "replug") { // experiment: a free controller (no player) is unplugged and plugged in again, as by hand
+        void* device = nullptr;
+        if (auto handler = controllerHandler()) {
+            std::lock_guard lock(*handler->mPlayerInputsLock);
+            std::set<int>   used;
+            for (auto& [sub, other] : game.getClientInstanceMap())
+                if (other) used.insert(other->getControllerId());
+            for (auto& [id, input] : *handler->mPlayerInputs)
+                if (!used.contains(id) && !gamepadsOf(input).empty()) device = gamepadsOf(input).front();
+        }
+        if (!device || !gLastConnect.context) return note("replug: no free controller");
+        deviceCallbackDetour(gLastConnect.token, gLastConnect.context, device, gLastConnect.time, 0, 1);
+        deviceCallbackDetour(gLastConnect.token, gLastConnect.context, device, gLastConnect.time, 1, 0);
+        note("replug: done");
+    }
     if (cmd == "p1off") { // experiment: tell player 1 their controller is gone, then clear the disconnect handling
         fireConnection(*client, false, 0);
         ll::thread::ClientThreadExecutor::getDefault().executeAfter(
@@ -949,11 +970,6 @@ static DeviceCallback gDeviceCallback = nullptr;
 
 // ---- Player picker: a connected controller can take over any player without a controller, or start a new one ----
 
-struct LastConnect {
-    uint64_t token = 0, time = 0;
-    void*    context = nullptr;
-};
-static LastConnect gLastConnect;
 
 static void fireConnection(IClientInstance& client, bool connected, int id) {
     auto input = client.getMinecraftInput();
