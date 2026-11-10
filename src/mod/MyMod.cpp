@@ -1042,7 +1042,7 @@ static void openSettings(int who) {
                 if (id == 0) firstPad = pads.front();
             }
     }
-    enum class Act { Layout, Swap, Kick, FreePad, Join, Done };
+    enum class Act { Layout, Swap, Kick, FreePad, Join, Done, Nothing };
     struct Item {
         Act act;
         int sub;
@@ -1055,17 +1055,23 @@ static void openSettings(int who) {
         auto name = localName(clients, sub);
         if (it != clients.end() && it->second) { // playing: pick to play as them, square to remove / free controller
             int  controller = it->second->getControllerId();
-            auto status     = sub == 0 ? "§2- Player 1" : withPad.contains(controller) ? "§2- Playing" : "§6- No controller";
+            auto status     = sub == 0 ? "Player 1" : withPad.contains(controller) ? "Playing" : "No controller";
             items.push_back({Act::Swap, sub});
-            buttons.push_back(fmt::format("{}{} {}{}", kRoomForSquare, numbered(clients, sub), status, sub == who ? " §3(You)" : ""));
+            buttons.push_back(fmt::format("{}{}{}", kRoomForSquare, numbered(clients, sub), sub == who ? " §3(You)" : ""));
             tagged.push_back(true);
+            items.push_back({Act::Nothing, -1}); // the status tag, drawn on the row above
+            buttons.push_back(fmt::format("[stag:{}]", status));
+            tagged.push_back(false);
             items.push_back({sub == 0 ? Act::FreePad : Act::Kick, sub});
             buttons.push_back(sub == 0 ? kPadButton : kKickButton);
             tagged.push_back(false);
         } else if (who != 0) { // a saved player who is not playing: this player switches to them
             items.push_back({Act::Join, sub});
-            buttons.push_back(fmt::format("{} §8- Not playing", name));
+            buttons.push_back(name);
             tagged.push_back(true);
+            items.push_back({Act::Nothing, -1});
+            buttons.push_back("[tag:Not playing]");
+            tagged.push_back(false);
         }
     }
     items.push_back({Act::Done, -1});
@@ -1169,16 +1175,22 @@ static void offerPicker(SubClientId owner, bool fresh) {
     std::stable_sort(choices.begin(), choices.end(), [](Choice const& a, Choice const& b) { return a.sub < b.sub; });
     std::vector<std::string> buttons;
     std::vector<bool>        tagged;
-    for (auto& c : choices) {
-        bool playing = c.kind == Kind::TakeOver || (c.kind == Kind::Keep && !fresh);
-        auto name    = playing ? numbered(clients, int(c.sub)) : localName(clients, int(c.sub));
-        // the stand-in of a new controller is not really playing yet
-        buttons.push_back(c.kind == Kind::Offline || (c.kind == Kind::Keep && fresh) ? fmt::format("{} §8- Not playing", name)
-                          : c.kind == Kind::TakeOver ? fmt::format("{} §6- No controller", name)
-                                                     : fmt::format("{} §2- Playing", name));
+    std::vector<int>         toChoice; // form button -> choice; -1 for the status tags drawn on the row above
+    for (int i = 0; i < int(choices.size()); ++i) {
+        auto& c       = choices[i];
+        bool  playing = c.kind == Kind::TakeOver || (c.kind == Kind::Keep && !fresh);
+        buttons.push_back(playing ? numbered(clients, int(c.sub)) : localName(clients, int(c.sub)));
         tagged.push_back(true);
+        toChoice.push_back(i);
+        // the stand-in of a new controller is not really playing yet
+        buttons.push_back(c.kind == Kind::Offline || (c.kind == Kind::Keep && fresh) ? "[tag:Not playing]"
+                          : c.kind == Kind::TakeOver                                 ? "[tag:No controller]"
+                                                                                     : "[tag:Playing]");
+        tagged.push_back(false);
+        toChoice.push_back(-1);
     }
     if (!fresh && clients.size() < 4) {
+        toChoice.push_back(int(choices.size()));
         choices.push_back({Kind::NewPlayer, 0, owner});
         buttons.push_back("New player");
         tagged.push_back(false);
@@ -1188,6 +1200,7 @@ static void offerPicker(SubClientId owner, bool fresh) {
     if (choices.size() < 2) return;
     note("picker: menu for player {} ({} choices)", int(owner) + 1, choices.size());
     showMenu(owner, "Who is playing with this controller?", buttons, tagged, [=](int pick) {
+        pick        = pick >= 0 && pick < int(toChoice.size()) ? toChoice[pick] : -1;
         auto client = ll::service::getClientInstance();
         if (fresh) {
             if (pick == keep || pick < 0 || pick >= int(choices.size())) { // kept: the stand-in is the chosen player

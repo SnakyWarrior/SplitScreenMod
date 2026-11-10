@@ -187,7 +187,217 @@
       { "narrow@server_form.splitscreen_row_narrow": {} },
       { "done@server_form.splitscreen_row_done": {} },
       { "kick@server_form.splitscreen_row_kick": {} },
-      { "pad@server_form.splitscreen_row_pad": {} }
+      { "pad@server_form.splitscreen_row_pad": {} },
+      { "tag0@server_form.splitscreen_tag_0": {} },
+      { "tag1@server_form.splitscreen_tag_1": {} },
+      { "tag2@server_form.splitscreen_tag_2": {} },
+      { "tag3@server_form.splitscreen_tag_3": {} },
+      { "stag0@server_form.splitscreen_stag_0": {} },
+      { "stag1@server_form.splitscreen_stag_1": {} },
+      { "stag2@server_form.splitscreen_stag_2": {} },
+      { "stag3@server_form.splitscreen_stag_3": {} }
+    ]
+  },
+
+  // status tags: drawn over the right end of the row above, not pressable
+  "splitscreen_tag_0": {
+    "type": "panel",
+    "size": [ "100%", 0 ],
+    "bindings": [
+      { "binding_type": "collection_details", "binding_collection_name": "form_buttons" },
+      { "binding_name": "#form_button_text", "binding_type": "collection", "binding_collection_name": "form_buttons" },
+      { "binding_type": "view", "source_property_name": "(#form_button_text = '[tag:Player 1]')", "target_property_name": "#visible" }
+    ],
+    "controls": [
+      {
+        "pill": {
+          "type": "panel",
+          "size": [ "100%c + 8px", 12 ],
+          "anchor_from": "top_right",
+          "anchor_to": "top_right",
+          "offset": [ -6, -21 ],
+          "layer": 20,
+          "controls": [
+            { "back@server_form.splitscreen_fill": { "color": [0.55, 0.7, 1] } },
+            { "label": { "type": "label", "text": "Player 1", "color": [0.12, 0.12, 0.12], "size": [ "default", "default" ], "layer": 1 } }
+          ]
+        }
+      }
+    ]
+  },
+  "splitscreen_tag_1": {
+    "type": "panel",
+    "size": [ "100%", 0 ],
+    "bindings": [
+      { "binding_type": "collection_details", "binding_collection_name": "form_buttons" },
+      { "binding_name": "#form_button_text", "binding_type": "collection", "binding_collection_name": "form_buttons" },
+      { "binding_type": "view", "source_property_name": "(#form_button_text = '[tag:Playing]')", "target_property_name": "#visible" }
+    ],
+    "controls": [
+      {
+        "pill": {
+          "type": "panel",
+          "size": [ "100%c + 8px", 12 ],
+          "anchor_from": "top_right",
+          "anchor_to": "top_right",
+          "offset": [ -6, -21 ],
+          "layer": 20,
+          "controls": [
+            { "back@server_form.splitscreen_fill": { "color": [0.42, 0.76, 0.29] } },
+            { "label": { "type": "label", "text": "Playing", "color": [0.12, 0.12, 0.12], "size": [ "default", "default" ], "layer": 1 } }
+          ]
+        }
+      }
+    ]
+  },
+  "splitscreen_tag_2": {
+    "type": "panel",
+    "size": [ "100%", 0 ],
+    "bindings": [
+      { "binding_type": "collection_details", "binding_collection_name": "form_buttons" },
+      { "binding_name": "#form_button_text", "binding_type": "collection", "binding_collection_name": "form_buttons" },
+      { "binding_type": "view", "source_property_name": "(#form_button_text = '[tag:No controller]')", "target_property_name": "#visible" }
+    ],
+    "controls": [
+      {
+        "pill": {
+          "type": "panel",
+          "size": [ "100%c + 8px", 12 ],
+          "anchor_from": "top_right",
+          "anchor_to": "top_right",
+          "offset": [ -6, -21 ],
+          "layer": 20,
+          "controls": [
+            { "back@server_form.splitscreen_fill": { "color": [1, 0.91, 0.4] } },
+            { "label": { "type": "label", "text": "No controller", "color": [0.12, 0.12, 0.12], "size": [ "default", "default" ], "layer": 1 } }
+          ]
+        }
+      }
+    ]
+  },
+  "splitscreen_tag_3": {
+    "type": "panel",
+    "size": [ "100%", 0 ],
+    "bindings": [
+      { "binding_type": "collection_details", "binding_collection_name": "form_buttons" },
+      { "binding_name": "#form_button_text", "binding_type": "collection", "binding_collection_name": "form_buttons" },
+      { "binding_type": "view", "source_property_name": "(#form_button_text = '[tag:Not playing]')", "target_property_name": "#visible" }
+    ],
+    "controls": [
+      {
+        "pill": {
+          "type": "panel",
+          "size": [ "100%c + 8px", 12 ],
+          "anchor_from": "top_right",
+          "anchor_to": "top_right",
+          "offset": [ -6, -21 ],
+          "layer": 20,
+          "controls": [
+            { "back@server_form.splitscreen_fill": { "color": [0.12, 0.12, 0.12] } },
+            { "label": { "type": "label", "text": "Not playing", "color": [1, 1, 1], "size": [ "default", "default" ], "layer": 1 } }
+          ]
+        }
+      }
+    ]
+  },
+  "splitscreen_stag_0": {
+    "type": "panel",
+    "size": [ "100%", 0 ],
+    "bindings": [
+      { "binding_type": "collection_details", "binding_collection_name": "form_buttons" },
+      { "binding_name": "#form_button_text", "binding_type": "collection", "binding_collection_name": "form_buttons" },
+      { "binding_type": "view", "source_property_name": "(#form_button_text = '[stag:Player 1]')", "target_property_name": "#visible" }
+    ],
+    "controls": [
+      {
+        "pill": {
+          "type": "panel",
+          "size": [ "100%c + 8px", 12 ],
+          "anchor_from": "top_right",
+          "anchor_to": "top_right",
+          "offset": [ -36, -21 ],
+          "layer": 20,
+          "controls": [
+            { "back@server_form.splitscreen_fill": { "color": [0.55, 0.7, 1] } },
+            { "label": { "type": "label", "text": "Player 1", "color": [0.12, 0.12, 0.12], "size": [ "default", "default" ], "layer": 1 } }
+          ]
+        }
+      }
+    ]
+  },
+  "splitscreen_stag_1": {
+    "type": "panel",
+    "size": [ "100%", 0 ],
+    "bindings": [
+      { "binding_type": "collection_details", "binding_collection_name": "form_buttons" },
+      { "binding_name": "#form_button_text", "binding_type": "collection", "binding_collection_name": "form_buttons" },
+      { "binding_type": "view", "source_property_name": "(#form_button_text = '[stag:Playing]')", "target_property_name": "#visible" }
+    ],
+    "controls": [
+      {
+        "pill": {
+          "type": "panel",
+          "size": [ "100%c + 8px", 12 ],
+          "anchor_from": "top_right",
+          "anchor_to": "top_right",
+          "offset": [ -36, -21 ],
+          "layer": 20,
+          "controls": [
+            { "back@server_form.splitscreen_fill": { "color": [0.42, 0.76, 0.29] } },
+            { "label": { "type": "label", "text": "Playing", "color": [0.12, 0.12, 0.12], "size": [ "default", "default" ], "layer": 1 } }
+          ]
+        }
+      }
+    ]
+  },
+  "splitscreen_stag_2": {
+    "type": "panel",
+    "size": [ "100%", 0 ],
+    "bindings": [
+      { "binding_type": "collection_details", "binding_collection_name": "form_buttons" },
+      { "binding_name": "#form_button_text", "binding_type": "collection", "binding_collection_name": "form_buttons" },
+      { "binding_type": "view", "source_property_name": "(#form_button_text = '[stag:No controller]')", "target_property_name": "#visible" }
+    ],
+    "controls": [
+      {
+        "pill": {
+          "type": "panel",
+          "size": [ "100%c + 8px", 12 ],
+          "anchor_from": "top_right",
+          "anchor_to": "top_right",
+          "offset": [ -36, -21 ],
+          "layer": 20,
+          "controls": [
+            { "back@server_form.splitscreen_fill": { "color": [1, 0.91, 0.4] } },
+            { "label": { "type": "label", "text": "No controller", "color": [0.12, 0.12, 0.12], "size": [ "default", "default" ], "layer": 1 } }
+          ]
+        }
+      }
+    ]
+  },
+  "splitscreen_stag_3": {
+    "type": "panel",
+    "size": [ "100%", 0 ],
+    "bindings": [
+      { "binding_type": "collection_details", "binding_collection_name": "form_buttons" },
+      { "binding_name": "#form_button_text", "binding_type": "collection", "binding_collection_name": "form_buttons" },
+      { "binding_type": "view", "source_property_name": "(#form_button_text = '[stag:Not playing]')", "target_property_name": "#visible" }
+    ],
+    "controls": [
+      {
+        "pill": {
+          "type": "panel",
+          "size": [ "100%c + 8px", 12 ],
+          "anchor_from": "top_right",
+          "anchor_to": "top_right",
+          "offset": [ -36, -21 ],
+          "layer": 20,
+          "controls": [
+            { "back@server_form.splitscreen_fill": { "color": [0.12, 0.12, 0.12] } },
+            { "label": { "type": "label", "text": "Not playing", "color": [1, 1, 1], "size": [ "default", "default" ], "layer": 1 } }
+          ]
+        }
+      }
     ]
   },
   "splitscreen_row_full": {
@@ -196,7 +406,7 @@
     "bindings": [
       { "binding_type": "collection_details", "binding_collection_name": "form_buttons" },
       { "binding_name": "#form_button_text", "binding_type": "collection", "binding_collection_name": "form_buttons" },
-      { "binding_type": "view", "source_property_name": "(not ((#form_button_text = '[x]') or (#form_button_text = '[p]') or (#form_button_text = 'Done') or (('%.1s' * #form_button_text) = ' ')))", "target_property_name": "#visible" }
+      { "binding_type": "view", "source_property_name": "(not ((#form_button_text = '[x]') or (#form_button_text = '[p]') or (#form_button_text = 'Done') or (('%.1s' * #form_button_text) = ' ') or (('%.1s' * #form_button_text) = '[')))", "target_property_name": "#visible" }
     ],
     "controls": [ { "button@server_form.splitscreen_button": { "size": [ "100%", 26 ], "$normal": [ 0.82, 0.82, 0.83 ], "$hover": [ 0.93, 0.93, 0.94 ], "$pressed": [ 0.69, 0.7, 0.71 ], "$edge": [ 0.35, 0.35, 0.36 ], "$shine": [ 0.93, 0.93, 0.94 ], "$text_color": [ 0.19, 0.2, 0.2 ] } } ]
   },
