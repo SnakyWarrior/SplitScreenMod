@@ -7,9 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-11-11
+
 ### Added
 
 - The menus follow the game's language (16 languages, including Chinese, Japanese and Korean).
+
+### Changed
+
+- The disconnect-controller button takes the controller at once, so a stick held a moment later no longer keeps player 1 moving.
+- Status tags grow with their text, so longer translations fit.
 
 ### Removed
 
@@ -17,7 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- After taking player 1's controller away, the game's "Join as Player" prompt did not show.
+- After player 1 had used a controller, the game's "Join as Player" prompt never showed again in that world (the mod closed the game's toast screen together with the pause menu).
 
 ## [1.3.0] - 2026-11-10
 
@@ -112,7 +119,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Each controller gets its own player.
 - Call sites are detected by code pattern, not fixed addresses.
 
-[Unreleased]: https://github.com/SnakyWarrior/SplitScreenMod/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/SnakyWarrior/SplitScreenMod/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/SnakyWarrior/SplitScreenMod/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/SnakyWarrior/SplitScreenMod/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/SnakyWarrior/SplitScreenMod/compare/v1.1.1...v1.2.0
 [1.1.1]: https://github.com/SnakyWarrior/SplitScreenMod/compare/v1.1.0...v1.1.1

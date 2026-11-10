@@ -287,64 +287,11 @@ static void popIfTop(Stack const& stack, std::string_view name) {
 }
 
 static void dumpPlayers(IMinecraftGame& game);
-// The state of a player's SplitscreenJoinListener (MinecraftInputHandler + 0x88 in 1.26.60): the game shows its
-// "Join as Player" prompt on that player's screen only while it is 1 or 2 (ClientInputHandler's prompt check).
-static int* joinListenerState(IClientInstance& client) {
-    auto input = client.getMinecraftInput();
-    if (!input) return nullptr;
-    auto listener = *reinterpret_cast<int**>(reinterpret_cast<char*>(input.get()) + 0x88);
-    return listener;
-}
-static void fireConnection(IClientInstance& client, bool connected, int id);
-static std::vector<void*> gamepadsOf(GameCorePlayerInput& input);
-static void deviceCallbackDetour(uint64_t token, void* context, void* device, uint64_t time, uint32_t now, uint32_t before);
-struct LastConnect {
-    uint64_t token = 0, time = 0;
-    void*    context = nullptr;
-};
-static LastConnect gLastConnect;
 static void runTrigger(std::string const& cmd, int arg) {
     auto client = ll::service::getClientInstance();
     if (!client) return note("trigger {}: no client instance", cmd);
     auto& game = client->getMinecraftGame();
     if (cmd == "pads") dumpPlayers(game); // the same as F9
-    if (cmd == "listen") { // experiment: set player 1's join listener state
-        if (auto state = joinListenerState(*client)) {
-            note("listen: player 1's join listener {} -> {}", *state, arg);
-            *state = arg;
-        }
-    }
-    if (cmd == "replug") { // experiment: a free controller (no player) is unplugged and plugged in again, as by hand
-        void* device = nullptr;
-        if (auto handler = controllerHandler()) {
-            std::lock_guard lock(*handler->mPlayerInputsLock);
-            std::set<int>   used;
-            for (auto& [sub, other] : game.getClientInstanceMap())
-                if (other) used.insert(other->getControllerId());
-            for (auto& [id, input] : *handler->mPlayerInputs)
-                if (!used.contains(id) && !gamepadsOf(input).empty()) device = gamepadsOf(input).front();
-        }
-        if (!device || !gLastConnect.context) return note("replug: no free controller");
-        deviceCallbackDetour(gLastConnect.token, gLastConnect.context, device, gLastConnect.time, 0, 1);
-        deviceCallbackDetour(gLastConnect.token, gLastConnect.context, device, gLastConnect.time, 1, 0);
-        note("replug: done");
-    }
-    if (cmd == "p1off") { // experiment: tell player 1 their controller is gone, then clear the disconnect handling
-        fireConnection(*client, false, 0);
-        ll::thread::ClientThreadExecutor::getDefault().executeAfter(
-            [] {
-                auto c = ll::service::getClientInstance();
-                if (!c) return;
-                c->setOpenControllerDisconnectScreen(false);
-                c->setConnectGamepadScreenActive(false);
-                popIfTop(c->getMainSceneStack(), "gamepad_disconnected_screen");
-                c->updateControllerHandling();
-                note("p1off: done");
-                dumpPlayers(c->getMinecraftGame());
-            },
-            std::chrono::milliseconds(300)
-        );
-    }
     if (cmd == "join") {
         note("adding player on controller {}", arg);
         game.addSubClientInstanceAndAssociateToUser(arg); // goes through the menu like the game's join prompt
@@ -665,12 +612,7 @@ static void dumpPlayers(IMinecraftGame& game) {
     } else note("pads: controller table not found");
     for (auto& [sub, client] : game.getClientInstanceMap())
         if (client)
-            note("pads: player {} uses controller {} (has controller {}, uses controller {}, handling disconnect {}, join listener {})",
-                 int(sub) + 1, client->getControllerId(), client->hasConnectedController(), client->useController(),
-                 client->getHandlingControllerDisconnect(), [&] {
-                     auto state = joinListenerState(*client);
-                     return state ? std::to_string(*state) : std::string("none");
-                 }());
+            note("pads: player {} uses controller {}", int(sub) + 1, client->getControllerId());
     for (auto& [sub, client] : game.getClientInstanceMap())
         if (client) {
             auto names = [](auto const& stack) { return fmt::format("{}", fmt::join(stack->getScreenNames(), ", ")); };
@@ -1001,6 +943,12 @@ static DeviceCallback gDeviceCallback = nullptr;
 
 // ---- Player picker: a connected controller can take over any player without a controller, or start a new one ----
 
+
+struct LastConnect {
+    uint64_t token = 0, time = 0;
+    void*    context = nullptr;
+};
+static LastConnect gLastConnect;
 
 static void fireConnection(IClientInstance& client, bool connected, int id) {
     auto input = client.getMinecraftInput();

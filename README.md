@@ -77,7 +77,9 @@ xmake
 
 ## Support
 
-The mod is free and stays free. If it gives you split-screen nights you would not have had, you can support its development on [Patreon](https://www.patreon.com/PantelisKonstantinidis). Bug reports and ideas on the [issues page](../../issues) help just as much.
+I make this mod out of love for the game and the people who play it. For a long time I wanted to play Minecraft with my family on one PC, and Bedrock on Windows never let us, so I built it. The mod is free and will stay free.
+
+Keeping it working takes time: every game update can break it, new versions need testing, and there are always new ideas from players. If the mod brings you and your people together on one screen, a small monthly support on [Patreon](https://www.patreon.com/PantelisKonstantinidis) helps me keep the project going, release new versions and maintain it. Bug reports and ideas on the [issues page](../../issues) help just as much.
 
 ## Licence
 
