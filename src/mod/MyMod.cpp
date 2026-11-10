@@ -434,6 +434,7 @@ static int           gFreshSub = -1; // saved player that just joined and still 
 static std::chrono::steady_clock::time_point gFreshAt;
 static void          openSettings(int who = -1);
 static int           pausedPlayer();
+static bool          everyonePaused();
 static std::map<int, std::chrono::steady_clock::time_point> gSettingsOpen; // player -> when their Split screen menu opened
 static void          refreshSettings(std::string const& state);
 
@@ -714,7 +715,7 @@ static void pollTrigger() {
             hidden    = -1;
         } else if (std::chrono::steady_clock::now() - gFreshAt > std::chrono::seconds(60)) gFreshSub = -1, hidden = -1;
     }
-    if (worldTicks > 60 && !gAskLater.empty() && gFreshSub < 0) { // 3 s in: the players have spawned
+    if (worldTicks > 60 && !gAskLater.empty() && gFreshSub < 0 && !everyonePaused()) { // 3 s in: the players have spawned
         int slot = *gAskLater.begin();
         gAskLater.erase(gAskLater.begin());
         startJoin(client->getMinecraftGame(), slot);
@@ -1130,6 +1131,15 @@ static void refreshSettings(std::string const& state) {
 }
 
 // F7 or the pause menu's "Split screen" button: layout, and removing players.
+// Every player is in a pause menu: the world is stopped (alone, or all of them).
+static bool everyonePaused() {
+    auto client = ll::service::getClientInstance();
+    if (!client) return false;
+    for (auto& [sub, other] : client->getMinecraftGame().getClientInstanceMap())
+        if (other && other->getTopScreenName().find("pause") == std::string::npos) return false;
+    return true;
+}
+
 // The player whose pause menu is open, else player 1.
 static int pausedPlayer() {
     auto client = ll::service::getClientInstance();
@@ -1487,6 +1497,12 @@ static void joinRequestDetour(void* self, int controllerId) {
         return;
     }
     if (gFreshSub >= 0) return; // someone is joining already
+    if (everyonePaused()) { // a player cannot join a stopped world (the game hangs): join once it runs again
+        note("controller {} asked to join while the world is paused: joining when it runs again", controllerId);
+        gAskLater.insert(controllerId);
+        tell(SubClientId::PrimaryClient, "Resume the game to add the new player");
+        return;
+    }
     startJoin(*static_cast<IMinecraftGame*>(self), controllerId);
 }
 
