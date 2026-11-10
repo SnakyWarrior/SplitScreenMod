@@ -273,16 +273,18 @@ static ll::memory::FuncPtr* hookSlot(void* object, F method, ll::memory::FuncPtr
 }
 
 // Test trigger, so a second player can be added without a second physical controller or cheats:
-// write "join <controller>" lines into trigger.txt next to the mod; it is run on the client thread and deleted.
+// write "join <controller>" or "pads" lines into trigger.txt next to the mod; it is run on the client thread and deleted.
 static void offerPicker(SubClientId owner, bool fresh);
 static std::set<int> gNoMenuFor; // sub ids that just joined through the menu itself (client thread only)
 static thread_local bool tOurJoin = false; // joins the mod makes itself go through unchanged
 static GameControllerHandler_GameCore* controllerHandler();
 
+static void dumpPlayers(IMinecraftGame& game);
 static void runTrigger(std::string const& cmd, int arg) {
     auto client = ll::service::getClientInstance();
     if (!client) return note("trigger {}: no client instance", cmd);
     auto& game = client->getMinecraftGame();
+    if (cmd == "pads") dumpPlayers(game); // the same as F9
     if (cmd == "join") {
         note("adding player on controller {}", arg);
         game.addSubClientInstanceAndAssociateToUser(arg); // goes through the menu like the game's join prompt
@@ -519,11 +521,11 @@ LL_AUTO_TYPE_INSTANCE_HOOK(
         [] { return true; }
     );
     registerButtonPressedHandler(_getNameId("button.splitscreen_free_controller"), [](UIPropertyBag*) {
-        // only shown to player 1 alone; as from the world's start, so the game shows its "press start to join"
-        closePauseThen(0, [] {
-            auto client = ll::service::getClientInstance();
-            if (auto pad = firstPlayerPad(); client && pad) freeFirstPad(client->getMinecraftGame(), pad);
-        });
+        // only shown to player 1 alone: the controller is taken at once (a stick held a moment later would keep
+        // moving player 1), then the pause menu closes
+        auto client = ll::service::getClientInstance();
+        if (auto pad = firstPlayerPad(); client && pad) freeFirstPad(client->getMinecraftGame(), pad);
+        closePauseThen(0, [] {});
         return ui::ViewRequest::None;
     });
     registerButtonPressedHandler(_getNameId("button.splitscreen_menu"), [self = (void*)this](UIPropertyBag*) {
@@ -591,8 +593,8 @@ static void dumpPlayers(IMinecraftGame& game) {
         std::unique_lock lock(*handler->mPlayerInputsLock, std::try_to_lock);
         if (!lock) return note("pads: table busy, try again");
         for (auto& [id, input] : *handler->mPlayerInputs)
-            note("pads: controller {}: state {}, gamepads {}, keyboard {}, mouse {}, user {}, can join {}", id,
-                 int(input.mConnectionState), [&] {
+            note("pads: controller {}: state {}, gamepad support {}, gamepads {}, keyboard {}, mouse {}, user {}, can join {}", id,
+                 int(input.mConnectionState), bool(input.mGamepadSupport), [&] {
                      std::vector<std::string> names;
                      for (auto d : gamepadsOf(input)) names.push_back(deviceName(d));
                      return fmt::format("{}", fmt::join(names, " "));
@@ -1134,7 +1136,12 @@ static void freeFirstPad(IMinecraftGame& game, void* pad) {
     note("controller taken from player 1");
     newPlayerFor(game, 0, pad);
     // the sticks and buttons it held stay pressed on player 1 otherwise (walking or turning by itself)
-    if (auto client = ll::service::getClientInstance(); client && client->getInput()) client->getInput()->releaseButtonsAndSticks();
+    auto release = [] {
+        if (auto client = ll::service::getClientInstance(); client && client->getInput()) client->getInput()->releaseButtonsAndSticks();
+    };
+    release();
+    // and once more after the game has read its last input from that controller
+    ll::thread::ClientThreadExecutor::getDefault().executeAfter(release, std::chrono::milliseconds(150));
     tell(SubClientId::PrimaryClient, tr("splitscreen.tell.pressStart"));
     ll::thread::ClientThreadExecutor::getDefault().executeAfter(
         [] {
