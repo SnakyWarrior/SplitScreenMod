@@ -10,9 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - A menu in the middle of the screen asks who plays with a new controller before anyone joins: player 1, a saved local player with their own inventory, or a player who lost their controller.
-- Players are shown with the face of their skin in the menus.
 - A Split screen button in the pause menu (also Y on a controller, or F7) to switch between a horizontal and vertical split and to remove players.
-- With three players the screen is split into three equal parts instead of quarters with one left black.
 
 ### Changed
 

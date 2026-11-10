@@ -45,10 +45,6 @@
 #include "mc/deps/input/InputHandler.h"
 #include "mc/locale/Localization.h"
 #include "mc/world/actor/player/Player.h"
-#include "mc/world/actor/player/SerializedSkinImpl.h"
-#include "mc/world/actor/player/SerializedSkinRef.h"
-#include "mc/world/actor/player/SkinImage.h"
-#include "mc/util/ThreadOwner.h"
 #include "mc/world/level/Level.h"
 #include "ll/api/form/SimpleForm.h"
 #include "ll/api/service/Bedrock.h"
@@ -842,40 +838,16 @@ static Player* serverPlayer(SubClientId sub) {
     return found;
 }
 
-// A player's face from their skin: the 8x8 front of the head with the hat layer on top. Remembered on disk per local
-// player, so players who are not in the world show their last face too.
-static overlay::Icon faceOf(Player& player) {
-    auto ref = player.mSkin.get();
-    if (!ref || !ref->mSkinImpl) return {};
-    mce::Image const& image = *ref->mSkinImpl->mObject.mSkinImage;
-    uint32_t          w = image.mWidth, h = image.mHeight;
-    auto              bytes = image.mImageBytes.data();
-    if (w < 64 || h < 32 || !bytes || image.mImageBytes.size() < size_t(w) * h * 4) return {};
-    uint32_t scale = w / 64;
-    auto     at    = [&](uint32_t x, uint32_t y) { return bytes + (size_t(y * scale + scale / 2) * w + x * scale + scale / 2) * 4; };
-    overlay::Icon face(64);
-    for (uint32_t y = 0; y < 8; ++y)
-        for (uint32_t x = 0; x < 8; ++x) {
-            auto px = at(8 + x, 8 + y);
-            if (auto hat = at(40 + x, 8 + y); hat[3] > 128) px = hat;
-            face[y * 8 + x] = RGB(px[0], px[1], px[2]);
-        }
-    return face;
-}
-
-static overlay::Icon faceFor(int sub) {
-    auto file = MyMod::getInstance().getSelf().getModDir() / "faces" / fmt::format("{}.bin", sub);
-    overlay::Icon face;
-    if (auto player = serverPlayer(SubClientId(sub))) face = faceOf(*player);
-    std::error_code ec;
-    if (face.size() == 64) {
-        std::filesystem::create_directories(file.parent_path(), ec);
-        std::ofstream(file, std::ios::binary).write(reinterpret_cast<char const*>(face.data()), 64 * sizeof(uint32_t));
-    } else if (std::ifstream in(file, std::ios::binary); in) {
-        face.resize(64);
-        if (!in.read(reinterpret_cast<char*>(face.data()), 64 * sizeof(uint32_t))) face.clear();
-    }
-    return face;
+// The same plain "user" picture next to every player in the menus.
+static overlay::Icon userIcon() {
+    static overlay::Icon const icon = [] {
+        char const*   rows[8] = {"..####..", ".######.", ".######.", "..####..", "........", ".######.", "########", "########"};
+        overlay::Icon out;
+        for (auto row : rows)
+            for (int x = 0; x < 8; ++x) out.push_back(row[x] == '#' ? RGB(235, 235, 235) : RGB(88, 88, 90));
+        return out;
+    }();
+    return icon;
 }
 
 // F7 or the pause menu's "Split screen" button: layout, and removing players.
@@ -890,7 +862,7 @@ static void openSettings() {
     for (auto& [sub, other] : clients)
         if (other && sub != SubClientId::PrimaryClient) {
             buttons.push_back(fmt::format("Remove {}", localName(clients, int(sub))));
-            icons.push_back(faceFor(int(sub)));
+            icons.push_back(userIcon());
             subs.push_back(int(sub));
         }
     buttons.push_back("Close");
@@ -1064,7 +1036,7 @@ static void askBeforeJoin(IMinecraftGame& game, int slot) {
     for (auto& [sub, other] : clients) // playing players without a controller, player 1 included
         if (other && !withPad.contains(other->getControllerId())) {
             choices.push_back({true, other->getControllerId()});
-            icons.push_back(faceFor(int(sub)));
+            icons.push_back(userIcon());
             buttons.push_back(fmt::format(
                 "{} - {}",
                 localName(clients, int(sub)),
@@ -1075,7 +1047,7 @@ static void askBeforeJoin(IMinecraftGame& game, int slot) {
         for (int sub = 1; sub <= 3; ++sub)
             if (!clients.contains(SubClientId(sub))) {
                 choices.push_back({false, sub});
-                icons.push_back(faceFor(sub));
+                icons.push_back(userIcon());
                 buttons.push_back(fmt::format("{} - join", localName(clients, sub)));
             }
     if (choices.empty()) return;
