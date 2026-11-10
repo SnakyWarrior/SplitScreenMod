@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-11-10
+
+### Added
+
+- Alone in a world with a controller, the pause menu shows a red controller button instead of the Split screen button: it takes player 1's controller away so it can choose another player.
+- Open Split screen menus refresh for every player when the layout, the players or their controllers change.
+- The log of the run before is kept as `splitscreen.prev.log`, so a crash can still be reported after the game restarts.
+- A Patreon link, for anyone who wants to support the mod (it stays free).
+
+### Changed
+
+- The Split screen button only shows with several players.
+- Swapping players no longer shows "left the game" / "joined the game" in chat.
+- The world no longer tries to pause when every player is in the pause menu (the game does not allow it with several players).
+- Built against the newest LeviLamina 26.60, falling back to 26.60.5.
+
+### Fixed
+
+- The game froze when a player opened the pause menu with two or more players.
+- The game crashed when a player left after the pause menu had been closed by the mod.
+- The game hung when a controller pressed start while the world was paused.
+- Pressing the Split screen button as player 2 opened player 1's menu.
+- After taking player 1's controller away, player 1 kept walking or turning by itself.
+- A player could stay in spectator mode after choosing who plays.
+- A new player that the game dropped at once is joined again.
+- The pause menu buttons did nothing until the pause menu was closed in a one-player world.
+
 ## [1.2.0] - 2026-11-10
 
 ### Added
@@ -73,7 +100,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Each controller gets its own player.
 - Call sites are detected by code pattern, not fixed addresses.
 
-[Unreleased]: https://github.com/SnakyWarrior/SplitScreenMod/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/SnakyWarrior/SplitScreenMod/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/SnakyWarrior/SplitScreenMod/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/SnakyWarrior/SplitScreenMod/compare/v1.1.1...v1.2.0
 [1.1.1]: https://github.com/SnakyWarrior/SplitScreenMod/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/SnakyWarrior/SplitScreenMod/compare/v1.0.1...v1.1.0
