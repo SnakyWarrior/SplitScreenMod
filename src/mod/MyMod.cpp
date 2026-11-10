@@ -1,5 +1,4 @@
 #include "mod/MyMod.h"
-#include "mod/Overlay.h"
 
 #include <algorithm>
 #include <atomic>
@@ -412,6 +411,7 @@ static std::atomic_bool gInWorld = false; // refreshed on the client thread, rea
 // Controllers that asked to join while no world was loaded (e.g. the game bringing players back when a world opens):
 // they are asked who they are once the world is up, so no controller keeps its player from the last world.
 static std::set<int> gAskLater; // client thread only
+static std::atomic_bool gMenuOpen = false; // one of the mod's menus is open (see showMenu)
 static void          askBeforeJoin(IMinecraftGame& game, int slot);
 static void          openSettings();
 
@@ -537,11 +537,11 @@ static void pollTrigger() {
     GetWindowThreadProcessId(window, &pid);
     static bool f7WasDown = false; // F7 opens the layout menu
     bool        f7        = (GetAsyncKeyState(VK_F7) & 0x8000) && pid == GetCurrentProcessId();
-    if (f7 && !f7WasDown && client && !overlay::isOpen()) openSettings();
+    if (f7 && !f7WasDown && client && !gMenuOpen) openSettings();
     f7WasDown = f7;
     static int worldTicks = 0; // how long the world has been up, in polls
     worldTicks            = gInWorld ? worldTicks + 1 : 0;
-    if (worldTicks > 60 && !gAskLater.empty() && !overlay::isOpen()) { // 3 s in: the players have spawned
+    if (worldTicks > 60 && !gAskLater.empty() && !gMenuOpen) { // 3 s in: the players have spawned
         int slot = *gAskLater.begin();
         gAskLater.erase(gAskLater.begin());
         askBeforeJoin(client->getMinecraftGame(), slot);
@@ -835,63 +835,51 @@ static Player* serverPlayer(SubClientId sub) {
     return found;
 }
 
-// The same name-tag picture next to every player in the menus (16x16 pixel art).
-static overlay::Icon userIcon() {
-    static overlay::Icon const icon = [] {
-        char const* rows[16] = {
-            "................",
-            "..........WWW...",
-            ".........WWGGG..",
-            "........WWG..BG.",
-            ".......OGG...BB.",
-            "......OTGGO..BB.",
-            ".....OTTSGDOBB..",
-            "....OTSSSTTDB...",
-            "...OTTTSTTD.....",
-            "..OTSTTTTDD.....",
-            ".OTTSSTTDD......",
-            "OTSTTSTDD.......",
-            "OTTSTTDD........",
-            "OTSSTDD.........",
-            ".OTTDD..........",
-            "..DDD..........."
-        };
-        overlay::Icon out;
-        for (auto row : rows)
-            for (int x = 0; x < 16; ++x) switch (row[x]) {
-                case 'O': out.push_back(RGB(115, 100, 80)); break;  // outline, lit side
-                case 'D': out.push_back(RGB(80, 56, 20)); break;    // outline, shaded side
-                case 'T': out.push_back(RGB(232, 200, 140)); break; // tag
-                case 'S': out.push_back(RGB(125, 110, 95)); break;  // spots
-                case 'W': out.push_back(RGB(215, 228, 232)); break; // string, light
-                case 'G': out.push_back(RGB(155, 172, 180)); break; // string
-                case 'B': out.push_back(RGB(90, 130, 160)); break;  // string, shaded
-                default: out.push_back(overlay::kClear);
-                }
-        return out;
-    }();
-    return icon;
+// The mod's menus are the game's own forms, shown on one player's part of the screen. Player buttons carry the
+// game's name tag picture. `done` gets the chosen index, or -1 when closed, on the client thread.
+static void showMenu(
+    SubClientId                     who,
+    std::string const&              text,
+    std::vector<std::string> const& buttons,
+    std::vector<bool> const&        tagged,
+    std::function<void(int)>        done
+) {
+    auto player = serverPlayer(who);
+    if (!player || buttons.empty() || gMenuOpen.exchange(true)) return;
+    ll::form::SimpleForm form("Bedrock Splitscreen", text);
+    for (size_t i = 0; i < buttons.size(); ++i)
+        if (i < tagged.size() && tagged[i]) form.appendButton(buttons[i], "textures/items/name_tag", "path");
+        else form.appendButton(buttons[i]);
+    form.sendTo(*player, [done](Player&, int pick, ll::form::FormCancelReason) {
+        ll::thread::ClientThreadExecutor::getDefault().execute([done, pick] {
+            gMenuOpen = false;
+            done(pick);
+        });
+    });
 }
 
 // F7 or the pause menu's "Split screen" button: layout, and removing players.
 static void openSettings() {
     auto client = ll::service::getClientInstance();
-    if (!client || overlay::isOpen()) return;
+    if (!client || gMenuOpen) return;
     auto clients  = client->getMinecraftGame().getClientInstanceMap();
+    auto who      = SubClientId::PrimaryClient; // the player whose pause menu is open, else player 1
+    for (auto& [sub, other] : clients)
+        if (other && other->getTopScreenName().find("pause") != std::string::npos) who = sub;
     bool vertical = int(client->getOptions().getSplitscreenDirection()) == 1;
     std::vector<std::string>   buttons{vertical ? "Layout: side by side" : "Layout: top and bottom"};
-    std::vector<overlay::Icon> icons{{}};
+    std::vector<bool>          tagged{false};
     std::vector<int>           subs{-1};
     for (auto& [sub, other] : clients)
         if (other && sub != SubClientId::PrimaryClient) {
             buttons.push_back(fmt::format("Remove {}", localName(clients, int(sub))));
-            icons.push_back(userIcon());
+            tagged.push_back(true);
             subs.push_back(int(sub));
         }
     buttons.push_back("Close");
-    icons.emplace_back();
+    tagged.push_back(false);
     subs.push_back(-2);
-    overlay::show("Bedrock Splitscreen", "Split screen", buttons, [subs, vertical](int pick) {
+    showMenu(who, "Split screen", buttons, tagged, [subs, vertical](int pick) {
         auto client = ll::service::getClientInstance();
         if (!client || pick < 0 || subs[pick] == -2) return;
         if (subs[pick] == -1) {
@@ -903,7 +891,7 @@ static void openSettings() {
             note("settings: player {} removed", subs[pick] + 1);
             it->second->requestLeaveGameAsync();
         }
-    }, icons);
+    });
 }
 
 static void joinAs(IMinecraftGame& game, int controllerId, int sub) {
@@ -956,15 +944,18 @@ static void offerPicker(SubClientId owner, bool fresh) {
     };
     std::vector<Choice>      choices{{Kind::Keep, 0, owner}};
     std::vector<std::string> buttons{fmt::format("{} (keep)", localName(clients, int(owner)))};
+    std::vector<bool>        tagged{true};
     for (auto& [sub, other] : clients) // players in the game without a controller
         if (sub != owner && other && !withPad.contains(other->getControllerId())) {
             choices.push_back({Kind::TakeOver, other->getControllerId(), sub});
             buttons.push_back(fmt::format("{} - playing, no controller", localName(clients, int(sub))));
+            tagged.push_back(true);
         }
     for (int sub = 1; sub <= 3; ++sub) // saved players not in the game
         if (!clients.contains(SubClientId(sub))) {
             choices.push_back({Kind::Offline, sub, SubClientId(sub)});
             buttons.push_back(fmt::format("{} - not playing", localName(clients, sub)));
+            tagged.push_back(true);
         }
     if (!fresh && clients.size() < 4) {
         choices.push_back({Kind::NewPlayer, 0, owner});
@@ -972,7 +963,7 @@ static void offerPicker(SubClientId owner, bool fresh) {
     }
     if (choices.size() < 2) return;
     note("picker: menu for player {} ({} choices)", int(owner) + 1, choices.size());
-    overlay::show("Bedrock Splitscreen", "A controller was connected. Who is playing with it?", buttons, [=](int pick) {
+    showMenu(owner, "A controller was connected. Who is playing with it?", buttons, tagged, [=](int pick) {
         auto client = ll::service::getClientInstance();
         if (!client || pick <= 0 || pick >= int(choices.size())) return; // closed, or kept
         auto& game   = client->getMinecraftGame();
@@ -1055,11 +1046,11 @@ static void askBeforeJoin(IMinecraftGame& game, int slot) {
     };
     std::vector<Choice>        choices;
     std::vector<std::string>   buttons;
-    std::vector<overlay::Icon> icons;
+    std::vector<bool>          tagged;
     for (auto& [sub, other] : clients) // playing players without a controller, player 1 included
         if (other && !withPad.contains(other->getControllerId())) {
             choices.push_back({true, other->getControllerId()});
-            icons.push_back(userIcon());
+            tagged.push_back(true);
             buttons.push_back(fmt::format(
                 "{} - {}",
                 localName(clients, int(sub)),
@@ -1070,13 +1061,13 @@ static void askBeforeJoin(IMinecraftGame& game, int slot) {
         for (int sub = 1; sub <= 3; ++sub)
             if (!clients.contains(SubClientId(sub))) {
                 choices.push_back({false, sub});
-                icons.push_back(userIcon());
+                tagged.push_back(true);
                 buttons.push_back(fmt::format("{} - join", localName(clients, sub)));
             }
     if (choices.empty()) return;
     gAsking = slot;
     note("picker: controller {} asks who joins ({} choices)", slot, choices.size());
-    overlay::show("Bedrock Splitscreen", "Who is playing with this controller?", buttons, [choices, slot](int pick) {
+    showMenu(SubClientId::PrimaryClient, fmt::format("Controller {} wants to play. Who is playing with it?", slot + 1), buttons, tagged, [choices, slot](int pick) {
         gAsking  = -1;
         gAskedAt = std::chrono::steady_clock::now();
         auto client = ll::service::getClientInstance();
@@ -1085,7 +1076,7 @@ static void askBeforeJoin(IMinecraftGame& game, int slot) {
         auto& choice = choices[pick];
         if (choice.takeOver) moveController(game, slot, choice.value);
         else joinAs(game, slot, choice.value);
-    }, icons);
+    });
 }
 
 // IMinecraftGame::addSubClientInstanceAndAssociateToUser, as called by the game's join prompt.
@@ -1098,7 +1089,7 @@ static void joinRequestDetour(void* self, int controllerId) {
         gAskLater.insert(controllerId);
         return;
     }
-    if (gAsking >= 0 || overlay::isOpen()) return; // a menu is open already
+    if (gAsking >= 0 || gMenuOpen) return; // a menu is open already
     if (std::chrono::steady_clock::now() - gAskedAt < std::chrono::seconds(1)) return;
     askBeforeJoin(*static_cast<IMinecraftGame*>(self), controllerId);
 }

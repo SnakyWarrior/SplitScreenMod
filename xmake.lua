@@ -43,7 +43,7 @@ target("SplitScreenMod")
         set_toolchains("clang-cl")
     end
     add_packages("levilamina")
-    add_syslinks("user32", "gdi32")
+    add_syslinks("user32")
     after_build(function (target) -- the pause-menu button's resource pack goes next to the dll
         os.cp(path.join(os.projectdir(), "resource_packs"), path.join(os.projectdir(), "bin", target:name(), "resource_packs"))
     end)
