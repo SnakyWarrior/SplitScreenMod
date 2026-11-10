@@ -49,6 +49,8 @@
 #include "mc/client/gui/screens/controllers/PauseScreenController.h"
 #include "mc/client/gui/screens/models/PauseScreenModel.h"
 #include "mc/client/gui/ViewRequest.h"
+#include "mc/client/gui/screens/interfaces/ISceneStack.h"
+#include "src-client/mc/client/game/ClientInstance.h"
 #include "mc/world/actor/player/Player.h"
 #include "mc/world/level/Level.h"
 #include "ll/api/form/SimpleForm.h"
@@ -508,8 +510,15 @@ LL_AUTO_TYPE_INSTANCE_HOOK(
     registerButtonPressedHandler(_getNameId("button.splitscreen_menu"), [](UIPropertyBag*) {
         note("pause menu: Split screen pressed");
         // close the pause menu: while it is open the local world is paused and its menus (forms) do not arrive
-        ll::thread::ClientThreadExecutor::getDefault().execute([who = pausedPlayer()] { openSettings(who); });
-        return ui::ViewRequest::Exit;
+        ll::thread::ClientThreadExecutor::getDefault().execute([who = pausedPlayer()] {
+            if (auto client = ll::service::getClientInstance()) {
+                auto clients = client->getMinecraftGame().getClientInstanceMap();
+                if (auto it = clients.find(SubClientId(who)); it != clients.end() && it->second)
+                    it->second->getClientSceneStack()->schedulePopScreen(1);
+            }
+            openSettings(who);
+        });
+        return ui::ViewRequest::None;
     });
     return result;
 }
