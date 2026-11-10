@@ -1082,8 +1082,8 @@ static void offerPicker(SubClientId owner, bool fresh) {
     std::vector<bool>        tagged;
     for (auto& c : choices) {
         auto name = localName(clients, int(c.sub));
-        buttons.push_back(c.kind == Kind::Offline ? fmt::format("{} - not playing", name)
-                          : c.kind == Kind::TakeOver ? fmt::format("{} - no controller", name)
+        buttons.push_back(c.kind == Kind::Offline ? fmt::format("{} §7(not playing)", name)
+                          : c.kind == Kind::TakeOver ? fmt::format("{} §7(no controller)", name)
                                                      : name);
         tagged.push_back(true);
     }

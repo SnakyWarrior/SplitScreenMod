@@ -3,7 +3,7 @@
 
   // The mod's menus (titles "Bedrock Splitscreen" and "Choose your player") use the look of the game's new UI
   // instead of the classic form window: a grey panel, Minecraft Ten title, secondary (light) and destructive (red)
-  // buttons, and coloured status tags. "Choose your player" also gets a black background over the whole of that
+  // buttons,. "Choose your player" also gets a black background over the whole of that
   // player's part of the screen, so a player who has not been chosen yet sees nothing of the world.
 
   "main_screen_content": {
@@ -65,8 +65,16 @@
       }
     ],
     "controls": [
-      { "outline@server_form.splitscreen_fill": { "color": [ 0.12, 0.12, 0.12 ], "layer": 0 } },
-      { "panel@server_form.splitscreen_fill": { "color": [ 0.28, 0.29, 0.29 ], "size": [ "100% - 2px", "100% - 2px" ], "layer": 1 } },
+      {
+        "background": {
+          "type": "panel",
+          "size": [ "100%", "100%sm" ],
+          "controls": [
+            { "outline@server_form.splitscreen_fill": { "color": [ 0.12, 0.12, 0.12 ], "layer": 0 } },
+            { "panel@server_form.splitscreen_fill": { "color": [ 0.28, 0.29, 0.29 ], "size": [ "100% - 2px", "100% - 2px" ], "layer": 1 } }
+          ]
+        }
+      },
       {
         "content": {
           "type": "stack_panel",
@@ -81,8 +89,7 @@
                 "text": "#title_text",
                 "font_type": "MinecraftTen",
                 "color": [ 1, 1, 1 ],
-                "size": [ "100%", "default" ],
-                "bindings": [ { "binding_name": "#title_text" } ]
+                "size": [ "100%", "default" ]
               }
             },
             { "title_pad": { "type": "panel", "size": [ "100%", 3 ] } },
@@ -91,8 +98,7 @@
                 "type": "label",
                 "text": "#form_text",
                 "color": [ 0.82, 0.82, 0.83 ],
-                "size": [ "100%", "default" ],
-                "bindings": [ { "binding_name": "#form_text" } ]
+                "size": [ "100%", "default" ]
               }
             },
             { "text_pad": { "type": "panel", "size": [ "100%", 6 ] } },
@@ -199,6 +205,7 @@
             {
               "name": {
                 "type": "label",
+                "text": "#form_button_text",
                 "color": "$text_color",
                 "size": [ "default", "default" ],
                 "offset": [ 26, 0 ],
@@ -206,39 +213,11 @@
                 "anchor_to": "left_middle",
                 "layer": 2,
                 "bindings": [
-                  { "binding_name": "#form_button_text", "binding_type": "collection", "binding_collection_name": "form_buttons" },
-                  { "binding_type": "view", "source_property_name": "((#form_button_text - ' - not playing') - ' - no controller')", "target_property_name": "#text" }
+                  { "binding_name": "#form_button_text", "binding_type": "collection", "binding_collection_name": "form_buttons" }
                 ]
               }
-            },
-            { "tag_off@server_form.splitscreen_tag": { "$tag_text": "Not playing", "$tag_color": [ 0.12, 0.12, 0.12 ], "$tag_text_color": [ 1, 1, 1 ], "$tag_when": "(not ((#form_button_text - ' - not playing') = #form_button_text))" } },
-            { "tag_free@server_form.splitscreen_tag": { "$tag_text": "No controller", "$tag_color": [ 1, 0.9, 0.42 ], "$tag_text_color": [ 0.12, 0.12, 0.12 ], "$tag_when": "(not ((#form_button_text - ' - no controller') = #form_button_text))" } }
+            }
           ]
-        }
-      }
-    ]
-  },
-
-  "splitscreen_tag": {
-    "type": "panel",
-    "size": [ "100%c + 6px", 11 ],
-    "offset": [ -4, 0 ],
-    "anchor_from": "right_middle",
-    "anchor_to": "right_middle",
-    "layer": 2,
-    "bindings": [
-      { "binding_name": "#form_button_text", "binding_type": "collection", "binding_collection_name": "form_buttons" },
-      { "binding_type": "view", "source_property_name": "$tag_when", "target_property_name": "#visible" }
-    ],
-    "controls": [
-      { "back@server_form.splitscreen_fill": { "color": "$tag_color" } },
-      {
-        "label": {
-          "type": "label",
-          "text": "$tag_text",
-          "color": "$tag_text_color",
-          "size": [ "default", "default" ],
-          "layer": 1
         }
       }
     ]
