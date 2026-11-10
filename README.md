@@ -48,7 +48,7 @@ Minecraft Bedrock already contains split-screen (it is used on Xbox), but the Wi
 
 1. Install [LeviLauncher](https://github.com/LiteLDev/LeviLauncher) and create a game instance with LeviLamina.
 2. Download `SplitScreenMod-client-windows-x64.zip` from the [latest release](../../releases/latest).
-3. Extract the zip into a new folder `mods\SplitScreenMod\` inside your instance folder, for example `%LocalAppData%\LeviLauncher\Instances.26.60.05\mods\SplitScreenMod\`. The folder must contain `manifest.json`, `SplitScreenMod.dll` and the `resource_packs` folder directly, not inside another folder.
+3. Extract the zip into a new folder `mods\SplitScreenMod\` inside your instance folder, for example `%LocalAppData%\LeviLauncher\Instances\1.26.60.05\mods\SplitScreenMod\`. The folder must contain `manifest.json`, `SplitScreenMod.dll` and the `resource_packs` folder directly, not inside another folder.
 4. Start the game from LeviLauncher.
 
 ## How to play
