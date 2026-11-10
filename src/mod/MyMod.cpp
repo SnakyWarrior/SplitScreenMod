@@ -1102,7 +1102,7 @@ static void openSettings(int who) {
             pictures.emplace_back();
             items.push_back({sub == 0 ? Act::FreePad : Act::Kick, sub});
             buttons.push_back(sub == 0 ? kPadButton : kKickButton);
-            pictures.push_back(sub == 0 ? "textures/ui/controller_glyph" : "");
+            pictures.push_back(sub == 0 ? "textures/ui/controller_glyph" : "textures/splitscreen/cross");
         } else if (who != 0) { // a saved player who is not playing: this player switches to them
             items.push_back({Act::Join, sub});
             buttons.push_back(name);

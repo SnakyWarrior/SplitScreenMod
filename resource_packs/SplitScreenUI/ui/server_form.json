@@ -573,20 +573,7 @@
                   { "binding_type": "view", "source_property_name": "(not ((#texture = '') or (#texture = 'loading')))", "target_property_name": "#visible" }
                 ]
               }
-            },
-            {
-              "square_x": {
-                "type": "label",
-                "text": "X",
-                "color": [ 1, 1, 1 ],
-                "size": [ "default", "default" ],
-                "layer": 2,
-                "ignored": "(not $square)",
-                "bindings": [
-                  { "binding_name": "#form_button_text", "binding_type": "collection", "binding_collection_name": "form_buttons" },
-                  { "binding_type": "view", "source_property_name": "(#form_button_text = '[x]')", "target_property_name": "#visible" }
-                ]
-              }
+            }
             }
           ]
         }
