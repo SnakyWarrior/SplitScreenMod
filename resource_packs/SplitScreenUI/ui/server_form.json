@@ -188,6 +188,7 @@
       { "done@server_form.splitscreen_row_done": {} },
       { "kick@server_form.splitscreen_row_kick": {} },
       { "pad@server_form.splitscreen_row_pad": {} },
+      { "radio@server_form.splitscreen_row_radio": {} },
       { "dropdown_arrow@server_form.splitscreen_dropdown_arrow": {} },
       { "splitscreen_layout_tag_0@server_form.splitscreen_layout_tag_0": {} },
       { "splitscreen_layout_tag_1@server_form.splitscreen_layout_tag_1": {} },
@@ -195,6 +196,7 @@
       { "splitscreen_you_tag_1@server_form.splitscreen_you_tag_1": {} },
       { "header0@server_form.splitscreen_header_0": {} },
       { "header1@server_form.splitscreen_header_1": {} },
+      { "header2@server_form.splitscreen_header_2": {} },
       { "tag0@server_form.splitscreen_tag_0": {} },
       { "tag1@server_form.splitscreen_tag_1": {} },
       { "tag2@server_form.splitscreen_tag_2": {} },
@@ -203,6 +205,69 @@
       { "stag1@server_form.splitscreen_stag_1": {} },
       { "stag2@server_form.splitscreen_stag_2": {} },
       { "stag3@server_form.splitscreen_stag_3": {} }
+    ]
+  },
+
+  // a radio choice: the game's bullet and the text, no button around them (the whole row is pressable)
+  "splitscreen_row_radio": {
+    "type": "panel",
+    "size": [ "100%", 22 ],
+    "bindings": [
+      { "binding_type": "collection_details", "binding_collection_name": "form_buttons" },
+      { "binding_name": "#form_button_texture", "binding_type": "collection", "binding_collection_name": "form_buttons" },
+      { "binding_type": "view", "source_property_name": "(not ((#form_button_texture - 'radio/') = #form_button_texture))", "target_property_name": "#visible" }
+    ],
+    "controls": [
+      {
+        "button@common.button": {
+          "size": [ "100%", 20 ],
+          "$pressed_button_name": "button.form_button_click",
+          "default_control": "default",
+          "hover_control": "hover",
+          "pressed_control": "pressed",
+          "bindings": [ { "binding_type": "collection_details", "binding_collection_name": "form_buttons" } ],
+          "controls": [
+            { "default@server_form.splitscreen_radio_look": { "$under": 0 } },
+            { "hover@server_form.splitscreen_radio_look": { "$under": 0.15 } },
+            { "pressed@server_form.splitscreen_radio_look": { "$under": 0.25 } }
+          ]
+        }
+      }
+    ]
+  },
+  "splitscreen_radio_look": {
+    "type": "panel",
+    "size": [ "100%", "100%" ],
+    "controls": [
+      { "under@server_form.splitscreen_fill": { "color": [ 1, 1, 1 ], "alpha": "$under" } },
+      {
+        "bullet": {
+          "type": "image",
+          "size": [ 14, 14 ],
+          "offset": [ 2, 0 ],
+          "anchor_from": "left_middle",
+          "anchor_to": "left_middle",
+          "layer": 1,
+          "bindings": [
+            { "binding_name": "#form_button_texture", "binding_name_override": "#texture", "binding_type": "collection", "binding_collection_name": "form_buttons" }
+          ]
+        }
+      },
+      {
+        "label": {
+          "type": "label",
+          "text": "#form_button_text",
+          "color": [ 1, 1, 1 ],
+          "size": [ "default", "default" ],
+          "offset": [ 22, 0 ],
+          "anchor_from": "left_middle",
+          "anchor_to": "left_middle",
+          "layer": 1,
+          "bindings": [
+            { "binding_name": "#form_button_text", "binding_type": "collection", "binding_collection_name": "form_buttons" }
+          ]
+        }
+      }
     ]
   },
 
@@ -229,6 +294,18 @@
     ],
     "controls": [
       { "label": { "type": "label", "text": "Players", "color": [ 0.82, 0.82, 0.83 ], "size": [ "default", "default" ], "anchor_from": "left_middle", "anchor_to": "left_middle" } }
+    ]
+  },
+  "splitscreen_header_2": {
+    "type": "panel",
+    "size": [ "100%", 14 ],
+    "bindings": [
+      { "binding_type": "collection_details", "binding_collection_name": "form_buttons" },
+      { "binding_name": "#form_button_text", "binding_type": "collection", "binding_collection_name": "form_buttons" },
+      { "binding_type": "view", "source_property_name": "(#form_button_text = '[h:Layout]')", "target_property_name": "#visible" }
+    ],
+    "controls": [
+      { "label": { "type": "label", "text": "Layout", "color": [ 0.69, 0.7, 0.71 ], "size": [ "default", "default" ], "anchor_from": "left_middle", "anchor_to": "left_middle" } }
     ]
   },
 
@@ -566,7 +643,8 @@
     "bindings": [
       { "binding_type": "collection_details", "binding_collection_name": "form_buttons" },
       { "binding_name": "#form_button_text", "binding_type": "collection", "binding_collection_name": "form_buttons" },
-      { "binding_type": "view", "source_property_name": "(not ((#form_button_text = '[x]') or (#form_button_text = '[p]') or (#form_button_text = 'Done') or (('%.1s' * #form_button_text) = ' ') or (('%.1s' * #form_button_text) = '[')))", "target_property_name": "#visible" }
+      { "binding_name": "#form_button_texture", "binding_type": "collection", "binding_collection_name": "form_buttons" },
+      { "binding_type": "view", "source_property_name": "(not ((#form_button_text = '[x]') or (#form_button_text = '[p]') or (#form_button_text = 'Done') or (('%.1s' * #form_button_text) = ' ') or (('%.1s' * #form_button_text) = '[') or (not ((#form_button_texture - 'radio/') = #form_button_texture))))", "target_property_name": "#visible" }
     ],
     "controls": [ { "button@server_form.splitscreen_button": { "size": [ "100%", 30 ], "$tex": "textures/ui/ore-styled/button/secondary/background", "$tex_hover": "textures/ui/ore-styled/button/secondary/background_hover", "$tex_pressed": "textures/ui/ore-styled/button/secondary/background_pressed", "$text_color": [ 0.118, 0.118, 0.122 ] } } ]
   },

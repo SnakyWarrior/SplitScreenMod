@@ -568,8 +568,9 @@ LL_AUTO_TYPE_INSTANCE_HOOK(
             if (auto c = paused()) c->getClientSceneStack()->schedulePopScreen(1);
             ll::thread::ClientThreadExecutor::getDefault().executeAfter(
                 [who, paused] {
-                    // player 1's pause menu can sit on the window's main stack instead
-                    if (auto c = paused()) c->getMainSceneStack()->schedulePopScreen(1);
+                    // player 1's pause menu can sit on the window's main stack instead (only player 1's: the main
+                    // stack holds player 1's screens)
+                    if (auto c = who == 0 ? paused() : nullptr) c->getMainSceneStack()->schedulePopScreen(1);
                     ll::thread::ClientThreadExecutor::getDefault().executeAfter([who] { openSettings(who); },
                                                                                 std::chrono::milliseconds(300));
                 },
@@ -1114,9 +1115,10 @@ static void openSettings(int who) {
     // "Layout" shows the current choice and opens a small menu to change it; section titles and tags are drawn
     // by the resource pack
     // "Settings": the layout as two choices, the current one marked
-    std::vector<Item>        items{{Act::Nothing, -1}, {Act::Horizontal, -1}, {Act::Vertical, -1}};
-    std::vector<std::string> buttons{"[h:Settings]", "Top and bottom", "Side by side"};
+    std::vector<Item>        items{{Act::Nothing, -1}, {Act::Nothing, -1}, {Act::Horizontal, -1}, {Act::Vertical, -1}};
+    std::vector<std::string> buttons{"[h:Settings]", "[h:Layout]", "Top and bottom", "Side by side"};
     std::vector<std::string> pictures{
+        "",
         "",
         vertical ? "textures/ui/ore-styled/radio/unselected" : "textures/ui/ore-styled/radio/selected",
         vertical ? "textures/ui/ore-styled/radio/selected" : "textures/ui/ore-styled/radio/unselected"
@@ -1174,12 +1176,24 @@ static void openSettings(int who) {
         case Act::Vertical:
             client->getOptions().setSplitscreenDirection(item.act == Act::Vertical ? 1 : 0);
             return openSettings(who);
-        case Act::Swap: // this controller plays as that player; theirs (if any) comes here
-            if (auto it = clients.find(SubClientId(item.sub)); item.sub != who && it != clients.end() && it->second && myPad >= 0) {
-                moveController(game, myPad, it->second->getControllerId());
-                tell(SubClientId(item.sub), fmt::format("You are now {}", localName(clients, item.sub)));
+        case Act::Swap: { // this controller plays as that player; theirs (if any) comes here
+            auto it = clients.find(SubClientId(item.sub));
+            if (item.sub == who || it == clients.end() || !it->second || myPad < 0) return;
+            auto handler = controllerHandler();
+            bool iHavePad = false, theyHavePad = false;
+            if (handler) {
+                std::lock_guard lock(*handler->mPlayerInputsLock);
+                auto&           inputs = *handler->mPlayerInputs;
+                iHavePad    = inputs.contains(myPad) && !gamepadsOf(inputs.at(myPad)).empty();
+                theyHavePad = inputs.contains(it->second->getControllerId()) && !gamepadsOf(inputs.at(it->second->getControllerId())).empty();
             }
+            if (!iHavePad) return tell(SubClientId(who), "You need a controller to take another player");
+            moveController(game, myPad, it->second->getControllerId());
+            tell(SubClientId(item.sub), fmt::format("You are now {}", localName(clients, item.sub)));
+            // nothing comes back to this player (the other one had no controller): it leaves instead of waiting
+            if (!theyHavePad && who != 0 && mine != clients.end() && mine->second) mine->second->requestLeaveGameAsync();
             return;
+        }
         case Act::Kick:
             if (auto it = clients.find(SubClientId(item.sub)); it != clients.end() && it->second) {
                 note("settings: player {} removed", item.sub + 1);
