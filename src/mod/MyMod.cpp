@@ -838,13 +838,39 @@ static Player* serverPlayer(SubClientId sub) {
     return found;
 }
 
-// The same plain "user" picture next to every player in the menus.
+// The same name-tag picture next to every player in the menus (16x16 pixel art).
 static overlay::Icon userIcon() {
     static overlay::Icon const icon = [] {
-        char const*   rows[8] = {"..####..", ".######.", ".######.", "..####..", "........", ".######.", "########", "########"};
+        char const* rows[16] = {
+            "................",
+            "..........WWW...",
+            ".........WWGGG..",
+            "........WWG..BG.",
+            ".......OGG...BB.",
+            "......OTGGO..BB.",
+            ".....OTTSGDOBB..",
+            "....OTSSSTTDB...",
+            "...OTTTSTTD.....",
+            "..OTSTTTTDD.....",
+            ".OTTSSTTDD......",
+            "OTSTTSTDD.......",
+            "OTTSTTDD........",
+            "OTSSTDD.........",
+            ".OTTDD..........",
+            "..DDD..........."
+        };
         overlay::Icon out;
         for (auto row : rows)
-            for (int x = 0; x < 8; ++x) out.push_back(row[x] == '#' ? RGB(235, 235, 235) : RGB(88, 88, 90));
+            for (int x = 0; x < 16; ++x) switch (row[x]) {
+                case 'O': out.push_back(RGB(115, 100, 80)); break;  // outline, lit side
+                case 'D': out.push_back(RGB(80, 56, 20)); break;    // outline, shaded side
+                case 'T': out.push_back(RGB(232, 200, 140)); break; // tag
+                case 'S': out.push_back(RGB(125, 110, 95)); break;  // spots
+                case 'W': out.push_back(RGB(215, 228, 232)); break; // string, light
+                case 'G': out.push_back(RGB(155, 172, 180)); break; // string
+                case 'B': out.push_back(RGB(90, 130, 160)); break;  // string, shaded
+                default: out.push_back(overlay::kClear);
+                }
         return out;
     }();
     return icon;

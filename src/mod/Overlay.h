@@ -9,8 +9,9 @@
 // Driven by any XInput controller (D-pad/stick, A, B), the keyboard (arrows, Enter, Esc) or the mouse.
 namespace overlay {
 
-// 8x8 pixels (COLORREF, row by row), e.g. a player's face; empty = no picture.
+// 8x8 or 16x16 pixels (COLORREF, row by row); empty = no picture. kClear pixels are not drawn.
 using Icon = std::vector<uint32_t>;
+constexpr uint32_t kClear = 0xFFFFFFFF;
 
 // `done` runs on the game's client thread with the chosen index, or -1 when cancelled.
 // `icons`, if given, has one entry per button.

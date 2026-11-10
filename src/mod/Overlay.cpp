@@ -99,13 +99,13 @@ void frame(HDC dc, RECT r, COLORREF c, int t) {
     fill(dc, {r.right - t, r.top, r.right, r.bottom}, c);
 }
 
-// An 8x8 face, drawn pixel by pixel with a dark outline.
-void drawIcon(HDC dc, Icon const& icon, int left, int top, int size, int unit) {
-    if (icon.size() != 64) return;
-    fill(dc, {left - unit, top - unit, left + size + unit, top + size + unit}, RGB(30, 30, 31));
-    for (int y = 0; y < 8; ++y)
-        for (int x = 0; x < 8; ++x)
-            fill(dc, {left + x * size / 8, top + y * size / 8, left + (x + 1) * size / 8, top + (y + 1) * size / 8}, icon[y * 8 + x]);
+// A small square picture, drawn pixel by pixel.
+void drawIcon(HDC dc, Icon const& icon, int left, int top, int size, int) {
+    int n = icon.size() == 256 ? 16 : icon.size() == 64 ? 8 : 0;
+    for (int y = 0; y < n; ++y)
+        for (int x = 0; x < n; ++x)
+            if (icon[y * n + x] != kClear)
+                fill(dc, {left + x * size / n, top + y * size / n, left + (x + 1) * size / n, top + (y + 1) * size / n}, icon[y * n + x]);
 }
 
 void paint(HDC dc, Menu const& m, Layout const& l) {
