@@ -188,6 +188,8 @@
       { "done@server_form.splitscreen_row_done": {} },
       { "kick@server_form.splitscreen_row_kick": {} },
       { "pad@server_form.splitscreen_row_pad": {} },
+      { "header0@server_form.splitscreen_header_0": {} },
+      { "header1@server_form.splitscreen_header_1": {} },
       { "tag0@server_form.splitscreen_tag_0": {} },
       { "tag1@server_form.splitscreen_tag_1": {} },
       { "tag2@server_form.splitscreen_tag_2": {} },
@@ -196,6 +198,32 @@
       { "stag1@server_form.splitscreen_stag_1": {} },
       { "stag2@server_form.splitscreen_stag_2": {} },
       { "stag3@server_form.splitscreen_stag_3": {} }
+    ]
+  },
+
+  // section titles
+  "splitscreen_header_0": {
+    "type": "panel",
+    "size": [ "100%", 14 ],
+    "bindings": [
+      { "binding_type": "collection_details", "binding_collection_name": "form_buttons" },
+      { "binding_name": "#form_button_text", "binding_type": "collection", "binding_collection_name": "form_buttons" },
+      { "binding_type": "view", "source_property_name": "(#form_button_text = '[h:Layout]')", "target_property_name": "#visible" }
+    ],
+    "controls": [
+      { "label": { "type": "label", "text": "Layout", "color": [ 0.82, 0.82, 0.83 ], "size": [ "default", "default" ], "anchor_from": "left_middle", "anchor_to": "left_middle" } }
+    ]
+  },
+  "splitscreen_header_1": {
+    "type": "panel",
+    "size": [ "100%", 14 ],
+    "bindings": [
+      { "binding_type": "collection_details", "binding_collection_name": "form_buttons" },
+      { "binding_name": "#form_button_text", "binding_type": "collection", "binding_collection_name": "form_buttons" },
+      { "binding_type": "view", "source_property_name": "(#form_button_text = '[h:Players]')", "target_property_name": "#visible" }
+    ],
+    "controls": [
+      { "label": { "type": "label", "text": "Players", "color": [ 0.82, 0.82, 0.83 ], "size": [ "default", "default" ], "anchor_from": "left_middle", "anchor_to": "left_middle" } }
     ]
   },
 
@@ -448,7 +476,7 @@
       { "binding_name": "#form_button_text", "binding_type": "collection", "binding_collection_name": "form_buttons" },
       { "binding_type": "view", "source_property_name": "(#form_button_text = '[p]')", "target_property_name": "#visible" }
     ],
-    "controls": [ { "button@server_form.splitscreen_button": { "size": [ 26, 26 ], "anchor_from": "top_right", "anchor_to": "top_right", "offset": [ 0, -28 ], "$square": true, "$normal": [ 0.82, 0.82, 0.83 ], "$hover": [ 0.93, 0.93, 0.94 ], "$pressed": [ 0.69, 0.7, 0.71 ], "$edge": [ 0.35, 0.35, 0.36 ], "$shine": [ 0.93, 0.93, 0.94 ], "$text_color": [ 0.19, 0.2, 0.2 ] } } ]
+    "controls": [ { "button@server_form.splitscreen_button": { "size": [ 26, 26 ], "anchor_from": "top_right", "anchor_to": "top_right", "offset": [ 0, -28 ], "$square": true, "$normal": [ 0.79, 0.21, 0.21 ], "$hover": [ 1, 0.5, 0.5 ], "$pressed": [ 0.75, 0.17, 0.17 ], "$edge": [ 0.55, 0.1, 0.1 ], "$shine": [ 0.88, 0.36, 0.36 ], "$text_color": [ 1, 1, 1 ] } } ]
   },
 
   // Secondary (light), destructive (red) and primary (green) buttons of the game's new UI: outline, fill with a

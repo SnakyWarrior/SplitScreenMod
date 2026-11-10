@@ -1065,14 +1065,20 @@ static void openSettings(int who) {
                 if (id == 0) firstPad = pads.front();
             }
     }
-    enum class Act { Layout, Swap, Kick, FreePad, Join, Done, Nothing };
+    enum class Act { Horizontal, Vertical, Swap, Kick, FreePad, Join, Done, Nothing };
     struct Item {
         Act act;
         int sub;
     };
-    std::vector<Item>        items{{Act::Layout, -1}};
-    std::vector<std::string> buttons{vertical ? "Layout: §9side by side" : "Layout: §9top and bottom"};
-    std::vector<std::string> pictures{""};
+    // the layout as two options, the chosen one marked; section titles are drawn by the resource pack
+    std::vector<Item>        items{{Act::Nothing, -1}, {Act::Horizontal, -1}, {Act::Vertical, -1}, {Act::Nothing, -1}};
+    std::vector<std::string> buttons{"[h:Layout]", "Top and bottom", "Side by side", "[h:Players]"};
+    std::vector<std::string> pictures{
+        "",
+        vertical ? "textures/splitscreen/radio_off" : "textures/splitscreen/radio_on",
+        vertical ? "textures/splitscreen/radio_on" : "textures/splitscreen/radio_off",
+        ""
+    };
     for (int sub = 0; sub <= 3; ++sub) {
         auto it   = clients.find(SubClientId(sub));
         auto name = localName(clients, sub);
@@ -1101,7 +1107,7 @@ static void openSettings(int who) {
     buttons.push_back(kDoneButton);
     pictures.emplace_back();
 
-    showMenu(SubClientId(who), "", buttons, pictures, [items, vertical, who, firstPad](int pick) {
+    showMenu(SubClientId(who), "", buttons, pictures, [items, who, firstPad](int pick) {
         auto client = ll::service::getClientInstance();
         if (!client || pick < 0 || pick >= int(items.size())) return;
         auto& game    = client->getMinecraftGame();
@@ -1110,9 +1116,10 @@ static void openSettings(int who) {
         auto  mine    = clients.find(SubClientId(who));
         int   myPad   = mine != clients.end() && mine->second ? mine->second->getControllerId() : -1;
         switch (item.act) {
-        case Act::Layout:
-            client->getOptions().setSplitscreenDirection(vertical ? 0 : 1);
-            return openSettings(who); // show the new layout
+        case Act::Horizontal:
+        case Act::Vertical:
+            client->getOptions().setSplitscreenDirection(item.act == Act::Vertical ? 1 : 0);
+            return openSettings(who); // show the new choice
         case Act::Swap: // this controller plays as that player; theirs (if any) comes here
             if (auto it = clients.find(SubClientId(item.sub)); item.sub != who && it != clients.end() && it->second && myPad >= 0) {
                 moveController(game, myPad, it->second->getControllerId());
