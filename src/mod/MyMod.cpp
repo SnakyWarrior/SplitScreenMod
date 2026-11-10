@@ -280,11 +280,28 @@ static thread_local bool tOurJoin = false; // joins the mod makes itself go thro
 static GameControllerHandler_GameCore* controllerHandler();
 
 static void dumpPlayers(IMinecraftGame& game);
+static void fireConnection(IClientInstance& client, bool connected, int id);
 static void runTrigger(std::string const& cmd, int arg) {
     auto client = ll::service::getClientInstance();
     if (!client) return note("trigger {}: no client instance", cmd);
     auto& game = client->getMinecraftGame();
     if (cmd == "pads") dumpPlayers(game); // the same as F9
+    if (cmd == "p1off") { // experiment: tell player 1 their controller is gone, then clear the disconnect handling
+        fireConnection(*client, false, 0);
+        ll::thread::ClientThreadExecutor::getDefault().executeAfter(
+            [] {
+                auto c = ll::service::getClientInstance();
+                if (!c) return;
+                c->setOpenControllerDisconnectScreen(false);
+                c->setConnectGamepadScreenActive(false);
+                c->getMainSceneStack()->schedulePopScreenWithExpectedNames({"gamepad_disconnected_screen"});
+                c->updateControllerHandling();
+                note("p1off: done");
+                dumpPlayers(c->getMinecraftGame());
+            },
+            std::chrono::milliseconds(300)
+        );
+    }
     if (cmd == "join") {
         note("adding player on controller {}", arg);
         game.addSubClientInstanceAndAssociateToUser(arg); // goes through the menu like the game's join prompt
@@ -604,7 +621,10 @@ static void dumpPlayers(IMinecraftGame& game) {
     note("pads: split screen join enabled {}", game.isSplitscreenJoinEnabled());
     } else note("pads: controller table not found");
     for (auto& [sub, client] : game.getClientInstanceMap())
-        if (client) note("pads: player {} uses controller {}", int(sub) + 1, client->getControllerId());
+        if (client)
+            note("pads: player {} uses controller {} (has controller {}, uses controller {}, handling disconnect {})",
+                 int(sub) + 1, client->getControllerId(), client->hasConnectedController(), client->useController(),
+                 client->getHandlingControllerDisconnect());
 }
 
 // ---- Watchdog: when the game's main thread stops for 4 s, write where it is stuck into the log ----
