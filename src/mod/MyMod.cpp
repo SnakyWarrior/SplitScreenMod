@@ -278,6 +278,19 @@ static std::set<int> gNoMenuFor; // sub ids that just joined through the menu it
 static thread_local bool tOurJoin = false; // joins the mod makes itself go through unchanged
 static GameControllerHandler_GameCore* controllerHandler();
 
+// Experiment: which callers of ClientInstance::isSplitScreenActive turn Vibrant Visuals off. Every new caller is
+// logged; "vv <rva in decimal>" in trigger.txt makes that caller see "not split" (0 clears them all).
+static std::set<uintptr_t> gVvSites;
+static bool splitActiveDetour(void* self) {
+    auto orig = reinterpret_cast<bool (*)(void*)>(gCfg["isSplitScreenActive"].origin)(self);
+    auto rva  = reinterpret_cast<uintptr_t>(_ReturnAddress()) - gameBase();
+    static std::mutex m;
+    std::lock_guard   lock(m);
+    static std::set<uintptr_t> seen;
+    if (seen.insert(rva).second) note("isSplitScreenActive called from {:X} ({}): game said {}", rva, rva, orig);
+    return gVvSites.contains(rva) ? false : orig;
+}
+
 static void runTrigger(std::string const& cmd, int arg) {
     auto client = ll::service::getClientInstance();
     if (!client) return note("trigger {}: no client instance", cmd);
@@ -285,6 +298,11 @@ static void runTrigger(std::string const& cmd, int arg) {
     if (cmd == "join") {
         note("adding player on controller {}", arg);
         game.addSubClientInstanceAndAssociateToUser(arg); // goes through the menu like the game's join prompt
+    }
+    if (cmd == "vv") {
+        if (arg) gVvSites.insert(uintptr_t(arg));
+        else gVvSites.clear();
+        note("vv: {} caller(s) see no split screen", gVvSites.size());
     }
 }
 
@@ -1698,6 +1716,7 @@ bool MyMod::enable() {
             }
         if (!gTryGetSubId) note("sub id choice not found: picking a saved player will not work");
     }
+    hookSlot(client.as_ptr(), &IClientInstance::isSplitScreenActive, fn(&splitActiveDetour), "isSplitScreenActive");
     hookSlot(&game, &IMinecraftGame::addSubClientInstanceAndAssociateToUser, fn(&joinRequestDetour),
              "addSubClientInstanceAndAssociateToUser");
     ll::thread::ClientThreadExecutor::getDefault().execute(pollTrigger);
