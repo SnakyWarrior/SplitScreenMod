@@ -44,6 +44,9 @@ Minecraft Bedrock already contains split-screen (it is used on Xbox), but the Wi
 
 ## Installation
 
+> **Windows only.** The mod does not work on Android. LeviLauncher for Android only takes mods built for Android (a `.so` file), and this mod is a Windows `.dll`. If you import the Windows zip there, it shows "Invalid ZIP Mod Package".
+
+
 **Easiest:** in [LeviLauncher](https://github.com/LiteLDev/LeviLauncher), open your instance's **Manage Mods**, press **Import .mcmod** and pick `SplitScreenMod.mcmod` from the [latest release](../../releases/latest).
 
 **By hand:**
