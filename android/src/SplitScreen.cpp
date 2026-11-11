@@ -11,8 +11,11 @@
 
 #include "Elf.h"
 
+#include <pl/Input.hpp>
+
 #include <dlfcn.h>
 
+#include <atomic>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -35,6 +38,7 @@ constexpr char const* kGameLibrary = "libminecraftpe.so";
 
 std::mutex    gLogMutex;
 std::ofstream gLog;
+std::ofstream gDownloadLog; // the same lines in Download/SplitScreenMod-android.log, where it is easy to find
 
 template <class... Args>
 void note(fmt::format_string<Args...> f, Args&&... args) {
@@ -42,19 +46,20 @@ void note(fmt::format_string<Args...> f, Args&&... args) {
     SplitScreenMod::instance().getSelf().getLogger().info("{}", line);
     std::lock_guard lock(gLogMutex);
     if (gLog) gLog << line << std::endl;
+    if (gDownloadLog) gDownloadLog << line << std::endl;
 }
 
-// The log is also copied to Download, where it is easy to find and send.
-void copyLogToDownloads(std::filesystem::path const& log) {
-    std::error_code ignored;
+// Download/SplitScreenMod-android.log gets every line as it is written (a copy made once would miss what happens
+// later in the game). Android lets an app create files in Download by path; if it does not, the log stays in the
+// mod folder only.
+void openDownloadLog() {
     for (char const* dir : {"/storage/emulated/0/Download", "/sdcard/Download"}) {
-        auto to = std::filesystem::path(dir) / "SplitScreenMod-android.log";
-        if (std::filesystem::copy_file(log, to, std::filesystem::copy_options::overwrite_existing, ignored)) {
-            note("log copied to {}", to.string());
-            return;
-        }
+        auto path = std::filesystem::path(dir) / "SplitScreenMod-android.log";
+        std::lock_guard lock(gLogMutex);
+        gDownloadLog.open(path, std::ios::trunc);
+        if (gDownloadLog) return;
+        gDownloadLog.clear();
     }
-    note("could not copy the log to Download; it stays at {}", log.string());
 }
 
 // config/config.json: { "forceSplitScreen": true }
@@ -140,7 +145,10 @@ AllowSplitScreenFn gOriginalAllowSplitScreen = nullptr;
 
 std::map<uintptr_t*, uintptr_t> gPatched; // slot -> original
 
+std::atomic<uint64_t> gAllowSplitScreenCalls{0};
+
 bool allowSplitScreenDetour(void* self) {
+    ++gAllowSplitScreenCalls;
     static std::once_flag first;
     std::call_once(first, [self] {
         note("allowSplitScreen asked for the first time; the game alone would answer {}",
@@ -268,6 +276,22 @@ void probe() {
 
 std::once_flag gStarted;
 
+// Android key codes of gamepad buttons (KeyEvent.KEYCODE_BUTTON_A = 96 ... KEYCODE_BUTTON_MODE = 110,
+// KEYCODE_BUTTON_1..16 = 188..203). The log shows whether controller presses reach the game at all.
+bool isGamepadKey(int code) { return (code >= 96 && code <= 110) || (code >= 188 && code <= 203); }
+
+void watchGame() {
+    using namespace std::chrono_literals;
+    uint64_t reported = UINT64_MAX;
+    for (int i = 0; i < 360; ++i) { // an hour
+        std::this_thread::sleep_for(10s);
+        uint64_t calls = gAllowSplitScreenCalls;
+        if (calls == reported) continue;
+        reported = calls;
+        note("allowSplitScreen asked {} time(s) so far", calls);
+    }
+}
+
 } // namespace
 
 SplitScreenMod& SplitScreenMod::instance() {
@@ -281,15 +305,24 @@ bool SplitScreenMod::load() {
     auto log = getSelf().getModDir() / "splitscreen.log";
     std::filesystem::rename(log, getSelf().getModDir() / "splitscreen.prev.log", ignored);
     gLog.open(log, std::ios::trunc);
+    openDownloadLog();
     note("SplitScreenMod for Android {} (experimental)", SPLITSCREEN_VERSION);
     return true;
 }
 
 bool SplitScreenMod::enable() {
-    std::call_once(gStarted, [this] {
-        std::thread([this] {
+    std::call_once(gStarted, [] {
+        pl::input::registerKeyCallback([](pl::input::KeyEvent const& e) {
+            static std::atomic<int> logged{0};
+            if (isGamepadKey(e.keyCode) && logged < 200) {
+                ++logged;
+                note("gamepad key {} {}", e.keyCode, e.isKeyDown ? "down" : "up");
+            }
+            return false; // the game still gets the key
+        });
+        std::thread([] {
             probe();
-            copyLogToDownloads(getSelf().getModDir() / "splitscreen.log");
+            watchGame();
         }).detach();
     });
     return true;
