@@ -6,6 +6,7 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <cctype>
 #include <cstdlib>
 #include <cstring>
@@ -171,6 +172,65 @@ std::string describeFunction(Module const& m, uintptr_t fn) {
     auto const* code = reinterpret_cast<uint32_t const*>(fn);
     if ((code[0] & 0xFC000000) == 0x14000000) return out + "tail call";
     return out + fmt::format("{:08X} {:08X} {:08X}", code[0], code[1], code[2]);
+}
+
+// The number of entries in the dynamic symbol table, from DT_HASH (nchain) or DT_GNU_HASH (the highest symbol
+// index in its buckets and chains).
+static size_t dynamicSymbolCount(uintptr_t hash, uintptr_t gnuHash) {
+    if (hash) return reinterpret_cast<uint32_t const*>(hash)[1];
+    if (!gnuHash) return 0;
+    auto const* h          = reinterpret_cast<uint32_t const*>(gnuHash);
+    uint32_t    nbuckets   = h[0];
+    uint32_t    symoffset  = h[1];
+    uint32_t    bloomSize  = h[2];
+    auto const* buckets    = reinterpret_cast<uint32_t const*>(gnuHash + 16 + bloomSize * sizeof(uintptr_t));
+    auto const* chains     = buckets + nbuckets;
+    uint32_t    last       = 0;
+    for (uint32_t b = 0; b < nbuckets; ++b) last = std::max(last, buckets[b]);
+    if (last < symoffset) return symoffset;
+    while (!(chains[last - symoffset] & 1)) ++last;
+    return last + 1;
+}
+
+std::vector<Symbol> exportedFunctions(Module const& m) {
+    std::vector<Symbol> out;
+    struct Ctx {
+        Module const*        m;
+        std::vector<Symbol>* out;
+    } ctx{&m, &out};
+    dl_iterate_phdr(
+        [](dl_phdr_info* info, size_t, void* data) -> int {
+            auto& c = *static_cast<Ctx*>(data);
+            if (info->dlpi_addr != c.m->base || !info->dlpi_name || c.m->path != info->dlpi_name) return 0;
+            for (int i = 0; i < info->dlpi_phnum; ++i) {
+                auto const& ph = info->dlpi_phdr[i];
+                if (ph.p_type != PT_DYNAMIC) continue;
+                uintptr_t symtab = 0, strtab = 0, hash = 0, gnuHash = 0;
+                for (auto const* d = reinterpret_cast<ElfW(Dyn) const*>(info->dlpi_addr + ph.p_vaddr); d->d_tag != DT_NULL;
+                     ++d) {
+                    // Android's loader leaves these as addresses relative to the load base
+                    uintptr_t v = d->d_un.d_ptr;
+                    if (v < info->dlpi_addr) v += info->dlpi_addr;
+                    if (d->d_tag == DT_SYMTAB) symtab = v;
+                    else if (d->d_tag == DT_STRTAB) strtab = v;
+                    else if (d->d_tag == DT_HASH) hash = v;
+                    else if (d->d_tag == DT_GNU_HASH) gnuHash = v;
+                }
+                if (!symtab || !strtab) return 1;
+                size_t n    = dynamicSymbolCount(hash, gnuHash);
+                auto*  syms = reinterpret_cast<ElfW(Sym) const*>(symtab);
+                for (size_t k = 0; k < n; ++k) {
+                    auto const& sym = syms[k];
+                    if (ELF64_ST_TYPE(sym.st_info) != STT_FUNC || sym.st_shndx == SHN_UNDEF || !sym.st_value) continue;
+                    c.out->push_back({reinterpret_cast<char const*>(strtab + sym.st_name), info->dlpi_addr + sym.st_value});
+                }
+                return 1;
+            }
+            return 1;
+        },
+        &ctx
+    );
+    return out;
 }
 
 bool isPureVirtual(uintptr_t fn) {

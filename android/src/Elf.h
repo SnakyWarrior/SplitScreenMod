@@ -58,6 +58,14 @@ std::string describeFunction(Module const& m, uintptr_t fn);
 // If the function only returns a constant (mov w0,#n; ret), that constant.
 std::optional<uint32_t> constantReturn(uintptr_t fn);
 
+struct Symbol {
+    std::string name;
+    uintptr_t   address;
+};
+
+// The functions the library exports (its dynamic symbol table), e.g. the JNI entry points Java calls.
+std::vector<Symbol> exportedFunctions(Module const& m);
+
 // True if fn is __cxa_pure_virtual (a pure virtual function's slot).
 bool isPureVirtual(uintptr_t fn);
 

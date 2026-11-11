@@ -16,6 +16,7 @@
 #include <dlfcn.h>
 
 #include <atomic>
+#include <cctype>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -208,6 +209,26 @@ void probe() {
         auto addr = handle ? reinterpret_cast<uintptr_t>(dlsym(handle, k.symbol)) : 0;
         note("symbol {}: {}", k.label, addr ? fmt::format("+0x{:X}", addr - game->base) : "not exported");
         if (addr && std::string_view(k.label).ends_with("::allowSplitScreen")) allowSplitScreenFns.insert(addr);
+    }
+
+    // How Java hands input to the game: the exported JNI functions about input, and how many exports there are.
+    {
+        auto exports = exportedFunctions(*game);
+        note("{} exported functions", exports.size());
+        size_t jni = 0;
+        for (auto const& e : exports) {
+            if (!e.name.starts_with("Java_")) continue;
+            ++jni;
+            std::string lower = e.name;
+            for (auto& ch : lower) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+            for (char const* word : {"key", "controller", "gamepad", "joystick", "input", "button", "motion", "axis",
+                                     "device", "trigger", "stick", "touch"})
+                if (lower.find(word) != std::string::npos) {
+                    note("jni {} +0x{:X}", e.name, e.address - game->base);
+                    break;
+                }
+        }
+        note("{} JNI functions in all", jni);
     }
 
     // 2. classes by RTTI. PlayerListPacket is a class every version has: if it is not found, the search itself failed.
