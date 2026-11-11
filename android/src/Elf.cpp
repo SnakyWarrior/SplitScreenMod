@@ -65,7 +65,9 @@ static bool looksLikeTypeName(std::string_view s) {
 std::vector<TypeName> findTypeNames(Module const& m, std::string_view needle) {
     std::vector<TypeName> out;
     for (auto const& s : m.segments) {
-        if (!s.read || s.exec || s.write) continue; // type names live in .rodata
+        // Type names live in .rodata. The game links .rodata into its first, executable segment (r-x), so every
+        // readable segment that is not writable is searched.
+        if (!s.read || s.write) continue;
         auto const* begin = reinterpret_cast<char const*>(s.start);
         size_t      size  = s.end - s.start;
         for (size_t at = 0; at + needle.size() <= size;) {

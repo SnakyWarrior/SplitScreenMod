@@ -167,7 +167,10 @@ void probe() {
         if (addr && std::string_view(k.label).ends_with("::allowSplitScreen")) allowSplitScreenFns.insert(addr);
     }
 
-    // 2. classes by RTTI
+    // 2. classes by RTTI. PlayerListPacket is a class every version has: if it is not found, the search itself failed.
+    for (auto const& c : findClasses(*game, "16PlayerListPacket"))
+        note("check: class {}: type_info {}, {} vtable(s)", c.name,
+             c.typeInfo ? fmt::format("+0x{:X}", c.typeInfo - game->base) : "not found", c.vtables.size());
     auto platforms = findClasses(*game, "AppPlatform");
     note("{} AppPlatform classes", platforms.size());
     ClassInfo const* basePlatform = nullptr;
