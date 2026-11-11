@@ -1,0 +1,11 @@
+{
+  "title": "SplitScreenMod",
+  "type": "object",
+  "properties": {
+    "forceSplitScreen": {
+      "type": "boolean",
+      "title": "Turn split screen on",
+      "description": "Turns the game's split screen on when the mod can find it for certain. Turn off if the game misbehaves."
+    }
+  }
+}

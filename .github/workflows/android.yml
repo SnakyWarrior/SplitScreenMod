@@ -1,0 +1,32 @@
+# Builds the Android version (android/) into SplitScreenMod-android-arm64.zip / .levipack for LeviLauncher on Android.
+name: Android
+
+on:
+  pull_request:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: android-actions/setup-android@v3
+
+      - run: |
+          sdkmanager "platforms;android-28" "ndk;28.2.13676358"
+          sudo apt-get update
+          sudo apt-get install -y ninja-build
+
+      - run: |
+          cmake -S android -B build-android -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE="$ANDROID_HOME/ndk/28.2.13676358/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-28 -DANDROID_STL=c++_shared \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-android --target levi_package
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ github.event.repository.name }}-${{ github.sha }}-android-arm64
+          path: build-android/package/

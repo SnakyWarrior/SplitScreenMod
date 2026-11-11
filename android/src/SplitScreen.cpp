@@ -1,0 +1,261 @@
+// SplitScreenMod for Android: first, experimental version.
+//
+// Minecraft Bedrock has split screen built in (it is used on consoles); each platform's AppPlatform decides with
+// allowSplitScreen() whether it is offered. The Windows mod turns that on, then fixes up controller handling. On
+// Android nothing about the game's code is known yet, so this version:
+//   1. finds the game's classes by their RTTI names and writes their vtables to splitscreen.log;
+//   2. turns allowSplitScreen on when it can be identified for certain (by its exported symbol);
+//   3. otherwise only lists the likely candidates, so the next version can pick the right one.
+
+#include "SplitScreen.h"
+
+#include "Elf.h"
+
+#include <dlfcn.h>
+
+#include <chrono>
+#include <filesystem>
+#include <fstream>
+#include <map>
+#include <mutex>
+#include <set>
+#include <sstream>
+#include <string>
+#include <thread>
+#include <vector>
+
+#include <fmt/format.h>
+
+namespace splitscreen {
+
+namespace {
+
+constexpr char const* kGameLibrary = "libminecraftpe.so";
+
+std::mutex    gLogMutex;
+std::ofstream gLog;
+
+template <class... Args>
+void note(fmt::format_string<Args...> f, Args&&... args) {
+    auto line = fmt::format(f, std::forward<Args>(args)...);
+    SplitScreenMod::instance().getSelf().getLogger().info("{}", line);
+    std::lock_guard lock(gLogMutex);
+    if (gLog) gLog << line << std::endl;
+}
+
+// The log is also copied to Download, where it is easy to find and send.
+void copyLogToDownloads(std::filesystem::path const& log) {
+    std::error_code ignored;
+    for (char const* dir : {"/storage/emulated/0/Download", "/sdcard/Download"}) {
+        auto to = std::filesystem::path(dir) / "SplitScreenMod-android.log";
+        if (std::filesystem::copy_file(log, to, std::filesystem::copy_options::overwrite_existing, ignored)) {
+            note("log copied to {}", to.string());
+            return;
+        }
+    }
+    note("could not copy the log to Download; it stays at {}", log.string());
+}
+
+// config/config.json: { "forceSplitScreen": true }
+bool configFlag(std::string_view key, bool fallback) {
+    std::ifstream in(SplitScreenMod::instance().getSelf().getConfigDir() / "config.json");
+    if (!in) return fallback;
+    std::stringstream ss;
+    ss << in.rdbuf();
+    auto text = ss.str();
+    auto at   = text.find(fmt::format("\"{}\"", key));
+    if (at == std::string::npos) return fallback;
+    at = text.find(':', at);
+    if (at == std::string::npos) return fallback;
+    auto rest = text.find_first_not_of(" \t\r\n", at + 1);
+    if (rest == std::string::npos) return fallback;
+    if (text.compare(rest, 4, "true") == 0) return true;
+    if (text.compare(rest, 5, "false") == 0) return false;
+    return fallback;
+}
+
+struct ClassInfo {
+    std::string             name;
+    uintptr_t               typeInfo = 0;
+    std::vector<uintptr_t*> vtables;
+};
+
+std::vector<ClassInfo> findClasses(Module const& m, std::string_view needle) {
+    std::vector<ClassInfo> out;
+    for (auto const& t : findTypeNames(m, needle)) {
+        ClassInfo c;
+        c.name     = t.name;
+        c.typeInfo = findTypeInfo(m, t.address);
+        if (c.typeInfo) c.vtables = findVtables(m, c.typeInfo);
+        out.push_back(std::move(c));
+    }
+    return out;
+}
+
+// Exported symbols that would identify the functions for certain, if the game exports them.
+struct Known {
+    char const* label;
+    char const* symbol;
+};
+constexpr Known kKnown[] = {
+    {"AppPlatform::allowSplitScreen", "_ZN11AppPlatform16allowSplitScreenEv"},
+    {"AppPlatform_android::allowSplitScreen", "_ZN19AppPlatform_android16allowSplitScreenEv"},
+    {"MinecraftGame::isSplitscreenJoinEnabled", "_ZNK13MinecraftGame24isSplitscreenJoinEnabledEv"},
+    {"MinecraftGame::canAddSplitscreenSubClient", "_ZNK13MinecraftGame26canAddSplitscreenSubClientEi"},
+    {"MinecraftGame::addSubClientInstanceAndAssociateToUser", "_ZN13MinecraftGame38addSubClientInstanceAndAssociateToUserEi"},
+};
+
+// On Windows allowSplitScreen is the 85th virtual function declared by AppPlatform, counting its destructor once.
+// The Itanium ABI gives the destructor two slots, so on Android the slot should be near 85; the log lists the
+// constant-returning functions around it.
+constexpr size_t kExpectedAllowSplitScreenSlot = 85;
+
+bool allowSplitScreenDetour(void*) { return true; }
+
+std::map<uintptr_t*, uintptr_t> gPatched; // slot -> original
+
+// Every platform class (AppPlatform_android and its relatives) gets the slot changed, including the ones that
+// override allowSplitScreen with their own "return false". Classes that only have "AppPlatform" in their name
+// (AppPlatformListener, ...) have far fewer virtual functions than AppPlatform and are skipped.
+void patchSlotEverywhere(Module const& m, std::vector<ClassInfo> const& classes, size_t baseCount, size_t slot,
+                         uintptr_t original, char const* what) {
+    for (auto const& c : classes)
+        for (auto* vt : c.vtables) {
+            if (countSlots(m, vt, 2000) < baseCount) continue;
+            if (vt[slot] != original && !constantReturn(vt[slot])) {
+                note("  {} slot {}: {} does more than return a constant, left alone", c.name, slot,
+                     describeFunction(m, vt[slot]));
+                continue;
+            }
+            uintptr_t old = vt[slot];
+            if (writeSlot(&vt[slot], reinterpret_cast<uintptr_t>(&allowSplitScreenDetour))) {
+                gPatched[&vt[slot]] = old;
+                note("  {} slot {}: {} now returns true", c.name, slot, what);
+            } else {
+                note("  {} slot {}: ERROR: could not write the vtable", c.name, slot);
+            }
+        }
+}
+
+void dumpVtable(Module const& m, ClassInfo const& c, uintptr_t* vt, uintptr_t* base, size_t from, size_t to) {
+    size_t n = countSlots(m, vt, 2000);
+    note("  vtable at +0x{:X}, {} slots", reinterpret_cast<uintptr_t>(vt) - m.base, n);
+    for (size_t i = from; i < std::min(n, to); ++i) {
+        if (base && base != vt && i < countSlots(m, base, 2000) && base[i] == vt[i]) continue; // inherited, unchanged
+        note("    [{}] +0x{:X} {}", i, vt[i] - m.base, describeFunction(m, vt[i]));
+    }
+    (void)c;
+}
+
+void probe() {
+    using namespace std::chrono_literals;
+    std::optional<Module> game;
+    for (int i = 0; i < 600 && !(game = findModule(kGameLibrary)); ++i) std::this_thread::sleep_for(200ms);
+    if (!game) return note("ERROR: {} was not loaded within 2 minutes", kGameLibrary);
+    std::this_thread::sleep_for(1s); // let the loader finish relocating it
+    note("game library {} at 0x{:X}", game->path, game->base);
+    for (auto const& s : game->segments)
+        note("  segment +0x{:X}..+0x{:X} {}{}{}", s.start - game->base, s.end - game->base, s.read ? 'r' : '-',
+             s.write ? 'w' : '-', s.exec ? 'x' : '-');
+
+    // 1. exported symbols
+    void*     handle = dlopen(game->path.c_str(), RTLD_NOW | RTLD_NOLOAD);
+    std::set<uintptr_t> allowSplitScreenFns;
+    for (auto const& k : kKnown) {
+        auto addr = handle ? reinterpret_cast<uintptr_t>(dlsym(handle, k.symbol)) : 0;
+        note("symbol {}: {}", k.label, addr ? fmt::format("+0x{:X}", addr - game->base) : "not exported");
+        if (addr && std::string_view(k.label).ends_with("::allowSplitScreen")) allowSplitScreenFns.insert(addr);
+    }
+
+    // 2. classes by RTTI
+    auto platforms = findClasses(*game, "AppPlatform");
+    note("{} AppPlatform classes", platforms.size());
+    ClassInfo const* basePlatform = nullptr;
+    for (auto const& c : platforms) {
+        note("class {}: type_info {}, {} vtable(s)", c.name,
+             c.typeInfo ? fmt::format("+0x{:X}", c.typeInfo - game->base) : "not found", c.vtables.size());
+        if (c.name == "11AppPlatform" && !c.vtables.empty()) basePlatform = &c;
+    }
+    uintptr_t* baseVt = basePlatform ? basePlatform->vtables.front() : nullptr;
+    for (auto const& c : platforms)
+        for (auto* vt : c.vtables) {
+            note("class {}:", c.name);
+            dumpVtable(*game, c, vt, baseVt, 0, 2000);
+        }
+
+    for (char const* needle : {"MinecraftGame", "SplitscreenJoinListener", "GameControllerHandler", "GamepadManager"}) {
+        auto classes = findClasses(*game, needle);
+        note("{} classes named *{}*", classes.size(), needle);
+        for (auto const& c : classes) {
+            note("class {}: {} vtable(s)", c.name, c.vtables.size());
+            if (std::string_view(needle) == "MinecraftGame" && c.name == "13MinecraftGame")
+                for (auto* vt : c.vtables) dumpVtable(*game, c, vt, nullptr, 0, 2000);
+        }
+    }
+
+    // 3. allowSplitScreen
+    if (!baseVt) return note("ERROR: the AppPlatform vtable was not found, split screen stays off");
+    size_t slot  = SIZE_MAX;
+    size_t count = countSlots(*game, baseVt, 2000);
+    uintptr_t allowSplitScreen = 0;
+    if (!allowSplitScreenFns.empty()) {
+        for (auto const& c : platforms)
+            for (auto* vt : c.vtables)
+                for (size_t i = 0, n = countSlots(*game, vt, 2000); i < n && slot == SIZE_MAX; ++i)
+                    if (allowSplitScreenFns.contains(vt[i])) slot = i;
+        if (slot != SIZE_MAX && slot < count) allowSplitScreen = baseVt[slot];
+        else slot = SIZE_MAX;
+        note("allowSplitScreen by symbol: slot {}", slot == SIZE_MAX ? std::string("not in the vtable") : std::to_string(slot));
+    }
+    if (slot == SIZE_MAX) {
+        std::vector<size_t> candidates;
+        for (size_t i = kExpectedAllowSplitScreenSlot - 12; i < std::min(count, kExpectedAllowSplitScreenSlot + 12); ++i)
+            if (constantReturn(baseVt[i]) == 0u) candidates.push_back(i);
+        std::string list;
+        for (auto i : candidates) list += fmt::format(" {}", i);
+        note("allowSplitScreen not identified for certain; AppPlatform slots near {} that return false:{}",
+             kExpectedAllowSplitScreenSlot, list.empty() ? " none" : list);
+        note("split screen stays off in this version. Please send this log so the next version can turn it on.");
+        return;
+    }
+    if (!configFlag("forceSplitScreen", true)) return note("forceSplitScreen is off in config.json");
+    note("turning split screen on (AppPlatform slot {})", slot);
+    patchSlotEverywhere(*game, platforms, count, slot, allowSplitScreen, "allowSplitScreen");
+}
+
+std::once_flag gStarted;
+
+} // namespace
+
+SplitScreenMod& SplitScreenMod::instance() {
+    static SplitScreenMod mod;
+    return mod;
+}
+
+bool SplitScreenMod::load() {
+    std::error_code ignored;
+    std::filesystem::create_directories(getSelf().getModDir(), ignored);
+    auto log = getSelf().getModDir() / "splitscreen.log";
+    std::filesystem::rename(log, getSelf().getModDir() / "splitscreen.prev.log", ignored);
+    gLog.open(log, std::ios::trunc);
+    note("SplitScreenMod for Android {} (experimental)", SPLITSCREEN_VERSION);
+    return true;
+}
+
+bool SplitScreenMod::enable() {
+    std::call_once(gStarted, [this] {
+        std::thread([this] {
+            probe();
+            copyLogToDownloads(getSelf().getModDir() / "splitscreen.log");
+        }).detach();
+    });
+    return true;
+}
+
+bool SplitScreenMod::disable() {
+    for (auto [slot, original] : gPatched) writeSlot(slot, original);
+    gPatched.clear();
+    return true;
+}
+
+} // namespace splitscreen
