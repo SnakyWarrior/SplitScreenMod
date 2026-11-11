@@ -173,6 +173,12 @@ std::string describeFunction(Module const& m, uintptr_t fn) {
     return out + fmt::format("{:08X} {:08X} {:08X}", code[0], code[1], code[2]);
 }
 
+bool isPureVirtual(uintptr_t fn) {
+    Dl_info info{};
+    return fn && dladdr(reinterpret_cast<void*>(fn), &info) && info.dli_sname
+        && reinterpret_cast<uintptr_t>(info.dli_saddr) == fn && std::strcmp(info.dli_sname, "__cxa_pure_virtual") == 0;
+}
+
 bool writeSlot(uintptr_t* slot, uintptr_t value) {
     long      pageSize = sysconf(_SC_PAGESIZE);
     uintptr_t page     = reinterpret_cast<uintptr_t>(slot) & ~(uintptr_t(pageSize) - 1);

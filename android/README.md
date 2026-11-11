@@ -6,14 +6,12 @@ built with LeviLauncher's [preloader-android](https://github.com/LiteLDev/preloa
 
 ## What this version does
 
-Nothing about the Android game's code is known yet, so version 0.1 is a first step:
+Version 0.1.2 turns split screen on: it finds `AppPlatform::allowSplitScreen` in the game's vtable (slot 105 in
+1.26) and makes it answer true. The slot is found from the order of AppPlatform's virtual functions, not from a
+fixed number: three pure virtual functions two slots apart (`swapBuffers`, `getSystemLocale`, `pickImage`), then
+`allowSplitScreen` 28 slots later, confirmed by the next function `splitScreenRenderDistScalar`.
 
-1. It finds the game's classes by their RTTI names (`AppPlatform`, `AppPlatform_android`, `MinecraftGame`, ...)
-   and writes their virtual functions to `splitscreen.log`. The log is also copied to `Download/SplitScreenMod-android.log`.
-2. If the game exports the `AppPlatform::allowSplitScreen` symbol, it turns split screen on, the same switch the
-   Windows mod uses.
-3. Otherwise it leaves the game alone and lists the likely candidates in the log, so the next version can pick
-   the right one.
+Everything it does is written to `splitscreen.log`, which is also copied to `Download/SplitScreenMod-android.log`.
 
 Controllers, the player menu and the pause menu button of the Windows mod are not ported yet.
 

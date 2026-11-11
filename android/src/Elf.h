@@ -58,6 +58,9 @@ std::string describeFunction(Module const& m, uintptr_t fn);
 // If the function only returns a constant (mov w0,#n; ret), that constant.
 std::optional<uint32_t> constantReturn(uintptr_t fn);
 
+// True if fn is __cxa_pure_virtual (a pure virtual function's slot).
+bool isPureVirtual(uintptr_t fn);
+
 // Writes `value` into a vtable slot (the page is read-only after relocation).
 bool writeSlot(uintptr_t* slot, uintptr_t value);
 

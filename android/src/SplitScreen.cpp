@@ -17,6 +17,7 @@
 #include <filesystem>
 #include <fstream>
 #include <map>
+#include <optional>
 #include <mutex>
 #include <set>
 #include <sstream>
@@ -105,14 +106,48 @@ constexpr Known kKnown[] = {
     {"MinecraftGame::addSubClientInstanceAndAssociateToUser", "_ZN13MinecraftGame38addSubClientInstanceAndAssociateToUserEi"},
 };
 
-// On Windows allowSplitScreen is the 85th virtual function declared by AppPlatform, counting its destructor once.
-// The Itanium ABI gives the destructor two slots, so on Android the slot should be near 85; the log lists the
-// constant-returning functions around it.
-constexpr size_t kExpectedAllowSplitScreenSlot = 85;
+// Where allowSplitScreen is in AppPlatform's vtable, found from the order of AppPlatform's virtual functions
+// (the same on every platform; LeviLamina's AppPlatform.h lists them):
+//   swapBuffers() = 0, discardBackbuffer(), getSystemLocale() = 0, getTermsOfUseHyperlink(), pickImage() = 0, ...
+//   allowSplitScreen() 28 slots after swapBuffers, then splitScreenRenderDistScalar(uint numPlayers).
+// The three pure virtual functions two slots apart mark the place; splitScreenRenderDistScalar, which starts with
+// "fmov s0, #1.0", confirms it. In the 1.26 Android game these are slots 77, 79, 81 and 105.
+constexpr size_t kAllowSplitScreenAfterSwapBuffers = 28;
 
-bool allowSplitScreenDetour(void*) { return true; }
+std::optional<size_t> findAllowSplitScreenSlot(Module const& m, uintptr_t* vt, size_t count) {
+    std::optional<size_t> found;
+    for (size_t i = 0; i + kAllowSplitScreenAfterSwapBuffers + 1 < count; ++i) {
+        if (!isPureVirtual(vt[i]) || !isPureVirtual(vt[i + 2]) || !isPureVirtual(vt[i + 4])) continue;
+        if (isPureVirtual(vt[i + 1]) || isPureVirtual(vt[i + 3])) continue;
+        size_t slot = i + kAllowSplitScreenAfterSwapBuffers;
+        auto   next = reinterpret_cast<uint32_t const*>(vt[slot + 1]);
+        if (!m.isCode(vt[slot + 1]) || next[0] != 0x1E2E1000) { // fmov s0, #1.0
+            note("allowSplitScreen: pure virtual functions at slot {}, but slot {} is not splitScreenRenderDistScalar ({})",
+                 i, slot + 1, describeFunction(m, vt[slot + 1]));
+            continue;
+        }
+        if (found) {
+            note("allowSplitScreen: more than one match (slots {} and {}), not changing anything", *found, slot);
+            return std::nullopt;
+        }
+        found = slot;
+    }
+    return found;
+}
+
+using AllowSplitScreenFn = bool (*)(void*);
+AllowSplitScreenFn gOriginalAllowSplitScreen = nullptr;
 
 std::map<uintptr_t*, uintptr_t> gPatched; // slot -> original
+
+bool allowSplitScreenDetour(void* self) {
+    static std::once_flag first;
+    std::call_once(first, [self] {
+        note("allowSplitScreen asked for the first time; the game alone would answer {}",
+             gOriginalAllowSplitScreen ? (gOriginalAllowSplitScreen(self) ? "true" : "false") : "?");
+    });
+    return true;
+}
 
 // Every platform class (AppPlatform_android and its relatives) gets the slot changed, including the ones that
 // override allowSplitScreen with their own "return false". Classes that only have "AppPlatform" in their name
@@ -180,8 +215,11 @@ void probe() {
         if (c.name == "11AppPlatform" && !c.vtables.empty()) basePlatform = &c;
     }
     uintptr_t* baseVt = basePlatform ? basePlatform->vtables.front() : nullptr;
+    // the platform classes' vtables (AppPlatform in full, the others where they differ from it)
+    size_t baseCount = baseVt ? countSlots(*game, baseVt, 2000) : 0;
     for (auto const& c : platforms)
         for (auto* vt : c.vtables) {
+            if (countSlots(*game, vt, 2000) < baseCount) continue;
             note("class {}:", c.name);
             dumpVtable(*game, c, vt, baseVt, 0, 2000);
         }
@@ -190,6 +228,7 @@ void probe() {
         auto classes = findClasses(*game, needle);
         note("{} classes named *{}*", classes.size(), needle);
         for (auto const& c : classes) {
+            if (c.name.find("__function") != std::string::npos || c.name.find("shared_ptr") != std::string::npos) continue;
             note("class {}: {} vtable(s)", c.name, c.vtables.size());
             if (std::string_view(needle) == "MinecraftGame" && c.name == "13MinecraftGame")
                 for (auto* vt : c.vtables) dumpVtable(*game, c, vt, nullptr, 0, 2000);
@@ -211,17 +250,18 @@ void probe() {
         note("allowSplitScreen by symbol: slot {}", slot == SIZE_MAX ? std::string("not in the vtable") : std::to_string(slot));
     }
     if (slot == SIZE_MAX) {
-        std::vector<size_t> candidates;
-        for (size_t i = kExpectedAllowSplitScreenSlot - 12; i < std::min(count, kExpectedAllowSplitScreenSlot + 12); ++i)
-            if (constantReturn(baseVt[i]) == 0u) candidates.push_back(i);
-        std::string list;
-        for (auto i : candidates) list += fmt::format(" {}", i);
-        note("allowSplitScreen not identified for certain; AppPlatform slots near {} that return false:{}",
-             kExpectedAllowSplitScreenSlot, list.empty() ? " none" : list);
-        note("split screen stays off in this version. Please send this log so the next version can turn it on.");
+        if (auto found = findAllowSplitScreenSlot(*game, baseVt, count)) {
+            slot             = *found;
+            allowSplitScreen = baseVt[slot];
+            note("allowSplitScreen: slot {} ({})", slot, describeFunction(*game, allowSplitScreen));
+        }
+    }
+    if (slot == SIZE_MAX) {
+        note("ERROR: allowSplitScreen was not found, split screen stays off. Please send this log.");
         return;
     }
     if (!configFlag("forceSplitScreen", true)) return note("forceSplitScreen is off in config.json");
+    gOriginalAllowSplitScreen = reinterpret_cast<AllowSplitScreenFn>(allowSplitScreen);
     note("turning split screen on (AppPlatform slot {})", slot);
     patchSlotEverywhere(*game, platforms, count, slot, allowSplitScreen, "allowSplitScreen");
 }
