@@ -11,6 +11,7 @@
 
 #include "Elf.h"
 #include "InputProbe.h"
+#include "DeviceManagerProbe.h"
 
 
 #include <dlfcn.h>
@@ -239,10 +240,21 @@ void probe() {
     {
         auto log = [](std::string const& l) { note("{}", l); };
         for (auto const& e : exportedFunctions(*game)) {
-            if (e.name == "GameActivityMotionEvent_fromJava" || e.name == "GameActivityKeyEvent_fromJava")
-                dumpCode(*game, e.name.c_str(), e.address, 512, log);
             if (e.name == "GameActivityKeyEvent_fromJava") watchGameActivityKeys(*game, e.address, log);
         }
+
+        // the controller manager the JellyBeanDeviceManager JNI functions call
+        auto           calls   = findDeviceManagerCalls(*game, exportedFunctions(*game));
+        uintptr_t      manager = 0;
+        std::set<uintptr_t> dumped;
+        for (auto const& c : calls) {
+            note("device manager: {} calls +0x{:X} on object +0x{:X} ({})", c.jni, c.method - game->base,
+                 c.object - game->base, className(*game, c.object));
+            if (dumped.insert(c.method).second) dumpCode(*game, c.jni, c.method, 1024, log);
+            manager = c.object;
+        }
+        if (calls.empty()) note("device manager: not found");
+        else watchObject(*game, manager, 1024, log);
     }
 
     // 2. classes by RTTI. PlayerListPacket is a class every version has: if it is not found, the search itself failed.
