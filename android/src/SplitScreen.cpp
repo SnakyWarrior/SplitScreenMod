@@ -13,6 +13,7 @@
 #include "InputProbe.h"
 #include "DeviceManagerProbe.h"
 #include "ControllerSplit.h"
+#include "VTrace.h"
 
 
 #include <dlfcn.h>
@@ -283,6 +284,7 @@ void joinController(int controller) {
     }
     note("join: controller {} pressed Start: adding player {}", controller, controller + 1);
     if (gGameModule) hookUserManager(*gGameModule, game);
+    startTracing(60);
     tAddingPlayer = true;
     addSubDetour(game, controller);
     tAddingPlayer = false;
@@ -320,6 +322,8 @@ void enableJoining(Module const& game) {
            && writeSlot(&vt[anchor], reinterpret_cast<uintptr_t>(&addSubDetour));
     note("{}", ok ? "join: splitscreen joining turned on" : "join: ERROR: could not write the MinecraftGame vtable");
     if (ok) onStartPressed(joinController);
+    // after the patches above, so the trace sees our detours' slots as the originals
+    if (ok) traceVtable(game, vt, count, "MinecraftGame", [](std::string const& l) { note("{}", l); });
 }
 
 void probe() {
@@ -473,12 +477,16 @@ std::once_flag gStarted;
 void watchGame() {
     using namespace std::chrono_literals;
     uint64_t reported = UINT64_MAX;
+    int      adding   = -1;
     for (int i = 0; i < 360; ++i) { // an hour
         std::this_thread::sleep_for(10s);
         uint64_t calls = gAllowSplitScreenCalls;
-        if (calls == reported) continue;
-        reported = calls;
-        note("allowSplitScreen asked {} time(s) so far", calls);
+        if (calls != reported) note("allowSplitScreen asked {} time(s) so far", reported = calls);
+        // MinecraftGame+1480: set while _addSubClientInstanceAndAssociateToUserInternal is adding a player
+        if (void* game = gMinecraftGame.load()) {
+            int now = *(reinterpret_cast<uint8_t const*>(game) + 1480);
+            if (now != adding) note("join: MinecraftGame+1480 (adding a player) = {}", adding = now);
+        }
     }
 }
 
