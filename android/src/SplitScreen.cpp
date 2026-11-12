@@ -229,6 +229,45 @@ void addSubDetour(void* self, int controller) {
     note("join: addSubClientInstanceAndAssociateToUser({}) returned", controller);
 }
 
+// _addSubClientInstanceAndAssociateToUserInternal(game, controller, true) asks the user manager (MinecraftGame
+// virtual 53, returned as a NonOwnerPointer {control block, ref count, object}) with its virtual 28
+// (controller, true). If that answers true it starts an asynchronous user sign-in for the controller and waits for
+// a callback (which never came on Android); if false it creates the new player at once. While the mod adds a
+// player, virtual 28 answers false for controllers 1-3.
+using UserCheckFn = bool (*)(void*, int, bool);
+UserCheckFn      gUserCheck = nullptr;
+thread_local bool tAddingPlayer = false;
+constexpr size_t kUserManagerSlot = 53, kUserCheckSlot = 28;
+
+bool userCheckDetour(void* self, int controller, bool flag) {
+    bool game = gUserCheck(self, controller, flag);
+    bool answer = tAddingPlayer && controller >= 1 && controller <= 3 ? false : game;
+    note("join: user manager check({}, {}): the game alone would answer {}, answering {}", controller, flag, game, answer);
+    return answer;
+}
+
+void hookUserManager(Module const& module, void* game) {
+    if (gUserCheck) return;
+    struct NonOwner {
+        uint64_t control, refs, object;
+    };
+    auto getUserManager = reinterpret_cast<NonOwner (*)(void*)>((*reinterpret_cast<uintptr_t**>(game))[kUserManagerSlot]);
+    NonOwner users      = getUserManager(game); // keeps one reference: never released, it lives as long as the game
+    if (!users.object) return note("join: ERROR: no user manager");
+    auto* vt = *reinterpret_cast<uintptr_t**>(users.object);
+    note("join: user manager {} ({}), check {}", className(module, users.object), countSlots(module, vt, 400),
+         describeFunction(module, vt[kUserCheckSlot]));
+    if (countSlots(module, vt, 400) <= kUserCheckSlot) return note("join: ERROR: the user manager has too few functions");
+    dumpCode(module, "userCheck", vt[kUserCheckSlot], 0x200, [](std::string const& l) { note("{}", l); });
+    gUserCheck = reinterpret_cast<UserCheckFn>(vt[kUserCheckSlot]);
+    if (!writeSlot(&vt[kUserCheckSlot], reinterpret_cast<uintptr_t>(&userCheckDetour))) {
+        gUserCheck = nullptr;
+        note("join: ERROR: could not write the user manager vtable");
+    }
+}
+
+Module const* gGameModule = nullptr;
+
 // A controller other than the first pressed Start: add a player for it, once (the game's own "press Start to join"
 // does not react to it on Android).
 std::mutex gJoinMutex;
@@ -243,40 +282,15 @@ void joinController(int controller) {
         gJoined.insert(controller);
     }
     note("join: controller {} pressed Start: adding player {}", controller, controller + 1);
+    if (gGameModule) hookUserManager(*gGameModule, game);
+    tAddingPlayer = true;
     addSubDetour(game, controller);
-}
-
-// addSubClientInstanceAndAssociateToUser first connects a user for the controller; a std::function lambda in
-// _addSubClientInstanceAndAssociateToUserInternal gets the Social::UserPlatformConnectionResult. Its __func vtable's
-// operator() (slot 6: ~, ~, __clone, __clone, destroy, destroy_deallocate, operator()) is watched to see the result.
-using Fn8 = uint64_t (*)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
-Fn8 gUserConnected = nullptr;
-
-uint64_t userConnectedDetour(uint64_t self, uint64_t result, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5,
-                             uint64_t a6, uint64_t a7) {
-    int32_t value = -1;
-    if (result) std::memcpy(&value, reinterpret_cast<void const*>(result), 4);
-    note("join: the user connection for the new player finished with result {}", value);
-    uint64_t r = gUserConnected(self, result, a2, a3, a4, a5, a6, a7);
-    note("join: the user connection callback returned");
-    return r;
-}
-
-void watchUserConnection(Module const& game) {
-    for (auto const& c : findClasses(game, "_addSubClientInstanceAndAssociateToUserInternal")) {
-        if (c.vtables.empty()) continue;
-        auto* vt = c.vtables.front();
-        note("join: callback class {} ({} slots)", c.name, countSlots(game, vt, 64));
-        if (countSlots(game, vt, 64) < 7 || !game.isCode(vt[6])) continue;
-        dumpCode(game, "userCallback", vt[6], 0x300, [](std::string const& l) { note("{}", l); });
-        gUserConnected = reinterpret_cast<Fn8>(vt[6]);
-        if (writeSlot(&vt[6], reinterpret_cast<uintptr_t>(&userConnectedDetour))) note("join: watching the callback");
-        return;
-    }
-    note("join: the user connection callback class was not found");
+    tAddingPlayer = false;
 }
 
 void enableJoining(Module const& game) {
+    static Module copy = game;
+    gGameModule        = &copy;
     auto classes = findClasses(game, "13MinecraftGame");
     uintptr_t* vt = nullptr;
     for (auto const& c : classes)
@@ -306,11 +320,6 @@ void enableJoining(Module const& game) {
            && writeSlot(&vt[anchor], reinterpret_cast<uintptr_t>(&addSubDetour));
     note("{}", ok ? "join: splitscreen joining turned on" : "join: ERROR: could not write the MinecraftGame vtable");
     if (ok) onStartPressed(joinController);
-    // the code of addSubClientInstanceAndAssociateToUser's internal function (its "b" target)
-    auto const* code = reinterpret_cast<uint32_t const*>(gAddSub);
-    uintptr_t   internal = reinterpret_cast<uintptr_t>(gAddSub) + 4 + ((int64_t(code[1] & 0x3FFFFFF) << 38) >> 36);
-    dumpCode(game, "addSubInternal", internal, 0x800, [](std::string const& l) { note("{}", l); });
-    watchUserConnection(game);
 }
 
 void probe() {
