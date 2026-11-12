@@ -322,6 +322,13 @@ void enableJoining(Module const& game) {
            && writeSlot(&vt[anchor], reinterpret_cast<uintptr_t>(&addSubDetour));
     note("{}", ok ? "join: splitscreen joining turned on" : "join: ERROR: could not write the MinecraftGame vtable");
     if (ok) onStartPressed(joinController);
+    // the code before _addSubClientInstanceAndAssociateToUserInternal (the "b" target of slot 210): the check that
+    // decides whether a player may be added (0x1100 bytes before it in 1.26)
+    {
+        auto const* code     = reinterpret_cast<uint32_t const*>(gAddSub);
+        uintptr_t   internal = reinterpret_cast<uintptr_t>(gAddSub) + 4 + ((int64_t(code[1] & 0x3FFFFFF) << 38) >> 36);
+        dumpCode(game, "beforeAddSub", internal - 0x1100, 0x1100, [](std::string const& l) { note("{}", l); });
+    }
     // after the patches above, so the trace sees our detours' slots as the originals
     if (ok) traceVtable(game, vt, count, "MinecraftGame", [](std::string const& l) { note("{}", l); });
 }
