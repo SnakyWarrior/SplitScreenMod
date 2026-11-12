@@ -9,7 +9,8 @@
 
 namespace splitscreen {
 
-bool traceVtable(Module const& game, uintptr_t* vtable, size_t slots, char const* name, LogFn log);
+// Each traced class uses its own range of trampolines, starting at `first` (400 in all).
+bool traceVtable(Module const& game, uintptr_t* vtable, size_t slots, size_t first, char const* name, LogFn log);
 
 // Logs calls from now on for `seconds`, then a summary.
 void startTracing(int seconds);

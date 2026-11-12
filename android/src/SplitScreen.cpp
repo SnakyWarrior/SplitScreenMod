@@ -232,6 +232,8 @@ void addSubDetour(void* self, int controller) {
     note("join: addSubClientInstanceAndAssociateToUser({}) returned", controller);
 }
 
+Module const* gGameModule = nullptr;
+
 // user manager virtuals 6, 39 (bool(int)) and 7 (void(int)), logged
 using UserBoolFn = bool (*)(void*, int);
 using UserVoidFn = void (*)(void*, int);
@@ -248,7 +250,8 @@ bool user39Detour(void* self, int c) {
     return r;
 }
 void user7Detour(void* self, int c) {
-    note("join: user manager virtual 7({})", c);
+    uintptr_t ret = reinterpret_cast<uintptr_t>(__builtin_return_address(0));
+    note("join: user manager virtual 7({}) from +0x{:X}", c, gGameModule ? ret - gGameModule->base : ret);
     gUser7(self, c);
 }
 
@@ -292,6 +295,8 @@ void hookUserManager(Module const& module, void* game) {
         gUserCheck = nullptr;
         note("join: ERROR: could not write the user manager vtable");
     }
+    // after the patches above; MinecraftGame uses trampolines 0-319
+    traceVtable(module, vt, countSlots(module, vt, 400), 320, "UserManager", [](std::string const& l) { note("{}", l); });
 }
 
 // The check before adding a player (+0x9CED20C in 1.26), "W"(game, controller, uint8_t* out, bool):
@@ -311,7 +316,6 @@ bool addCheckDetour(void* game, int controller, uint8_t* out, bool flag) {
     return answer;
 }
 
-Module const* gGameModule = nullptr;
 
 // A controller other than the first pressed Start: add a player for it, once (the game's own "press Start to join"
 // does not react to it on Android).
@@ -395,7 +399,7 @@ void enableJoining(Module const& game) {
         else note("join: add-player check +0x{:X} hooked", check - game.base);
     }
     // after the patches above, so the trace sees our detours' slots as the originals
-    if (ok) traceVtable(game, vt, count, "MinecraftGame", [](std::string const& l) { note("{}", l); });
+    if (ok) traceVtable(game, vt, count, 0, "MinecraftGame", [](std::string const& l) { note("{}", l); });
 }
 
 void probe() {

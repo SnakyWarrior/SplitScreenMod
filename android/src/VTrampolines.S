@@ -360,7 +360,86 @@ VTRAMPOLINE 316
 VTRAMPOLINE 317
 VTRAMPOLINE 318
 VTRAMPOLINE 319
-
+VTRAMPOLINE 320
+VTRAMPOLINE 321
+VTRAMPOLINE 322
+VTRAMPOLINE 323
+VTRAMPOLINE 324
+VTRAMPOLINE 325
+VTRAMPOLINE 326
+VTRAMPOLINE 327
+VTRAMPOLINE 328
+VTRAMPOLINE 329
+VTRAMPOLINE 330
+VTRAMPOLINE 331
+VTRAMPOLINE 332
+VTRAMPOLINE 333
+VTRAMPOLINE 334
+VTRAMPOLINE 335
+VTRAMPOLINE 336
+VTRAMPOLINE 337
+VTRAMPOLINE 338
+VTRAMPOLINE 339
+VTRAMPOLINE 340
+VTRAMPOLINE 341
+VTRAMPOLINE 342
+VTRAMPOLINE 343
+VTRAMPOLINE 344
+VTRAMPOLINE 345
+VTRAMPOLINE 346
+VTRAMPOLINE 347
+VTRAMPOLINE 348
+VTRAMPOLINE 349
+VTRAMPOLINE 350
+VTRAMPOLINE 351
+VTRAMPOLINE 352
+VTRAMPOLINE 353
+VTRAMPOLINE 354
+VTRAMPOLINE 355
+VTRAMPOLINE 356
+VTRAMPOLINE 357
+VTRAMPOLINE 358
+VTRAMPOLINE 359
+VTRAMPOLINE 360
+VTRAMPOLINE 361
+VTRAMPOLINE 362
+VTRAMPOLINE 363
+VTRAMPOLINE 364
+VTRAMPOLINE 365
+VTRAMPOLINE 366
+VTRAMPOLINE 367
+VTRAMPOLINE 368
+VTRAMPOLINE 369
+VTRAMPOLINE 370
+VTRAMPOLINE 371
+VTRAMPOLINE 372
+VTRAMPOLINE 373
+VTRAMPOLINE 374
+VTRAMPOLINE 375
+VTRAMPOLINE 376
+VTRAMPOLINE 377
+VTRAMPOLINE 378
+VTRAMPOLINE 379
+VTRAMPOLINE 380
+VTRAMPOLINE 381
+VTRAMPOLINE 382
+VTRAMPOLINE 383
+VTRAMPOLINE 384
+VTRAMPOLINE 385
+VTRAMPOLINE 386
+VTRAMPOLINE 387
+VTRAMPOLINE 388
+VTRAMPOLINE 389
+VTRAMPOLINE 390
+VTRAMPOLINE 391
+VTRAMPOLINE 392
+VTRAMPOLINE 393
+VTRAMPOLINE 394
+VTRAMPOLINE 395
+VTRAMPOLINE 396
+VTRAMPOLINE 397
+VTRAMPOLINE 398
+VTRAMPOLINE 399
     .section .data.rel.ro, "aw"
     .p2align 3
     .globl splitscreen_vtrampolines
@@ -686,5 +765,85 @@ splitscreen_vtrampolines:
     .quad splitscreen_vtrampoline_317
     .quad splitscreen_vtrampoline_318
     .quad splitscreen_vtrampoline_319
+    .quad splitscreen_vtrampoline_320
+    .quad splitscreen_vtrampoline_321
+    .quad splitscreen_vtrampoline_322
+    .quad splitscreen_vtrampoline_323
+    .quad splitscreen_vtrampoline_324
+    .quad splitscreen_vtrampoline_325
+    .quad splitscreen_vtrampoline_326
+    .quad splitscreen_vtrampoline_327
+    .quad splitscreen_vtrampoline_328
+    .quad splitscreen_vtrampoline_329
+    .quad splitscreen_vtrampoline_330
+    .quad splitscreen_vtrampoline_331
+    .quad splitscreen_vtrampoline_332
+    .quad splitscreen_vtrampoline_333
+    .quad splitscreen_vtrampoline_334
+    .quad splitscreen_vtrampoline_335
+    .quad splitscreen_vtrampoline_336
+    .quad splitscreen_vtrampoline_337
+    .quad splitscreen_vtrampoline_338
+    .quad splitscreen_vtrampoline_339
+    .quad splitscreen_vtrampoline_340
+    .quad splitscreen_vtrampoline_341
+    .quad splitscreen_vtrampoline_342
+    .quad splitscreen_vtrampoline_343
+    .quad splitscreen_vtrampoline_344
+    .quad splitscreen_vtrampoline_345
+    .quad splitscreen_vtrampoline_346
+    .quad splitscreen_vtrampoline_347
+    .quad splitscreen_vtrampoline_348
+    .quad splitscreen_vtrampoline_349
+    .quad splitscreen_vtrampoline_350
+    .quad splitscreen_vtrampoline_351
+    .quad splitscreen_vtrampoline_352
+    .quad splitscreen_vtrampoline_353
+    .quad splitscreen_vtrampoline_354
+    .quad splitscreen_vtrampoline_355
+    .quad splitscreen_vtrampoline_356
+    .quad splitscreen_vtrampoline_357
+    .quad splitscreen_vtrampoline_358
+    .quad splitscreen_vtrampoline_359
+    .quad splitscreen_vtrampoline_360
+    .quad splitscreen_vtrampoline_361
+    .quad splitscreen_vtrampoline_362
+    .quad splitscreen_vtrampoline_363
+    .quad splitscreen_vtrampoline_364
+    .quad splitscreen_vtrampoline_365
+    .quad splitscreen_vtrampoline_366
+    .quad splitscreen_vtrampoline_367
+    .quad splitscreen_vtrampoline_368
+    .quad splitscreen_vtrampoline_369
+    .quad splitscreen_vtrampoline_370
+    .quad splitscreen_vtrampoline_371
+    .quad splitscreen_vtrampoline_372
+    .quad splitscreen_vtrampoline_373
+    .quad splitscreen_vtrampoline_374
+    .quad splitscreen_vtrampoline_375
+    .quad splitscreen_vtrampoline_376
+    .quad splitscreen_vtrampoline_377
+    .quad splitscreen_vtrampoline_378
+    .quad splitscreen_vtrampoline_379
+    .quad splitscreen_vtrampoline_380
+    .quad splitscreen_vtrampoline_381
+    .quad splitscreen_vtrampoline_382
+    .quad splitscreen_vtrampoline_383
+    .quad splitscreen_vtrampoline_384
+    .quad splitscreen_vtrampoline_385
+    .quad splitscreen_vtrampoline_386
+    .quad splitscreen_vtrampoline_387
+    .quad splitscreen_vtrampoline_388
+    .quad splitscreen_vtrampoline_389
+    .quad splitscreen_vtrampoline_390
+    .quad splitscreen_vtrampoline_391
+    .quad splitscreen_vtrampoline_392
+    .quad splitscreen_vtrampoline_393
+    .quad splitscreen_vtrampoline_394
+    .quad splitscreen_vtrampoline_395
+    .quad splitscreen_vtrampoline_396
+    .quad splitscreen_vtrampoline_397
+    .quad splitscreen_vtrampoline_398
+    .quad splitscreen_vtrampoline_399
 
     .section .note.GNU-stack, "", %progbits
