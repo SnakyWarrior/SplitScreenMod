@@ -10,6 +10,8 @@
 #include "SplitScreen.h"
 
 #include "Elf.h"
+
+#include <pl/memory/Hook.hpp>
 #include "InputProbe.h"
 #include "DeviceManagerProbe.h"
 #include "ControllerSplit.h"
@@ -230,6 +232,26 @@ void addSubDetour(void* self, int controller) {
     note("join: addSubClientInstanceAndAssociateToUser({}) returned", controller);
 }
 
+// user manager virtuals 6, 39 (bool(int)) and 7 (void(int)), logged
+using UserBoolFn = bool (*)(void*, int);
+using UserVoidFn = void (*)(void*, int);
+UserBoolFn gUser6 = nullptr, gUser39 = nullptr;
+UserVoidFn gUser7 = nullptr;
+bool user6Detour(void* self, int c) {
+    bool r = gUser6(self, c);
+    note("join: user manager virtual 6({}) = {}", c, r);
+    return r;
+}
+bool user39Detour(void* self, int c) {
+    bool r = gUser39(self, c);
+    note("join: user manager virtual 39({}) = {}", c, r);
+    return r;
+}
+void user7Detour(void* self, int c) {
+    note("join: user manager virtual 7({})", c);
+    gUser7(self, c);
+}
+
 // _addSubClientInstanceAndAssociateToUserInternal(game, controller, true) asks the user manager (MinecraftGame
 // virtual 53, returned as a NonOwnerPointer {control block, ref count, object}) with its virtual 28
 // (controller, true). If that answers true it starts an asynchronous user sign-in for the controller and waits for
@@ -259,12 +281,34 @@ void hookUserManager(Module const& module, void* game) {
     note("join: user manager {} ({}), check {}", className(module, users.object), countSlots(module, vt, 400),
          describeFunction(module, vt[kUserCheckSlot]));
     if (countSlots(module, vt, 400) <= kUserCheckSlot) return note("join: ERROR: the user manager has too few functions");
-    dumpCode(module, "userCheck", vt[kUserCheckSlot], 0x200, [](std::string const& l) { note("{}", l); });
+    gUser6  = reinterpret_cast<UserBoolFn>(vt[6]);
+    gUser39 = reinterpret_cast<UserBoolFn>(vt[39]);
+    gUser7  = reinterpret_cast<UserVoidFn>(vt[7]);
+    writeSlot(&vt[6], reinterpret_cast<uintptr_t>(&user6Detour));
+    writeSlot(&vt[39], reinterpret_cast<uintptr_t>(&user39Detour));
+    writeSlot(&vt[7], reinterpret_cast<uintptr_t>(&user7Detour));
     gUserCheck = reinterpret_cast<UserCheckFn>(vt[kUserCheckSlot]);
     if (!writeSlot(&vt[kUserCheckSlot], reinterpret_cast<uintptr_t>(&userCheckDetour))) {
         gUserCheck = nullptr;
         note("join: ERROR: could not write the user manager vtable");
     }
+}
+
+// The check before adding a player (+0x9CED20C in 1.26), "W"(game, controller, uint8_t* out, bool):
+//   canAddSplitscreenSubClient(controller); game+512 != 0; not (primary client virtual 113 and a
+//   GameControllerManager check); a GameControllerManager check(controller); user manager virtual 6(controller);
+//   not user manager virtual 39(controller) and (game+496)[25] <= 4; then user manager virtual 7(controller).
+// While the mod adds a player for controller 1-3 and W refuses, it answers true, so the game creates the player.
+using AddCheckFn = bool (*)(void*, int, uint8_t*, bool);
+AddCheckFn gAddCheck = nullptr;
+
+bool addCheckDetour(void* game, int controller, uint8_t* out, bool flag) {
+    bool result = gAddCheck(game, controller, out, flag);
+    bool answer = result;
+    if (!result && tAddingPlayer && controller >= 1 && controller <= 3) answer = true;
+    note("join: may a player be added for controller {}? the game alone would answer {}, answering {}", controller,
+         result, answer);
+    return answer;
 }
 
 Module const* gGameModule = nullptr;
@@ -284,6 +328,12 @@ void joinController(int controller) {
     }
     note("join: controller {} pressed Start: adding player {}", controller, controller + 1);
     if (gGameModule) hookUserManager(*gGameModule, game);
+    {
+        auto const* g     = reinterpret_cast<uint8_t const*>(game);
+        uintptr_t   at496 = *reinterpret_cast<uintptr_t const*>(g + 496);
+        note("join: MinecraftGame+512 = 0x{:X}, (MinecraftGame+496)[25] = {}", *reinterpret_cast<uintptr_t const*>(g + 512),
+             at496 ? int(reinterpret_cast<uint8_t const*>(at496)[25]) : -1);
+    }
     startTracing(60);
     tAddingPlayer = true;
     addSubDetour(game, controller);
@@ -322,12 +372,27 @@ void enableJoining(Module const& game) {
            && writeSlot(&vt[anchor], reinterpret_cast<uintptr_t>(&addSubDetour));
     note("{}", ok ? "join: splitscreen joining turned on" : "join: ERROR: could not write the MinecraftGame vtable");
     if (ok) onStartPressed(joinController);
-    // the code before _addSubClientInstanceAndAssociateToUserInternal (the "b" target of slot 210): the check that
-    // decides whether a player may be added (0x1100 bytes before it in 1.26)
+    // W: in _addSubClientInstanceAndAssociateToUserInternal (the "b" target of slot 210), the first bl after
+    // "add x2, sp, #164" (its out parameter)
     {
         auto const* code     = reinterpret_cast<uint32_t const*>(gAddSub);
         uintptr_t   internal = reinterpret_cast<uintptr_t>(gAddSub) + 4 + ((int64_t(code[1] & 0x3FFFFFF) << 38) >> 36);
-        dumpCode(game, "beforeAddSub", internal - 0x1100, 0x1100, [](std::string const& l) { note("{}", l); });
+        auto const* body     = reinterpret_cast<uint32_t const*>(internal);
+        uintptr_t   check    = 0;
+        for (int i = 0; i < 0x100 && !check; ++i)
+            if (body[i] == 0x910293E2) // add x2, sp, #164
+                for (int k = i + 1; k < i + 8; ++k)
+                    if ((body[k] & 0xFC000000) == 0x94000000) {
+                        check = internal + 4 * k + ((int64_t(body[k] & 0x3FFFFFF) << 38) >> 36);
+                        break;
+                    }
+        if (!check || !game.isCode(check)) note("join: ERROR: the add-player check was not found");
+        else if (pl::memory::hook(reinterpret_cast<pl::memory::FuncPtr>(check),
+                                  reinterpret_cast<pl::memory::FuncPtr>(&addCheckDetour),
+                                  reinterpret_cast<pl::memory::FuncPtr*>(&gAddCheck))
+                 != 0)
+            note("join: ERROR: could not hook the add-player check +0x{:X}", check - game.base);
+        else note("join: add-player check +0x{:X} hooked", check - game.base);
     }
     // after the patches above, so the trace sees our detours' slots as the originals
     if (ok) traceVtable(game, vt, count, "MinecraftGame", [](std::string const& l) { note("{}", l); });
