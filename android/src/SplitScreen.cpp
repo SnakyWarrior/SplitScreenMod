@@ -20,6 +20,7 @@
 #include <atomic>
 #include <cctype>
 #include <chrono>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <map>
@@ -245,6 +246,36 @@ void joinController(int controller) {
     addSubDetour(game, controller);
 }
 
+// addSubClientInstanceAndAssociateToUser first connects a user for the controller; a std::function lambda in
+// _addSubClientInstanceAndAssociateToUserInternal gets the Social::UserPlatformConnectionResult. Its __func vtable's
+// operator() (slot 6: ~, ~, __clone, __clone, destroy, destroy_deallocate, operator()) is watched to see the result.
+using Fn8 = uint64_t (*)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
+Fn8 gUserConnected = nullptr;
+
+uint64_t userConnectedDetour(uint64_t self, uint64_t result, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5,
+                             uint64_t a6, uint64_t a7) {
+    int32_t value = -1;
+    if (result) std::memcpy(&value, reinterpret_cast<void const*>(result), 4);
+    note("join: the user connection for the new player finished with result {}", value);
+    uint64_t r = gUserConnected(self, result, a2, a3, a4, a5, a6, a7);
+    note("join: the user connection callback returned");
+    return r;
+}
+
+void watchUserConnection(Module const& game) {
+    for (auto const& c : findClasses(game, "_addSubClientInstanceAndAssociateToUserInternal")) {
+        if (c.vtables.empty()) continue;
+        auto* vt = c.vtables.front();
+        note("join: callback class {} ({} slots)", c.name, countSlots(game, vt, 64));
+        if (countSlots(game, vt, 64) < 7 || !game.isCode(vt[6])) continue;
+        dumpCode(game, "userCallback", vt[6], 0x300, [](std::string const& l) { note("{}", l); });
+        gUserConnected = reinterpret_cast<Fn8>(vt[6]);
+        if (writeSlot(&vt[6], reinterpret_cast<uintptr_t>(&userConnectedDetour))) note("join: watching the callback");
+        return;
+    }
+    note("join: the user connection callback class was not found");
+}
+
 void enableJoining(Module const& game) {
     auto classes = findClasses(game, "13MinecraftGame");
     uintptr_t* vt = nullptr;
@@ -275,6 +306,11 @@ void enableJoining(Module const& game) {
            && writeSlot(&vt[anchor], reinterpret_cast<uintptr_t>(&addSubDetour));
     note("{}", ok ? "join: splitscreen joining turned on" : "join: ERROR: could not write the MinecraftGame vtable");
     if (ok) onStartPressed(joinController);
+    // the code of addSubClientInstanceAndAssociateToUser's internal function (its "b" target)
+    auto const* code = reinterpret_cast<uint32_t const*>(gAddSub);
+    uintptr_t   internal = reinterpret_cast<uintptr_t>(gAddSub) + 4 + ((int64_t(code[1] & 0x3FFFFFF) << 38) >> 36);
+    dumpCode(game, "addSubInternal", internal, 0x800, [](std::string const& l) { note("{}", l); });
+    watchUserConnection(game);
 }
 
 void probe() {
