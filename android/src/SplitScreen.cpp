@@ -235,13 +235,48 @@ void addSubDetour(void* self, int controller) {
 
 Module const* gGameModule = nullptr;
 
+// Lending player 1's user (as the Windows mod does). The user manager keeps a vector of shared_ptr<User>; virtual 5
+// returns the primary user and virtual 53 the user of a controller (empty when there is none), both through x8.
+// For a controller the mod added as player 2-4, virtual 53 returns the primary user and virtual 6 ("has a user")
+// true, so the new player gets a user instead of none.
+struct UserPtr { // a shared_ptr<User>: returned through x8 like the game's (non-trivial type), moved bitwise
+    void* object  = nullptr;
+    void* control = nullptr;
+    UserPtr() = default;
+    UserPtr(UserPtr const& other) : object(other.object), control(other.control) {}
+    ~UserPtr() {}
+};
+using UserByControllerFn = UserPtr (*)(void*, int);
+using PrimaryUserFn      = UserPtr (*)(void*);
+UserByControllerFn gUserByController = nullptr;
+PrimaryUserFn      gPrimaryUser      = nullptr;
+std::mutex         gLendMutex;
+std::set<int>      gLending; // controllers that borrow player 1's user
+std::atomic<int>   gLendLogged{0};
+
+bool lends(int controller) {
+    if (controller < 1 || controller > 3) return false;
+    std::lock_guard lock(gLendMutex);
+    return gLending.contains(controller);
+}
+
+UserPtr userByControllerDetour(void* self, int controller) {
+    UserPtr user = gUserByController(self, controller);
+    if (user.object || !lends(controller)) return user;
+    if (gLendLogged < 10) {
+        ++gLendLogged;
+        note("join: controller {} has no user: lending player 1's", controller);
+    }
+    return gPrimaryUser(self);
+}
+
 // user manager virtuals 6, 39 (bool(int)) and 7 (void(int)), logged
 using UserBoolFn = bool (*)(void*, int);
 using UserVoidFn = void (*)(void*, int);
 UserBoolFn gUser6 = nullptr, gUser39 = nullptr;
 UserVoidFn gUser7 = nullptr;
 bool user6Detour(void* self, int c) {
-    bool r = gUser6(self, c);
+    bool r = gUser6(self, c) || lends(c);
     note("join: user manager virtual 6({}) = {}", c, r);
     return r;
 }
@@ -285,6 +320,9 @@ void hookUserManager(Module const& module, void* game) {
     note("join: user manager {} ({}), check {}", className(module, users.object), countSlots(module, vt, 400),
          describeFunction(module, vt[kUserCheckSlot]));
     if (countSlots(module, vt, 400) <= kUserCheckSlot) return note("join: ERROR: the user manager has too few functions");
+    gPrimaryUser      = reinterpret_cast<PrimaryUserFn>(vt[5]);
+    gUserByController = reinterpret_cast<UserByControllerFn>(vt[53]);
+    writeSlot(&vt[53], reinterpret_cast<uintptr_t>(&userByControllerDetour));
     gUser6  = reinterpret_cast<UserBoolFn>(vt[6]);
     gUser39 = reinterpret_cast<UserBoolFn>(vt[39]);
     gUser7  = reinterpret_cast<UserVoidFn>(vt[7]);
@@ -297,11 +335,7 @@ void hookUserManager(Module const& module, void* game) {
         note("join: ERROR: could not write the user manager vtable");
     }
     // the user manager functions the game called while adding a player (0.2.8): their code and their results
-    static std::vector<size_t> const kAsked = {5, 6, 8, 9, 38, 41, 42, 49, 50, 53, 54, 70};
-    for (size_t slot : kAsked) {
-        auto label = fmt::format("UserManager{}", slot);
-        dumpCode(module, label.c_str(), vt[slot], 0x80, [](std::string const& l) { note("{}", l); });
-    }
+    static std::vector<size_t> const kAsked = {6, 8, 38, 53, 54, 70};
     watchResults(module, vt, kAsked, "UserManager", [](std::string const& l) { note("{}", l); });
     // after the patches above; MinecraftGame uses trampolines 0-319
     traceVtable(module, vt, countSlots(module, vt, 400), 320, "UserManager", [](std::string const& l) { note("{}", l); });
@@ -347,7 +381,11 @@ void joinController(int controller) {
              at496 ? int(reinterpret_cast<uint8_t const*>(at496)[25]) : -1);
     }
     startTracing(60);
-    logResults(80);
+    logResults(60);
+    {
+        std::lock_guard lock(gLendMutex);
+        gLending.insert(controller);
+    }
     tAddingPlayer = true;
     addSubDetour(game, controller);
     tAddingPlayer = false;
