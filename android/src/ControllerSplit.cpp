@@ -83,6 +83,14 @@ bool safeRead(uintptr_t address, void* out, size_t size) {
 constexpr int32_t kSourceGamepad  = 0x00000401;
 constexpr int32_t kSourceJoystick = 0x01000010;
 
+std::function<void(int)> gStartPressed;
+
+// GameActivityKeyEvent: deviceId, source, action, (pad), eventTime, downTime, flags, metaState, modifiers,
+// repeatCount, keyCode, scanCode, ... (checked on a device: the int at index 12 is the Android key code)
+constexpr int kKeyCodeIndex   = 12;
+constexpr int kKeyCodeStart   = 108; // KEYCODE_BUTTON_START
+constexpr int kKeyActionDown  = 0;
+
 // --- dispatch ---------------------------------------------------------------------------------------------------
 using Fn8 = uint64_t (*)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
 Fn8              gDispatch = nullptr;
@@ -93,8 +101,12 @@ uint64_t dispatchDetour(uint64_t a0, uint64_t a1, uint64_t variant, uint64_t a3,
     int       controller = -1;
     uintptr_t event      = 0;
     int32_t   index = -1, head[2] = {0, 0};
+    bool      startDown = false;
     if (safeRead(variant + 8, &index, 4) && index != -1 && safeRead(variant, &event, 8) && event
         && safeRead(event, head, 8)) {
+        int32_t key[kKeyCodeIndex + 1] = {};
+        if (index == 0 && safeRead(event, key, sizeof key))
+            startDown = key[kKeyCodeIndex] == kKeyCodeStart && key[2] == kKeyActionDown;
         bool pad = (head[1] & kSourceGamepad) == kSourceGamepad || (head[1] & kSourceJoystick) == kSourceJoystick;
         if (pad) controller = controllerFor(head[0]);
         if (gEventsLogged < 24) {
@@ -107,6 +119,7 @@ uint64_t dispatchDetour(uint64_t a0, uint64_t a1, uint64_t variant, uint64_t a3,
     tCurrentController = controller;
     uint64_t result    = gDispatch(a0, a1, variant, a3, a4, a5, a6, a7);
     tCurrentController = previous;
+    if (startDown && controller >= 1 && gStartPressed) gStartPressed(controller);
     return result;
 }
 
@@ -199,6 +212,8 @@ void collectCalls(Module const& game, uintptr_t from, size_t size, uintptr_t obj
 std::string offset(uintptr_t p) { return fmt::format("+0x{:X}", p - gGame->base); }
 
 } // namespace
+
+void onStartPressed(std::function<void(int)> handler) { gStartPressed = std::move(handler); }
 
 bool startControllerSplit(Module const& game, uintptr_t managerObject, uintptr_t managerAdded, uintptr_t managerRemoved,
                           LogFn log) {

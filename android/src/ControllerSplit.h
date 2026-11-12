@@ -16,10 +16,15 @@
 #include "Elf.h"
 #include "InputProbe.h"
 
+#include <functional>
+
 namespace splitscreen {
 
 // managerAdded/managerRemoved: the manager's add/remove device functions (from the JNI functions' code).
 bool startControllerSplit(Module const& game, uintptr_t managerObject, uintptr_t managerAdded, uintptr_t managerRemoved,
                           LogFn log);
+
+// Called on the input thread, after the game handled it, when a controller other than the first presses Start.
+void onStartPressed(std::function<void(int controller)> handler);
 
 } // namespace splitscreen

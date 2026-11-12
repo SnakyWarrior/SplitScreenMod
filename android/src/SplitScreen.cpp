@@ -228,6 +228,23 @@ void addSubDetour(void* self, int controller) {
     note("join: addSubClientInstanceAndAssociateToUser({}) returned", controller);
 }
 
+// A controller other than the first pressed Start: add a player for it, once (the game's own "press Start to join"
+// does not react to it on Android).
+std::mutex gJoinMutex;
+std::set<int> gJoined;
+
+void joinController(int controller) {
+    void* game = gMinecraftGame.load();
+    {
+        std::lock_guard lock(gJoinMutex);
+        if (gJoined.contains(controller)) return;
+        if (!game || !gAddSub) return note("join: controller {} pressed Start, but MinecraftGame is not known yet", controller);
+        gJoined.insert(controller);
+    }
+    note("join: controller {} pressed Start: adding player {}", controller, controller + 1);
+    addSubDetour(game, controller);
+}
+
 void enableJoining(Module const& game) {
     auto classes = findClasses(game, "13MinecraftGame");
     uintptr_t* vt = nullptr;
@@ -257,6 +274,7 @@ void enableJoining(Module const& game) {
            && writeSlot(&vt[canAddSlot], reinterpret_cast<uintptr_t>(&canAddDetour))
            && writeSlot(&vt[anchor], reinterpret_cast<uintptr_t>(&addSubDetour));
     note("{}", ok ? "join: splitscreen joining turned on" : "join: ERROR: could not write the MinecraftGame vtable");
+    if (ok) onStartPressed(joinController);
 }
 
 void probe() {
