@@ -55,15 +55,20 @@ std::map<int32_t, int>    gControllerOf;
 
 thread_local int tCurrentController = -1;
 
+// The first controller number a controller can get: 1 keeps player 1 on touch (every controller joins as a new
+// player, as on Windows player 1 keeps keyboard and mouse); 0 gives the first controller to player 1.
+std::atomic<int> gFirstController{1};
+
 int controllerFor(int32_t device) {
     std::lock_guard lock(gDevicesMutex);
     if (auto it = gControllerOf.find(device); it != gControllerOf.end()) return it->second;
     std::array<bool, kMaxControllers> used{};
     for (auto [d, c] : gControllerOf) used[c] = true;
-    for (int c = 0; c < kMaxControllers; ++c)
+    for (int c = gFirstController; c < kMaxControllers; ++c)
         if (!used[c]) {
             gControllerOf[device] = c;
-            gLog(fmt::format("controllers: device {} is controller {} (player {})", device, c, c + 1));
+            gLog(fmt::format("controllers: device {} is controller {}{}", device, c,
+                             c == 0 ? " (player 1)" : " (joins with Start as a new player)"));
             return c;
         }
     return -1; // more than 4: leave it on controller 0 as the game does
@@ -214,6 +219,8 @@ std::string offset(uintptr_t p) { return fmt::format("+0x{:X}", p - gGame->base)
 } // namespace
 
 void onStartPressed(std::function<void(int)> handler) { gStartPressed = std::move(handler); }
+
+void setFirstControllerIsPlayer1(bool yes) { gFirstController = yes ? 0 : 1; }
 
 bool startControllerSplit(Module const& game, uintptr_t managerObject, uintptr_t managerAdded, uintptr_t managerRemoved,
                           LogFn log) {

@@ -24,6 +24,10 @@ namespace splitscreen {
 bool startControllerSplit(Module const& game, uintptr_t managerObject, uintptr_t managerAdded, uintptr_t managerRemoved,
                           LogFn log);
 
+// false (default): player 1 keeps touch and every controller joins as a new player with Start (controllers 1-3).
+// true: the first controller plays player 1, as the game alone does.
+void setFirstControllerIsPlayer1(bool yes);
+
 // Called on the input thread, after the game handled it, when a controller other than the first presses Start.
 void onStartPressed(std::function<void(int controller)> handler);
 

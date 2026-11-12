@@ -16,6 +16,11 @@
       "type": "boolean",
       "title": "Let other controllers join",
       "description": "Lets a second, third or fourth controller join as a split-screen player. Turn off if the game misbehaves."
+    },
+    "firstControllerIsPlayer1": {
+      "type": "boolean",
+      "title": "First controller plays player 1",
+      "description": "Off: player 1 keeps the touch screen and every controller joins as a new player with Start. On: the first controller plays player 1."
     }
   }
 }

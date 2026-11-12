@@ -580,6 +580,7 @@ void probe() {
                 if (std::string_view(c.jni) == "onInputDeviceAddedNative") added = c.method;
                 if (std::string_view(c.jni) == "onInputDeviceRemovedNative") removed = c.method;
             }
+            setFirstControllerIsPlayer1(configFlag("firstControllerIsPlayer1", false));
             if (added) startControllerSplit(*game, manager, added, removed, log);
             else note("controllers: the manager's add function was not found");
         }
