@@ -227,6 +227,22 @@ void probe() {
                                      "JellyBeanDeviceManager_onInputDeviceChangedNative"})
                 if (e.name.ends_with(name)) dumpCode(*game, name, e.address, 512, [](std::string const& l) { note("{}", l); });
     }
+    // which Android input functions the game imports (native input queue, Paddleboat controller library, ...)
+    {
+        auto imports = importedSymbols(*game);
+        note("{} imported symbols", imports.size());
+        for (auto const& name : imports)
+            for (char const* prefix : {"AInput", "AKeyEvent", "AMotionEvent", "ALooper", "Paddleboat", "GameActivity",
+                                       "ANativeActivity", "AGameController"})
+                if (name.starts_with(prefix)) {
+                    note("import {}", name);
+                    break;
+                }
+        for (auto const& e : exportedFunctions(*game))
+            if (e.name.find("addleboat") != std::string::npos || e.name.find("GameActivity") != std::string::npos
+                || e.name.find("android_main") != std::string::npos || e.name.find("ANativeActivity") != std::string::npos)
+                note("export {} +0x{:X}", e.name, e.address - game->base);
+    }
     startInputProbe(*game, [](std::string const& l) { note("{}", l); });
 
     // 2. classes by RTTI. PlayerListPacket is a class every version has: if it is not found, the search itself failed.
@@ -250,7 +266,19 @@ void probe() {
             note("class {}: {} slots", c.name, countSlots(*game, vt, 2000));
         }
 
-    for (char const* needle : {"MinecraftGame", "SplitscreenJoinListener", "GameControllerHandler", "GamepadManager"}) {
+    // the game's controller classes (names only)
+    for (char const* needle : {"Gamepad", "GamePad", "Controller", "InputDevice", "DeviceManager"}) {
+        int shown = 0;
+        for (auto const& t : findTypeNames(*game, needle)) {
+            if (t.name.starts_with("NSt6__ndk1") || t.name.find("Screen") != std::string::npos
+                || t.name.find("ZN") != std::string::npos)
+                continue;
+            if (++shown > 80) break;
+            note("type *{}*: {}", needle, t.name);
+        }
+    }
+
+    for (char const* needle : {"MinecraftGame", "SplitscreenJoinListener"}) {
         auto classes = findClasses(*game, needle);
         note("{} classes named *{}*", classes.size(), needle);
         for (auto const& c : classes) {

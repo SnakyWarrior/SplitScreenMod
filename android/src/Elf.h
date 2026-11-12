@@ -66,6 +66,9 @@ struct Symbol {
 // The functions the library exports (its dynamic symbol table), e.g. the JNI entry points Java calls.
 std::vector<Symbol> exportedFunctions(Module const& m);
 
+// The names of the symbols the library imports from other libraries (undefined in its dynamic symbol table).
+std::vector<std::string> importedSymbols(Module const& m);
+
 // True if fn is __cxa_pure_virtual (a pure virtual function's slot).
 bool isPureVirtual(uintptr_t fn);
 

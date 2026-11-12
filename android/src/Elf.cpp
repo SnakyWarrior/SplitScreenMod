@@ -192,12 +192,13 @@ static size_t dynamicSymbolCount(uintptr_t hash, uintptr_t gnuHash) {
     return last + 1;
 }
 
-std::vector<Symbol> exportedFunctions(Module const& m) {
-    std::vector<Symbol> out;
+// Calls f(symbol, strtab) for each entry of the module's dynamic symbol table.
+template <class F>
+static void forEachDynamicSymbol(Module const& m, F&& f) {
     struct Ctx {
-        Module const*        m;
-        std::vector<Symbol>* out;
-    } ctx{&m, &out};
+        Module const* m;
+        F*            f;
+    } ctx{&m, &f};
     dl_iterate_phdr(
         [](dl_phdr_info* info, size_t, void* data) -> int {
             auto& c = *static_cast<Ctx*>(data);
@@ -219,17 +220,29 @@ std::vector<Symbol> exportedFunctions(Module const& m) {
                 if (!symtab || !strtab) return 1;
                 size_t n    = dynamicSymbolCount(hash, gnuHash);
                 auto*  syms = reinterpret_cast<ElfW(Sym) const*>(symtab);
-                for (size_t k = 0; k < n; ++k) {
-                    auto const& sym = syms[k];
-                    if (ELF64_ST_TYPE(sym.st_info) != STT_FUNC || sym.st_shndx == SHN_UNDEF || !sym.st_value) continue;
-                    c.out->push_back({reinterpret_cast<char const*>(strtab + sym.st_name), info->dlpi_addr + sym.st_value});
-                }
+                for (size_t k = 1; k < n; ++k) (*c.f)(syms[k], reinterpret_cast<char const*>(strtab));
                 return 1;
             }
             return 1;
         },
         &ctx
     );
+}
+
+std::vector<Symbol> exportedFunctions(Module const& m) {
+    std::vector<Symbol> out;
+    forEachDynamicSymbol(m, [&](ElfW(Sym) const& sym, char const* strtab) {
+        if (ELF64_ST_TYPE(sym.st_info) != STT_FUNC || sym.st_shndx == SHN_UNDEF || !sym.st_value) return;
+        out.push_back({strtab + sym.st_name, m.base + sym.st_value});
+    });
+    return out;
+}
+
+std::vector<std::string> importedSymbols(Module const& m) {
+    std::vector<std::string> out;
+    forEachDynamicSymbol(m, [&](ElfW(Sym) const& sym, char const* strtab) {
+        if (sym.st_shndx == SHN_UNDEF && sym.st_name) out.emplace_back(strtab + sym.st_name);
+    });
     return out;
 }
 
