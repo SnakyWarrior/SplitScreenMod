@@ -197,17 +197,31 @@ constexpr size_t kAddSubClientSlot = 210, kJoinEnabledBack = 38, kCanAddBack = 3
 
 Module const* gGameModule = nullptr;
 
+// Controllers 1-3 that play as an added player. Start on them is just Start (the pause menu): adding a player again
+// for the same controller made the game release sub client 0 and crash (0.3.1).
+std::mutex    gPlayingMutex;
+std::set<int> gPlaying;
+
+void forgetPlayers(char const* why, int sub) {
+    std::lock_guard lock(gPlayingMutex);
+    if (gPlaying.empty()) return;
+    note("join: {}({}): the added players are gone", why, sub);
+    gPlaying.clear();
+}
+
 using SubIdFn = void (*)(void*, int);
 SubIdFn gQueueRemoval = nullptr, gReleaseSubId = nullptr;
 void queueRemovalDetour(void* self, int sub) {
     uintptr_t ret = reinterpret_cast<uintptr_t>(__builtin_return_address(0));
     note("join: queueSubclientRemoval({}) from +0x{:X}", sub, gGameModule ? ret - gGameModule->base : ret);
     gQueueRemoval(self, sub);
+    forgetPlayers("queueSubclientRemoval", sub);
 }
 void releaseSubIdDetour(void* self, int sub) {
     uintptr_t ret = reinterpret_cast<uintptr_t>(__builtin_return_address(0));
     note("join: releaseClientSubId({}) from +0x{:X}", sub, gGameModule ? ret - gGameModule->base : ret);
     gReleaseSubId(self, sub);
+    forgetPlayers("releaseClientSubId", sub);
 }
 
 using JoinEnabledFn = bool (*)(void*);
@@ -298,8 +312,11 @@ bool user6Detour(void* self, int c) {
     note("join: user manager virtual 6({}) = {}", c, r);
     return r;
 }
+thread_local int tControllerTaken = -1; // user manager virtual 39's answer while the mod adds a player
+
 bool user39Detour(void* self, int c) {
     bool r = gUser39(self, c);
+    tControllerTaken = r;
     note("join: user manager virtual 39({}) = {}", c, r);
     return r;
 }
@@ -370,7 +387,12 @@ AddCheckFn gAddCheck = nullptr;
 bool addCheckDetour(void* game, int controller, uint8_t* out, bool flag) {
     bool result = gAddCheck(game, controller, out, flag);
     bool answer = result;
-    if (!result && tAddingPlayer && controller >= 1 && controller <= 3 && tGameCanAdd == 1) answer = true;
+    if (!result && tAddingPlayer && controller >= 1 && controller <= 3 && tGameCanAdd == 1 && tControllerTaken != 1)
+        answer = true;
+    if (answer && tAddingPlayer) {
+        std::lock_guard lock(gPlayingMutex);
+        gPlaying.insert(controller);
+    }
     note("join: may a player be added for controller {}? the game alone would answer {}, answering {}", controller,
          result, answer);
     return answer;
@@ -390,6 +412,10 @@ void joinController(int controller) {
         if (auto it = gJoinTimes.find(controller); it != gJoinTimes.end() && now - it->second < std::chrono::seconds(3))
             return;
         if (!game || !gAddSub) return note("join: controller {} pressed Start, but MinecraftGame is not known yet", controller);
+        {
+            std::lock_guard playing(gPlayingMutex);
+            if (gPlaying.contains(controller)) return; // it already plays: Start opens its pause menu
+        }
         gJoinTimes[controller] = now;
     }
     note("join: controller {} pressed Start: adding player {}", controller, controller + 1);
@@ -406,8 +432,9 @@ void joinController(int controller) {
         std::lock_guard lock(gLendMutex);
         gLending.insert(controller);
     }
-    tAddingPlayer = true;
-    tGameCanAdd   = -1;
+    tAddingPlayer    = true;
+    tGameCanAdd      = -1;
+    tControllerTaken = -1;
     addSubDetour(game, controller);
     tAddingPlayer = false;
 }
