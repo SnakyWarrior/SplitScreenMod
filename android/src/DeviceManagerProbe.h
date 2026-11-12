@@ -24,6 +24,19 @@ struct DeviceManagerCall {
 
 std::vector<DeviceManagerCall> findDeviceManagerCalls(Module const& game, std::vector<Symbol> const& exports);
 
+// The game's gamepad system: the other static object the controller manager's code calls (with controller id 0
+// in w1 everywhere on Android), and the functions it calls on it. Found by scanning the manager's code after
+// `managerMethod` for "adrp x0; add x0" pairs naming an object other than the manager, followed by a call.
+struct GamepadSystem {
+    uintptr_t              object = 0;
+    std::vector<uintptr_t> methods;
+};
+GamepadSystem findGamepadSystem(Module const& game, uintptr_t managerMethod, uintptr_t managerObject);
+
+// Hooks up to 8 functions with register-saving detours that log, for each new call site, the arguments and the
+// chain of callers (frame pointers), and how often each function is called.
+void watchGamepadCalls(Module const& game, std::vector<uintptr_t> const& methods, LogFn log);
+
 // The RTTI class name of a polymorphic object in the game, or "" if it has none.
 std::string className(Module const& game, uintptr_t object);
 

@@ -1,6 +1,13 @@
 #include "DeviceManagerProbe.h"
 
+#include <pl/memory/Hook.hpp>
+
+#include <atomic>
 #include <chrono>
+#include <map>
+#include <mutex>
+#include <set>
+#include <algorithm>
 #include <cstring>
 #include <thread>
 
@@ -53,6 +60,37 @@ std::vector<DeviceManagerCall> findDeviceManagerCalls(Module const& game, std::v
     return out;
 }
 
+GamepadSystem findGamepadSystem(Module const& game, uintptr_t managerMethod, uintptr_t managerObject) {
+    GamepadSystem                  out;
+    std::map<uintptr_t, int>       objects;
+    std::vector<std::pair<uintptr_t, uintptr_t>> calls; // object, target
+    auto const* code = reinterpret_cast<uint32_t const*>(managerMethod);
+    constexpr int kScan = 1536; // instructions (6 KB) of the manager's code
+    if (!game.isCode(managerMethod + 4 * kScan)) return out;
+    for (int i = 0; i + 1 < kScan; ++i) {
+        if (!isAdrp(code[i], 0) || !isAddImm(code[i + 1], 0, 0)) continue;
+        uintptr_t pc     = managerMethod + 4 * i;
+        uintptr_t object = adrpTarget(pc, code[i]) + addImm(code[i + 1]);
+        if (object == managerObject) continue;
+        for (int j = i + 2; j < i + 14 && j < kScan; ++j) {
+            uint32_t op = code[j];
+            bool     b  = (op & 0xFC000000) == 0x14000000;
+            if (isBl(op) || b) {
+                calls.push_back({object, blTarget(managerMethod + 4 * j, op)}); // b and bl encode the target alike
+                ++objects[object];
+                break;
+            }
+        }
+    }
+    int best = 0;
+    for (auto [object, n] : objects)
+        if (n > best) best = n, out.object = object;
+    for (auto [object, target] : calls)
+        if (object == out.object && std::find(out.methods.begin(), out.methods.end(), target) == out.methods.end())
+            out.methods.push_back(target);
+    return out;
+}
+
 std::string className(Module const& game, uintptr_t object) {
     auto vptr = *reinterpret_cast<uintptr_t const*>(object);
     bool inGame = false;
@@ -94,3 +132,75 @@ void watchObject(Module const& game, uintptr_t object, size_t size, LogFn log) {
 }
 
 } // namespace splitscreen
+
+extern "C" {
+uintptr_t splitscreen_originals[8];
+void      splitscreen_trampoline_0();
+void      splitscreen_trampoline_1();
+void      splitscreen_trampoline_2();
+void      splitscreen_trampoline_3();
+void      splitscreen_trampoline_4();
+void      splitscreen_trampoline_5();
+void      splitscreen_trampoline_6();
+void      splitscreen_trampoline_7();
+}
+
+namespace splitscreen {
+namespace {
+
+Module const*             gCallGame = nullptr;
+LogFn                     gCallLog;
+uintptr_t                 gMethods[8];
+std::atomic<uint64_t>     gCalls[8];
+std::mutex                gCallMutex;
+std::set<std::pair<uint64_t, uintptr_t>> gCallSites;
+
+std::string offset(uintptr_t p) {
+    return gCallGame->isCode(p) ? fmt::format("+0x{:X}", p - gCallGame->base) : fmt::format("0x{:X}", p);
+}
+
+} // namespace
+
+void watchGamepadCalls(Module const& game, std::vector<uintptr_t> const& methods, LogFn log) {
+    static Module copy = game;
+    gCallGame          = &copy;
+    gCallLog           = std::move(log);
+    void (*trampolines[8])() = {splitscreen_trampoline_0, splitscreen_trampoline_1, splitscreen_trampoline_2,
+                                splitscreen_trampoline_3, splitscreen_trampoline_4, splitscreen_trampoline_5,
+                                splitscreen_trampoline_6, splitscreen_trampoline_7};
+    for (size_t i = 0; i < methods.size() && i < 8; ++i) {
+        gMethods[i] = methods[i];
+        if (pl::memory::hook(reinterpret_cast<pl::memory::FuncPtr>(methods[i]),
+                             reinterpret_cast<pl::memory::FuncPtr>(trampolines[i]),
+                             reinterpret_cast<pl::memory::FuncPtr*>(&splitscreen_originals[i]))
+            != 0)
+            gCallLog(fmt::format("gamepad #{}: ERROR: could not hook {}", i, offset(methods[i])));
+        else gCallLog(fmt::format("gamepad #{}: watching {}", i, offset(methods[i])));
+    }
+}
+
+} // namespace splitscreen
+
+// Called by the trampolines with the saved x0..x8, the caller's frame pointer and return address.
+extern "C" void splitscreen_on_call(uint64_t index, uint64_t* regs, uint64_t fp, uint64_t ret) {
+    using namespace splitscreen;
+    uint64_t n = ++gCalls[index];
+    if (n == 1 || n == 10 || n == 100 || n == 1000 || n == 10000 || n == 100000)
+        gCallLog(fmt::format("gamepad #{}: called {} times", index, n));
+    {
+        std::lock_guard lock(gCallMutex);
+        if (gCallSites.size() >= 48 || !gCallSites.insert({index, ret}).second) return;
+    }
+    std::string chain;
+    uintptr_t   frame = fp;
+    for (int k = 0; k < 10 && frame && (frame & 7) == 0; ++k) {
+        auto const* f    = reinterpret_cast<uintptr_t const*>(frame);
+        uintptr_t   next = f[0], lr = f[1];
+        if (!lr) break;
+        chain += " " + offset(lr);
+        if (next <= frame || next - frame > (1u << 20)) break;
+        frame = next;
+    }
+    gCallLog(fmt::format("gamepad #{} ({}): w1={} w2={} w3={} w4={} from {}; callers:{}", index, offset(gMethods[index]),
+                         int32_t(regs[1]), int32_t(regs[2]), int32_t(regs[3]), int32_t(regs[4]), offset(ret), chain));
+}

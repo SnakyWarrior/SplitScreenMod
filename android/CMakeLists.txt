@@ -2,7 +2,7 @@
 # Build: see android/README.md. The result is a .levipack (a zip) that LeviLauncher for Android imports.
 cmake_minimum_required(VERSION 3.22)
 
-project(SplitScreenModAndroid LANGUAGES CXX)
+project(SplitScreenModAndroid LANGUAGES CXX ASM)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -12,7 +12,7 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(MOD_ID "SplitScreenMod" CACHE STRING "LeviLauncher mod package directory name")
 set(MOD_NAME "SplitScreenMod" CACHE STRING "LeviLauncher mod display name")
 set(MOD_AUTHOR "SnakyWarrior" CACHE STRING "LeviLauncher mod author")
-set(MOD_VERSION "0.1.8" CACHE STRING "LeviLauncher mod version")
+set(MOD_VERSION "0.1.9" CACHE STRING "LeviLauncher mod version")
 set(MOD_LIBRARY_NAME "SplitScreenMod" CACHE STRING "Native library name without lib prefix or .so suffix")
 set(MOD_MINECRAFT_VERSIONS "[\"1.26.*\"]" CACHE STRING "Raw JSON array for manifest minecraft_versions")
 
@@ -47,7 +47,7 @@ if(LEVI_LINK_PRELOADER AND NOT TARGET preloader)
     add_subdirectory("${preloader_android_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/_preloader_android")
 endif()
 
-add_library(${MOD_LIBRARY_NAME} SHARED src/main.cpp src/SplitScreen.cpp src/Elf.cpp src/InputProbe.cpp src/DeviceManagerProbe.cpp)
+add_library(${MOD_LIBRARY_NAME} SHARED src/main.cpp src/SplitScreen.cpp src/Elf.cpp src/InputProbe.cpp src/DeviceManagerProbe.cpp src/Trampolines.S)
 target_include_directories(${MOD_LIBRARY_NAME} PRIVATE src "${preloader_android_SOURCE_DIR}/include")
 target_compile_definitions(${MOD_LIBRARY_NAME} PRIVATE SPLITSCREEN_VERSION="${MOD_VERSION}")
 target_compile_options(${MOD_LIBRARY_NAME} PRIVATE -Wall -Wextra -fvisibility=hidden -fvisibility-inlines-hidden)
