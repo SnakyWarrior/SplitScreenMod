@@ -16,6 +16,7 @@
 #include "DeviceManagerProbe.h"
 #include "ControllerSplit.h"
 #include "VTrace.h"
+#include "PostTrace.h"
 
 
 #include <dlfcn.h>
@@ -295,6 +296,13 @@ void hookUserManager(Module const& module, void* game) {
         gUserCheck = nullptr;
         note("join: ERROR: could not write the user manager vtable");
     }
+    // the user manager functions the game called while adding a player (0.2.8): their code and their results
+    static std::vector<size_t> const kAsked = {5, 6, 8, 9, 38, 41, 42, 49, 50, 53, 54, 70};
+    for (size_t slot : kAsked) {
+        auto label = fmt::format("UserManager{}", slot);
+        dumpCode(module, label.c_str(), vt[slot], 0x80, [](std::string const& l) { note("{}", l); });
+    }
+    watchResults(module, vt, kAsked, "UserManager", [](std::string const& l) { note("{}", l); });
     // after the patches above; MinecraftGame uses trampolines 0-319
     traceVtable(module, vt, countSlots(module, vt, 400), 320, "UserManager", [](std::string const& l) { note("{}", l); });
 }
@@ -339,6 +347,7 @@ void joinController(int controller) {
              at496 ? int(reinterpret_cast<uint8_t const*>(at496)[25]) : -1);
     }
     startTracing(60);
+    logResults(80);
     tAddingPlayer = true;
     addSubDetour(game, controller);
     tAddingPlayer = false;
