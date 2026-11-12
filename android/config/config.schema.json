@@ -6,6 +6,11 @@
       "type": "boolean",
       "title": "Turn split screen on",
       "description": "Turns the game's split screen on when the mod can find it for certain. Turn off if the game misbehaves."
+    },
+    "separateControllers": {
+      "type": "boolean",
+      "title": "One player per controller",
+      "description": "Gives each controller its own player (the game on Android sends every controller to player 1). Turn off if controllers misbehave."
     }
   }
 }

@@ -33,10 +33,6 @@ struct GamepadSystem {
 };
 GamepadSystem findGamepadSystem(Module const& game, uintptr_t managerMethod, uintptr_t managerObject);
 
-// Hooks up to 8 functions with register-saving detours that log, for each new call site, the arguments and the
-// chain of callers (frame pointers), and how often each function is called.
-void watchGamepadCalls(Module const& game, std::vector<uintptr_t> const& methods, LogFn log);
-
 // The RTTI class name of a polymorphic object in the game, or "" if it has none.
 std::string className(Module const& game, uintptr_t object);
 

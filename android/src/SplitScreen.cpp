@@ -12,6 +12,7 @@
 #include "Elf.h"
 #include "InputProbe.h"
 #include "DeviceManagerProbe.h"
+#include "ControllerSplit.h"
 
 
 #include <dlfcn.h>
@@ -252,14 +253,15 @@ void probe() {
             manager = c.object;
         }
         if (calls.empty()) note("device manager: not found");
+        else if (!configFlag("separateControllers", true)) note("separateControllers is off in config.json");
         else {
-            auto gamepads = findGamepadSystem(*game, calls.front().method, manager);
-            if (!gamepads.object) note("gamepad system: not found");
-            else {
-                note("gamepad system: object +0x{:X} ({}), {} functions", gamepads.object - game->base,
-                     className(*game, gamepads.object), gamepads.methods.size());
-                watchGamepadCalls(*game, gamepads.methods, log);
+            uintptr_t added = 0, removed = 0;
+            for (auto const& c : calls) {
+                if (std::string_view(c.jni) == "onInputDeviceAddedNative") added = c.method;
+                if (std::string_view(c.jni) == "onInputDeviceRemovedNative") removed = c.method;
             }
+            if (added) startControllerSplit(*game, manager, added, removed, log);
+            else note("controllers: the manager's add function was not found");
         }
     }
 
