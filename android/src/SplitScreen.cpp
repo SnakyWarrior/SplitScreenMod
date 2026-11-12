@@ -183,6 +183,82 @@ void patchSlotEverywhere(Module const& m, std::vector<ClassInfo> const& classes,
         }
 }
 
+// --- joining: MinecraftGame's splitscreen checks ---------------------------------------------------------------
+// In LeviLamina's IMinecraftGame.h, isSplitscreenJoinEnabled() and canAddSplitscreenSubClient(int) are virtual
+// functions 172 and 173 and addSubClientInstanceAndAssociateToUser(int) is 210. In the Android game the last one is
+// recognisable: "mov w2, #1; b _addSubClientInstanceAndAssociateToUserInternal" (it passes true). It is the anchor:
+// the two checks are 38 and 37 slots before it.
+constexpr size_t kAddSubClientSlot = 210, kJoinEnabledBack = 38, kCanAddBack = 37;
+
+using JoinEnabledFn = bool (*)(void*);
+using CanAddFn      = bool (*)(void*, int);
+using AddSubFn      = void (*)(void*, int);
+JoinEnabledFn          gJoinEnabled = nullptr;
+CanAddFn               gCanAdd      = nullptr;
+AddSubFn               gAddSub      = nullptr;
+std::atomic<void*>     gMinecraftGame{nullptr};
+std::atomic<int>       gJoinLogged{0}, gCanAddLogged{0};
+std::atomic<int>       gLastJoin{-1};
+
+bool joinEnabledDetour(void* self) {
+    gMinecraftGame = self;
+    bool game      = gJoinEnabled(self);
+    if (gLastJoin.exchange(game) != int(game) || gJoinLogged < 3) {
+        ++gJoinLogged;
+        note("join: isSplitscreenJoinEnabled asked; the game alone would answer {}", game);
+    }
+    return true;
+}
+
+bool canAddDetour(void* self, int controller) {
+    gMinecraftGame = self;
+    bool game      = gCanAdd(self, controller);
+    bool answer    = controller >= 1 && controller <= 3 ? true : game;
+    if (gCanAddLogged < 40) {
+        ++gCanAddLogged;
+        note("join: canAddSplitscreenSubClient({}) asked; the game alone would answer {}, answering {}", controller, game,
+             answer);
+    }
+    return answer;
+}
+
+void addSubDetour(void* self, int controller) {
+    note("join: addSubClientInstanceAndAssociateToUser({}) called", controller);
+    gAddSub(self, controller);
+    note("join: addSubClientInstanceAndAssociateToUser({}) returned", controller);
+}
+
+void enableJoining(Module const& game) {
+    auto classes = findClasses(game, "13MinecraftGame");
+    uintptr_t* vt = nullptr;
+    for (auto const& c : classes)
+        if (c.name == "13MinecraftGame" && !c.vtables.empty()) vt = c.vtables.front();
+    if (!vt) return note("join: ERROR: the MinecraftGame vtable was not found");
+    size_t count = countSlots(game, vt, 2000);
+    // find the anchor near its expected slot
+    size_t anchor = SIZE_MAX;
+    for (size_t i = kAddSubClientSlot - 40; i < std::min(count, kAddSubClientSlot + 40); ++i) {
+        auto const* code = reinterpret_cast<uint32_t const*>(vt[i]);
+        if (game.isCode(vt[i]) && code[0] == 0x52800022 && (code[1] & 0xFC000000) == 0x14000000) {
+            if (anchor != SIZE_MAX) return note("join: ERROR: two candidates for addSubClientInstanceAndAssociateToUser");
+            anchor = i;
+        }
+    }
+    if (anchor == SIZE_MAX) return note("join: ERROR: addSubClientInstanceAndAssociateToUser not found");
+    size_t joinSlot = anchor - kJoinEnabledBack, canAddSlot = anchor - kCanAddBack;
+    note("join: MinecraftGame vtable +0x{:X}, {} slots; addSubClient {} , isSplitscreenJoinEnabled {} ({}), "
+         "canAddSplitscreenSubClient {} ({})",
+         reinterpret_cast<uintptr_t>(vt) - game.base, count, anchor, joinSlot, describeFunction(game, vt[joinSlot]),
+         canAddSlot, describeFunction(game, vt[canAddSlot]));
+    gJoinEnabled = reinterpret_cast<JoinEnabledFn>(vt[joinSlot]);
+    gCanAdd      = reinterpret_cast<CanAddFn>(vt[canAddSlot]);
+    gAddSub      = reinterpret_cast<AddSubFn>(vt[anchor]);
+    bool ok = writeSlot(&vt[joinSlot], reinterpret_cast<uintptr_t>(&joinEnabledDetour))
+           && writeSlot(&vt[canAddSlot], reinterpret_cast<uintptr_t>(&canAddDetour))
+           && writeSlot(&vt[anchor], reinterpret_cast<uintptr_t>(&addSubDetour));
+    note("{}", ok ? "join: splitscreen joining turned on" : "join: ERROR: could not write the MinecraftGame vtable");
+}
+
 void probe() {
     using namespace std::chrono_literals;
     std::optional<Module> game;
@@ -325,6 +401,8 @@ void probe() {
     gOriginalAllowSplitScreen = reinterpret_cast<AllowSplitScreenFn>(allowSplitScreen);
     note("turning split screen on (AppPlatform slot {})", slot);
     patchSlotEverywhere(*game, platforms, count, slot, allowSplitScreen, "allowSplitScreen");
+    if (configFlag("forceSplitscreenJoin", true)) enableJoining(*game);
+    else note("forceSplitscreenJoin is off in config.json");
 }
 
 std::once_flag gStarted;

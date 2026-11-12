@@ -11,6 +11,11 @@
       "type": "boolean",
       "title": "One player per controller",
       "description": "Gives each controller its own player (the game on Android sends every controller to player 1). Turn off if controllers misbehave."
+    },
+    "forceSplitscreenJoin": {
+      "type": "boolean",
+      "title": "Let other controllers join",
+      "description": "Lets a second, third or fourth controller join as a split-screen player. Turn off if the game misbehaves."
     }
   }
 }

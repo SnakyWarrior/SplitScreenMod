@@ -1,4 +1,5 @@
 {
   "forceSplitScreen": true,
-  "separateControllers": true
+  "separateControllers": true,
+  "forceSplitscreenJoin": true
 }
