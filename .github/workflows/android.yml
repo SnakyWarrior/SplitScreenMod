@@ -9,6 +9,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # to publish the android-latest pre-release
     steps:
       - uses: actions/checkout@v7
 
@@ -36,3 +38,14 @@ jobs:
         with:
           name: ${{ github.event.repository.name }}-${{ github.sha }}-android-arm64
           path: build-android/package/
+
+      # The newest Android build is always at the same link, so it can be downloaded straight on the phone:
+      # https://github.com/<owner>/<repo>/releases/download/android-latest/SplitScreenMod-android-arm64.zip
+      - if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete android-latest --cleanup-tag -y || true
+          gh release create android-latest build-android/SplitScreenMod-android-arm64.zip \
+            --prerelease --target "$GITHUB_SHA" --title "Android (experimental, newest build)" \
+            --notes "Newest experimental Android build from ${GITHUB_REF_NAME} (${GITHUB_SHA::7}). Add it in LeviLauncher for Android with Mods > Add Mod."

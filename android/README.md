@@ -17,7 +17,7 @@ Controllers, the player menu and the pause menu button of the Windows mod are no
 
 ## Install
 
-Download `SplitScreenMod-android-arm64.zip` from the Actions tab (the **Android** workflow) and add it in
+Download the newest build from [releases/android-latest](../../../releases/download/android-latest/SplitScreenMod-android-arm64.zip) (always the same link) and add it in
 LeviLauncher's **Mods → Add Mod**. Start the game, enter a world, then send `Download/SplitScreenMod-android.log`.
 
 ## Build
