@@ -195,6 +195,21 @@ void patchSlotEverywhere(Module const& m, std::vector<ClassInfo> const& classes,
 // the two checks are 38 and 37 slots before it.
 constexpr size_t kAddSubClientSlot = 210, kJoinEnabledBack = 38, kCanAddBack = 37;
 
+Module const* gGameModule = nullptr;
+
+using SubIdFn = void (*)(void*, int);
+SubIdFn gQueueRemoval = nullptr, gReleaseSubId = nullptr;
+void queueRemovalDetour(void* self, int sub) {
+    uintptr_t ret = reinterpret_cast<uintptr_t>(__builtin_return_address(0));
+    note("join: queueSubclientRemoval({}) from +0x{:X}", sub, gGameModule ? ret - gGameModule->base : ret);
+    gQueueRemoval(self, sub);
+}
+void releaseSubIdDetour(void* self, int sub) {
+    uintptr_t ret = reinterpret_cast<uintptr_t>(__builtin_return_address(0));
+    note("join: releaseClientSubId({}) from +0x{:X}", sub, gGameModule ? ret - gGameModule->base : ret);
+    gReleaseSubId(self, sub);
+}
+
 using JoinEnabledFn = bool (*)(void*);
 using CanAddFn      = bool (*)(void*, int);
 using AddSubFn      = void (*)(void*, int);
@@ -215,9 +230,12 @@ bool joinEnabledDetour(void* self) {
     return true;
 }
 
+thread_local int tGameCanAdd = -1; // the game's own canAddSplitscreenSubClient answer while the mod adds a player
+
 bool canAddDetour(void* self, int controller) {
     gMinecraftGame = self;
     bool game      = gCanAdd(self, controller);
+    tGameCanAdd    = game;
     bool answer    = controller >= 1 && controller <= 3 ? true : game;
     if (gCanAddLogged < 40) {
         ++gCanAddLogged;
@@ -233,7 +251,6 @@ void addSubDetour(void* self, int controller) {
     note("join: addSubClientInstanceAndAssociateToUser({}) returned", controller);
 }
 
-Module const* gGameModule = nullptr;
 
 // Lending player 1's user (as the Windows mod does). The user manager keeps a vector of shared_ptr<User>; virtual 5
 // returns the primary user and virtual 53 the user of a controller (empty when there is none), both through x8.
@@ -260,6 +277,7 @@ bool lends(int controller) {
     return gLending.contains(controller);
 }
 
+// Only when the game finds no user for a lent controller (0.3.0): the user the game makes for the new player works.
 UserPtr userByControllerDetour(void* self, int controller) {
     UserPtr user = gUserByController(self, controller);
     if (user.object || !lends(controller)) return user;
@@ -352,7 +370,7 @@ AddCheckFn gAddCheck = nullptr;
 bool addCheckDetour(void* game, int controller, uint8_t* out, bool flag) {
     bool result = gAddCheck(game, controller, out, flag);
     bool answer = result;
-    if (!result && tAddingPlayer && controller >= 1 && controller <= 3) answer = true;
+    if (!result && tAddingPlayer && controller >= 1 && controller <= 3 && tGameCanAdd == 1) answer = true;
     note("join: may a player be added for controller {}? the game alone would answer {}, answering {}", controller,
          result, answer);
     return answer;
@@ -362,15 +380,17 @@ bool addCheckDetour(void* game, int controller, uint8_t* out, bool flag) {
 // A controller other than the first pressed Start: add a player for it, once (the game's own "press Start to join"
 // does not react to it on Android).
 std::mutex gJoinMutex;
-std::set<int> gJoined;
+std::map<int, std::chrono::steady_clock::time_point> gJoinTimes;
 
 void joinController(int controller) {
     void* game = gMinecraftGame.load();
     {
         std::lock_guard lock(gJoinMutex);
-        if (gJoined.contains(controller)) return;
+        auto now = std::chrono::steady_clock::now();
+        if (auto it = gJoinTimes.find(controller); it != gJoinTimes.end() && now - it->second < std::chrono::seconds(3))
+            return;
         if (!game || !gAddSub) return note("join: controller {} pressed Start, but MinecraftGame is not known yet", controller);
-        gJoined.insert(controller);
+        gJoinTimes[controller] = now;
     }
     note("join: controller {} pressed Start: adding player {}", controller, controller + 1);
     if (gGameModule) hookUserManager(*gGameModule, game);
@@ -387,6 +407,7 @@ void joinController(int controller) {
         gLending.insert(controller);
     }
     tAddingPlayer = true;
+    tGameCanAdd   = -1;
     addSubDetour(game, controller);
     tAddingPlayer = false;
 }
@@ -422,6 +443,12 @@ void enableJoining(Module const& game) {
            && writeSlot(&vt[canAddSlot], reinterpret_cast<uintptr_t>(&canAddDetour))
            && writeSlot(&vt[anchor], reinterpret_cast<uintptr_t>(&addSubDetour));
     note("{}", ok ? "join: splitscreen joining turned on" : "join: ERROR: could not write the MinecraftGame vtable");
+    // virtuals 10 and 16 (queueSubclientRemoval, releaseClientSubId: IMinecraftGame.h 9 and 15, one slot later here
+    // like getUserManager 52 -> 53)
+    gQueueRemoval = reinterpret_cast<SubIdFn>(vt[10]);
+    gReleaseSubId = reinterpret_cast<SubIdFn>(vt[16]);
+    writeSlot(&vt[10], reinterpret_cast<uintptr_t>(&queueRemovalDetour));
+    writeSlot(&vt[16], reinterpret_cast<uintptr_t>(&releaseSubIdDetour));
     if (ok) onStartPressed(joinController);
     // W: in _addSubClientInstanceAndAssociateToUserInternal (the "b" target of slot 210), the first bl after
     // "add x2, sp, #164" (its out parameter)
