@@ -10,8 +10,8 @@
 #include "SplitScreen.h"
 
 #include "Elf.h"
+#include "InputProbe.h"
 
-#include <pl/Input.hpp>
 
 #include <dlfcn.h>
 
@@ -181,16 +181,6 @@ void patchSlotEverywhere(Module const& m, std::vector<ClassInfo> const& classes,
         }
 }
 
-void dumpVtable(Module const& m, ClassInfo const& c, uintptr_t* vt, uintptr_t* base, size_t from, size_t to) {
-    size_t n = countSlots(m, vt, 2000);
-    note("  vtable at +0x{:X}, {} slots", reinterpret_cast<uintptr_t>(vt) - m.base, n);
-    for (size_t i = from; i < std::min(n, to); ++i) {
-        if (base && base != vt && i < countSlots(m, base, 2000) && base[i] == vt[i]) continue; // inherited, unchanged
-        note("    [{}] +0x{:X} {}", i, vt[i] - m.base, describeFunction(m, vt[i]));
-    }
-    (void)c;
-}
-
 void probe() {
     using namespace std::chrono_literals;
     std::optional<Module> game;
@@ -229,7 +219,15 @@ void probe() {
                 }
         }
         note("{} JNI functions in all", jni);
+        // the code of the input JNI functions, to read offline
+        for (auto const& e : exports)
+            for (char const* name : {"MainActivity_nativeKeyHandler", "JellyBeanDeviceManager_onInputDeviceAddedNative",
+                                     "JellyBeanDeviceManager_onInputDeviceRemovedNative",
+                                     "JellyBeanDeviceManager_setControllerDetailsNative",
+                                     "JellyBeanDeviceManager_onInputDeviceChangedNative"})
+                if (e.name.ends_with(name)) dumpCode(*game, name, e.address, 512, [](std::string const& l) { note("{}", l); });
     }
+    startInputProbe(*game, [](std::string const& l) { note("{}", l); });
 
     // 2. classes by RTTI. PlayerListPacket is a class every version has: if it is not found, the search itself failed.
     for (auto const& c : findClasses(*game, "16PlayerListPacket"))
@@ -249,18 +247,16 @@ void probe() {
     for (auto const& c : platforms)
         for (auto* vt : c.vtables) {
             if (countSlots(*game, vt, 2000) < baseCount) continue;
-            note("class {}:", c.name);
-            dumpVtable(*game, c, vt, baseVt, 0, 2000);
+            note("class {}: {} slots", c.name, countSlots(*game, vt, 2000));
         }
 
     for (char const* needle : {"MinecraftGame", "SplitscreenJoinListener", "GameControllerHandler", "GamepadManager"}) {
         auto classes = findClasses(*game, needle);
         note("{} classes named *{}*", classes.size(), needle);
         for (auto const& c : classes) {
+            if (std::string_view(needle) == "MinecraftGame" && c.name != "13MinecraftGame") continue;
             if (c.name.find("__function") != std::string::npos || c.name.find("shared_ptr") != std::string::npos) continue;
             note("class {}: {} vtable(s)", c.name, c.vtables.size());
-            if (std::string_view(needle) == "MinecraftGame" && c.name == "13MinecraftGame")
-                for (auto* vt : c.vtables) dumpVtable(*game, c, vt, nullptr, 0, 2000);
         }
     }
 
@@ -292,14 +288,11 @@ void probe() {
     if (!configFlag("forceSplitScreen", true)) return note("forceSplitScreen is off in config.json");
     gOriginalAllowSplitScreen = reinterpret_cast<AllowSplitScreenFn>(allowSplitScreen);
     note("turning split screen on (AppPlatform slot {})", slot);
+    dumpCode(*game, "allowSplitScreen", allowSplitScreen, 256, [](std::string const& l) { note("{}", l); });
     patchSlotEverywhere(*game, platforms, count, slot, allowSplitScreen, "allowSplitScreen");
 }
 
 std::once_flag gStarted;
-
-// Android key codes of gamepad buttons (KeyEvent.KEYCODE_BUTTON_A = 96 ... KEYCODE_BUTTON_MODE = 110,
-// KEYCODE_BUTTON_1..16 = 188..203). The log shows whether controller presses reach the game at all.
-bool isGamepadKey(int code) { return (code >= 96 && code <= 110) || (code >= 188 && code <= 203); }
 
 void watchGame() {
     using namespace std::chrono_literals;
@@ -333,14 +326,6 @@ bool SplitScreenMod::load() {
 
 bool SplitScreenMod::enable() {
     std::call_once(gStarted, [] {
-        pl::input::registerKeyCallback([](pl::input::KeyEvent const& e) {
-            static std::atomic<int> logged{0};
-            if (isGamepadKey(e.keyCode) && logged < 200) {
-                ++logged;
-                note("gamepad key {} {}", e.keyCode, e.isKeyDown ? "down" : "up");
-            }
-            return false; // the game still gets the key
-        });
         std::thread([] {
             probe();
             watchGame();
