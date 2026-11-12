@@ -1,6 +1,7 @@
 #include "InputProbe.h"
 
 #include <android/input.h>
+#include <pl/memory/Hook.hpp>
 #include <dlfcn.h>
 
 #include <atomic>
@@ -65,7 +66,44 @@ int32_t getDeviceIdWrapper(AInputEvent const* event) {
     return id;
 }
 
+using KeyFromJavaFn = void (*)(void*, void*, int32_t*);
+KeyFromJavaFn    gKeyFromJava = nullptr;
+std::atomic<int> gRawLogged{0};
+
+void keyFromJavaDetour(void* env, void* javaEvent, int32_t* out) {
+    gKeyFromJava(env, javaEvent, out);
+    if (!out) return;
+    // the first few events in full, to check the struct layout of this GameActivity version
+    if (gRawLogged < 4) {
+        ++gRawLogged;
+        std::string raw;
+        for (int i = 0; i < 16; ++i) raw += fmt::format(" {}", out[i]);
+        gLog(fmt::format("key event raw:{}", raw));
+    }
+    int32_t device = out[0], source = out[1];
+    std::lock_guard lock(gMutex);
+    if (gDevicesSeen.insert(device).second) gLog(fmt::format("input: first key from device {}: {}", device, sourceName(source)));
+    if ((source & AINPUT_SOURCE_GAMEPAD) == AINPUT_SOURCE_GAMEPAD && gKeysLogged < 300) {
+        ++gKeysLogged;
+        gLog(fmt::format("input: device {} gamepad key event (action {})", device, out[2]));
+    }
+}
+
 } // namespace
+
+void watchGameActivityKeys(Module const& game, uintptr_t keyEventFromJava, LogFn log) {
+    static Module copy = game;
+    gGame              = &copy;
+    gLog               = std::move(log);
+    if (pl::memory::hook(reinterpret_cast<pl::memory::FuncPtr>(keyEventFromJava),
+                         reinterpret_cast<pl::memory::FuncPtr>(&keyFromJavaDetour),
+                         reinterpret_cast<pl::memory::FuncPtr*>(&gKeyFromJava))
+        != 0) {
+        gLog("input: ERROR: could not hook GameActivityKeyEvent_fromJava");
+        return;
+    }
+    gLog(fmt::format("input: watching GameActivityKeyEvent_fromJava (+0x{:X})", keyEventFromJava - copy.base));
+}
 
 void dumpCode(Module const& game, char const* label, uintptr_t address, size_t size, LogFn const& log) {
     if (!game.isCode(address) || !game.isCode(address + size - 1)) return log(fmt::format("code {}: not in the game", label));

@@ -18,6 +18,11 @@ using LogFn = std::function<void(std::string const&)>;
 
 void startInputProbe(Module const& game, LogFn log);
 
+// GameActivity (the Android Game Development Kit) turns each Java KeyEvent into a GameActivityKeyEvent with
+// GameActivityKeyEvent_fromJava(JNIEnv*, jobject, GameActivityKeyEvent*). The struct starts with the Android device
+// id and source. This hooks it to log which device each gamepad button comes from.
+void watchGameActivityKeys(Module const& game, uintptr_t keyEventFromJava, LogFn log);
+
 // Writes `size` bytes of code at `address` as hex lines that llvm-mc can disassemble.
 void dumpCode(Module const& game, char const* label, uintptr_t address, size_t size, LogFn const& log);
 
