@@ -8,7 +8,7 @@
 #include <fmt/format.h>
 
 namespace {
-constexpr size_t kMaxSlots = 400;
+constexpr size_t kMaxSlots = 600;
 }
 
 extern "C" {

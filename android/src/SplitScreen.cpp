@@ -17,6 +17,7 @@
 #include "ControllerSplit.h"
 #include "VTrace.h"
 #include "PostTrace.h"
+#include "FormProbe.h"
 
 
 #include <dlfcn.h>
@@ -646,6 +647,7 @@ void probe() {
     gOriginalAllowSplitScreen = reinterpret_cast<AllowSplitScreenFn>(allowSplitScreen);
     note("turning split screen on (AppPlatform slot {})", slot);
     patchSlotEverywhere(*game, platforms, count, slot, allowSplitScreen, "allowSplitScreen");
+    startFormProbe(*game, [](std::string const& l) { note("{}", l); });
     if (configFlag("forceSplitscreenJoin", true)) enableJoining(*game);
     else note("forceSplitscreenJoin is off in config.json");
 }
