@@ -775,7 +775,7 @@ void enableJoining(Module const& game) {
     for (auto const& c : findClasses(game, "21PauseScreenController"))
         if (c.name == "21PauseScreenController" && !c.vtables.empty())
             traceVtable(game, c.vtables.front(), std::min<size_t>(countSlots(game, c.vtables.front(), 400), 150), 420,
-                        "PauseScreenController", [](std::string const& l) { note("{}", l); });
+                        "PauseScreenController", [](std::string const& l) { note("{}", l); }, 40);
     size_t listenerBase = 575;
     for (auto const& c : findClasses(game, "SplitscreenJoinListener"))
         for (auto* lvt : c.vtables) {

@@ -1,5 +1,8 @@
 #include "VTrace.h"
 
+#include <sys/uio.h>
+#include <unistd.h>
+
 #include <atomic>
 #include <chrono>
 #include <mutex>
@@ -79,8 +82,14 @@ extern "C" void splitscreen_on_vcall(uint64_t slot, uint64_t* regs, uint64_t ret
     using namespace splitscreen;
     if (gAlways[slot].load(std::memory_order_relaxed) > 0) {
         --gAlways[slot];
-        gLog(fmt::format("trace: {} called from {} (x1=0x{:X} w1={} w2={} w3={})", gNames[slot], offset(ret), regs[1],
-                         int32_t(regs[1]), int32_t(regs[2]), int32_t(regs[3])));
+        // the 48 bytes x1 points to, when it is a pointer (an event, a string, ...)
+        uint8_t     bytes[48] = {};
+        std::string at;
+        iovec       local{bytes, sizeof bytes}, remote{reinterpret_cast<void*>(regs[1]), sizeof bytes};
+        if (regs[1] > 0x10000 && process_vm_readv(getpid(), &local, 1, &remote, 1, 0) == ssize_t(sizeof bytes))
+            for (uint8_t b : bytes) at += fmt::format("{:02x}", b);
+        gLog(fmt::format("trace: {} virtual {} called from {} (x1=0x{:X} w1={} w2={} w3={}) [x1]={}", gNames[slot],
+                         gSlots[slot], offset(ret), regs[1], int32_t(regs[1]), int32_t(regs[2]), int32_t(regs[3]), at));
     }
     if (!gTracing.load(std::memory_order_relaxed)) return;
     ++gCounts[slot];
