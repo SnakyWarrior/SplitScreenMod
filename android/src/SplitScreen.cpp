@@ -481,6 +481,7 @@ using TickFn     = void (*)(void*, bool, bool);
 using GetSubIdFn = uint64_t (*)(void*);
 constexpr size_t   kLeaveFlags  = 0x6E0;
 TickFn             gClientTick  = nullptr;
+uintptr_t*         gClientVt    = nullptr;
 GetSubIdFn         gGetSubId    = nullptr;
 std::atomic<void*> gClientBySub[4] = {};
 std::atomic<bool>  gLeaveWanted[4] = {};
@@ -641,6 +642,7 @@ bool hookClientLeave(Module const& game) {
                     note("leave: the client frame is slot {} (+0x{:X}), getClientSubId slot 303 ({})", i,
                          vt[i] - game.base, describeFunction(game, vt[303]));
                     gClientTick = reinterpret_cast<TickFn>(vt[i]);
+                    gClientVt   = vt;
                     gGetSubId   = reinterpret_cast<GetSubIdFn>(vt[303]);
                     // The game's own "this player leaves" (the pause menu's Save & Leave): a function that sets the
                     // "leave requested" byte +0x6E1 (strb wN, [xM, #0x6E1], before its first ret). The mod only sets
@@ -758,7 +760,15 @@ void enableJoining(Module const& game) {
         else note("join: add-player check +0x{:X} hooked", check - game.base);
     }
     // after the patches above, so the trace sees our detours' slots as the originals
-    if (ok) traceVtable(game, vt, count, 0, "MinecraftGame", [](std::string const& l) { note("{}", l); });
+    // ClientInstance's functions (instead of MinecraftGame's): which one the pause menu's Save & Leave calls (the
+    // Windows version calls requestLeaveGameAsync; on Android it sets the leave bytes later, from another place).
+    if (gClientVt) {
+        size_t n = countSlots(game, gClientVt, 600);
+        traceVtable(game, gClientVt, std::min<size_t>(n, 316), 0, "ClientInstance", [](std::string const& l) { note("{}", l); });
+        if (n > 316)
+            traceVtable(game, gClientVt + 316, std::min<size_t>(n - 316, 101), 474, "ClientInstance+316",
+                        [](std::string const& l) { note("{}", l); });
+    }
     // The pause menu (its Split screen button) and the game's join prompt: which of their functions run, to find
     // how the Windows version's button and prompt work here.
     for (auto const& c : findClasses(game, "21PauseScreenController"))
