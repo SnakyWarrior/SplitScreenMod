@@ -8,6 +8,7 @@
 #include "Elf.h"
 #include "InputProbe.h"
 
+#include <cstdint>
 #include <functional>
 #include <string>
 #include <vector>
@@ -23,6 +24,9 @@ void showForm(int sub, std::string const& title, std::string const& content, std
 
 // Forgets player `sub`'s menu (the player leaves); its answer, if one still comes, is ignored.
 void cancelMenu(int sub);
+
+// Milliseconds since player `sub`'s last menu was sent or answered.
+int64_t msSinceMenu(int sub);
 
 // Whether player 1 is in a world (and has been for a few seconds: not while it loads).
 bool inWorld();

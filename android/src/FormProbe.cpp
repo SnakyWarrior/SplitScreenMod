@@ -150,6 +150,15 @@ bool sendForm(void const* id, uint32_t sub, uint32_t formId, std::string json) {
     return true;
 }
 
+// Player 1 in a world: its PlayerAuthInputPacket keeps coming (one a tick), for 3 seconds at least.
+std::atomic<int64_t> gFirstAuth{0}, gLastAuth{0};
+int64_t              nowMs() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch())
+        .count();
+}
+
+std::atomic<int64_t> gLastFormAt[4] = {}; // when each player's last menu was sent or answered (ms)
+
 // Menus: one pending form per player (sub client), sent from that player's next PlayerAuthInputPacket (the server
 // thread). A busy player (another screen open) answers "UserBusy" at once: the form is sent again half a second
 // later, for up to 20 seconds. The answer: a Json::Value (+0x38: 8-byte value, type +0x40, 1 = int) holding the button index.
@@ -191,6 +200,7 @@ void maybeSendMenu(void const* source, int sub) {
             json   = p.json;
         }
     }
+    if (sub >= 0 && sub < 4) gLastFormAt[sub] = nowMs();
     if (formId) {
         sendForm(source, uint32_t(sub), formId, std::move(json));
         return;
@@ -202,6 +212,7 @@ void maybeSendMenu(void const* source, int sub) {
 
 // The answer to form `formId` from `sub`: button index, -1 when closed; busy sends it again.
 void menuAnswered(int sub, uint32_t formId, bool busy, int button) {
+    if (sub >= 0 && sub < 4) gLastFormAt[sub] = nowMs();
     std::function<void(int)> done;
     {
         std::lock_guard lock(gSeenMutex);
@@ -236,13 +247,6 @@ uint8_t packetSubId(void* packetRef) {
     uint8_t   sub    = 0xFF;
     if (packetRef && safeRead(reinterpret_cast<uintptr_t>(packetRef), &packet, 8) && packet) safeRead(packet + 16, &sub, 1);
     return sub;
-}
-
-// Player 1 in a world: its PlayerAuthInputPacket keeps coming (one a tick), for 3 seconds at least.
-std::atomic<int64_t> gFirstAuth{0}, gLastAuth{0};
-int64_t              nowMs() {
-    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch())
-        .count();
 }
 
 void authHandleDetour(void* self, void* source, void* callback, void* packetRef) {
@@ -303,6 +307,9 @@ void hookHandle(Found const& f, void* detour, HandleFn* original, char const* wh
 }
 
 } // namespace
+
+
+int64_t msSinceMenu(int sub) { return sub >= 0 && sub < 4 ? nowMs() - gLastFormAt[sub] : INT64_MAX; }
 
 bool inWorld() {
     int64_t now = nowMs();

@@ -543,6 +543,14 @@ void leaveSplitScreen(int sub) {
 
 void logLine(std::string const& line) { note("{}", line); }
 
+// The player leaves once its last menu is 6 seconds old (a player removed soon after a menu took the game down).
+void leaveWhenQuiet(int sub) {
+    runOnInputThread([sub] {
+        if (msSinceMenu(sub) < 6000) return leaveWhenQuiet(sub);
+        leaveSplitScreen(sub);
+    }, std::chrono::milliseconds(500));
+}
+
 // What the menus (Menus.cpp) ask of the game.
 namespace game {
 
@@ -569,7 +577,7 @@ void requestLeave(int sub) {
     // Removed at once, a player whose menu is still closing takes the game down with it (a destroyed mutex): the
     // player leaves once its screen has closed
     // (3 s: with the resource pack's menu look, 1.5 s was not enough)
-    runOnInputThread([sub] { leaveSplitScreen(sub); }, std::chrono::seconds(3));
+    leaveWhenQuiet(sub);
 }
 
 void moveController(int from, int to) { swapControllers(from, to); }
@@ -695,6 +703,10 @@ void enableJoining(Module const& game) {
     gReleaseSubId = reinterpret_cast<SubIdFn>(vt[16]);
     writeSlot(&vt[10], reinterpret_cast<uintptr_t>(&queueRemovalDetour));
     hookClientLeave(game);
+    // The code of the game's "terminating" crash when a player leaves (1.26: the same frames every time).
+    for (auto [label, at] : {std::pair{"crash9", 0x88A4C30}, {"crash10", 0xFD8ECD0}, {"crash11", 0xFD8DD58},
+                             {"crash12", 0xB7C1CC0}, {"crash13", 0xB803EEC}})
+        dumpCode(game, label, game.base + at - 0x300, 0x340, [](std::string const& l) { note("{}", l); });
     writeSlot(&vt[16], reinterpret_cast<uintptr_t>(&releaseSubIdDetour));
     // On Windows the game's join prompt asks to add a player; on Android the game shows none, so Start on a controller
     // without a player asks (the same request; not outside a world). "startJoins": false leaves it to the game.
