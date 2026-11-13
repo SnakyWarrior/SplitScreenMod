@@ -134,6 +134,7 @@ struct Pending {
     std::function<void(int)>              done;
     std::chrono::steady_clock::time_point due;
     int                                   tries = 0;
+    std::chrono::steady_clock::time_point created = std::chrono::steady_clock::now();
 };
 std::map<int, Pending> gPending; // sub client -> its form
 uint32_t               gNextFormId = 0x5C5C0001;
@@ -247,7 +248,14 @@ void hookHandle(Found const& f, void* detour, HandleFn* original, char const* wh
 
 bool menuOpen(int sub) {
     std::lock_guard lock(gSeenMutex);
-    return gPending.contains(sub);
+    auto it = gPending.find(sub);
+    if (it == gPending.end()) return false;
+    // a menu that was never answered (the player left, the world closed) stops counting after a minute
+    if (it->second.created + std::chrono::minutes(1) < std::chrono::steady_clock::now()) {
+        gPending.erase(it);
+        return false;
+    }
+    return true;
 }
 
 void showMenu(int sub, std::string const& title, std::string const& content, std::vector<std::string> const& buttons,
