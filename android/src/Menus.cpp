@@ -62,8 +62,10 @@ std::string tr(std::string const& key, std::vector<std::string> const& params = 
 
 // --- the Windows version's helpers ----------------------------------------------------------------------------------
 // Button texts the resource pack draws specially (see its server_form.json): a square button laid over the right end
-// of the row above it (remove that player), a row that leaves room for that square, and the green closing button.
+// of the row above it (remove that player / take player 1's controller), a row that leaves room for that square, and
+// the green closing button.
 constexpr char const* kKickButton    = "[x]";
+constexpr char const* kPadButton     = "[p]";
 constexpr char const* kRoomForSquare = " "; // a leading space: not seen, but the UI can test for it
 constexpr char const* kTitleMenu     = "[ss:m]"; // Split screen
 constexpr char const* kTitleWho      = "[ss:w]"; // Who is playing?
@@ -181,13 +183,23 @@ void setTexts(std::filesystem::path const& pack, std::filesystem::path const& op
             while (!language.empty() && (language.back() == '\r' || language.back() == ' ')) language.pop_back();
         }
     if (language.empty()) { // the game follows the phone's language: "el-GR" -> "el_GR"
-        char value[PROP_VALUE_MAX] = {};
-        __system_property_get("persist.sys.locale", value);
-        language = value;
+        for (char const* prop : {"persist.sys.locale", "ro.product.locale", "persist.sys.language"}) {
+            char value[PROP_VALUE_MAX] = {};
+            __system_property_get(prop, value);
+            if ((language = value).size() >= 2) break;
+        }
+        if (language.size() == 2) language += "_" + std::string(language == "el" ? "GR" : language == "en" ? "US" : "");
         std::replace(language.begin(), language.end(), '-', '_');
     }
     auto texts = readLang(pack / "texts" / "en_US.lang");
-    for (auto& [k, v] : readLang(pack / "texts" / (language + ".lang"))) texts[k] = v;
+    auto local = readLang(pack / "texts" / (language + ".lang"));
+    if (local.empty()) // e.g. "el_CY": the first of the pack's languages that starts the same
+        for (auto const& f : std::filesystem::directory_iterator(pack / "texts", std::filesystem::directory_options::skip_permission_denied))
+            if (f.path().filename().string().rfind(language.substr(0, 2), 0) == 0) {
+                local = readLang(f.path());
+                break;
+            }
+    for (auto& [k, v] : local) texts[k] = v;
     note("menus: texts in {} ({} lines)", language, texts.size());
     std::lock_guard lock(gTextsMutex);
     gTexts = std::move(texts);
@@ -200,13 +212,14 @@ void onSettingsButton(int who) {
     if (menuOpen(who)) return;
     int  myPad = players.at(who);
 
-    enum class Act { Swap, Kick, Done, Nothing };
+    bool firstPad = game::hasController(0); // player 1's controller, if they have one (else they play on touch)
+    enum class Act { Swap, Kick, FreePad, Done, Nothing };
     struct Item {
         Act act;
         int sub;
     };
-    // The Windows version's menu also has the layout (top and bottom / side by side), saved players who are not
-    // playing (to switch to) and player 1's controller; not on Android yet.
+    // The Windows version's menu also has the layout (top and bottom / side by side) and saved players who are not
+    // playing (to switch to); not on Android yet.
     std::vector<Item>        items{{Act::Nothing, -1}};
     std::vector<std::string> buttons{"[h:Players]"};
     std::vector<std::string> pictures{""};
@@ -214,8 +227,8 @@ void onSettingsButton(int who) {
         bool hasPad = game::hasController(controller);
         auto name   = localName(sub);
         auto status = sub == 0 ? "Player 1" : hasPad ? "Playing" : "No controller";
-        // a square button at the end of the row: remove players 2-4
-        bool square = sub != 0;
+        // a square button at the end of the row: remove players 2-4, or take player 1's controller if they have one
+        bool square = sub != 0 || firstPad;
         items.push_back({Act::Swap, sub});
         buttons.push_back(fmt::format("{}{}", square ? kRoomForSquare : "", name));
         pictures.push_back(hasPad ? badge(sub) : kNameTag);
@@ -228,9 +241,9 @@ void onSettingsButton(int who) {
         buttons.push_back(fmt::format("[{}:{}]", square ? "stag" : "tag", status));
         pictures.emplace_back();
         if (square) {
-            items.push_back({Act::Kick, sub});
-            buttons.push_back(kKickButton);
-            pictures.push_back("textures/splitscreen/cross");
+            items.push_back({sub == 0 ? Act::FreePad : Act::Kick, sub});
+            buttons.push_back(sub == 0 ? kPadButton : kKickButton);
+            pictures.push_back(sub == 0 ? "textures/ui/controller_glyph" : "textures/splitscreen/cross");
         }
     }
     items.push_back({Act::Done, -1});
@@ -254,6 +267,10 @@ void onSettingsButton(int who) {
             if (!theyHavePad && who != 0) game::requestLeave(who);
             return;
         }
+        case Act::FreePad: // player 1 goes back to the touch screen; the controller waits for start to be pressed
+            game::freeFirstController();
+            tell(0, tr("splitscreen.tell.pressStart"));
+            return;
         case Act::Kick:
             if (players.contains(item.sub)) {
                 note("settings: player {} removed", item.sub + 1);

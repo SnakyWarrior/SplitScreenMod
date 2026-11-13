@@ -20,12 +20,12 @@
     "firstControllerIsPlayer1": {
       "type": "boolean",
       "title": "First controller plays player 1",
-      "description": "Off: player 1 keeps the touch screen and every controller joins as a new player through the game's join prompt. On: the first controller plays player 1."
+      "description": "Off: player 1 keeps the touch screen and every controller joins as a new player with Start. On: the first controller plays player 1."
     },
     "startJoins": {
       "type": "boolean",
       "title": "Start joins directly",
-      "description": "Off: players join through the game's own join prompt. On: Start on a controller without a player asks to join at once (if the game shows no prompt)."
+      "description": "On: Start on a controller without a player adds a player in a loaded world (the game shows no join prompt on Android). Off: only the game's own join prompt adds players."
     }
   }
 }

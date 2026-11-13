@@ -25,6 +25,8 @@ bool hasController(int controller);
 void requestLeave(int sub);
 // The controller of `from` now plays `to`, and `to`'s (if any) plays `from`.
 void moveController(int from, int to);
+// Player 1 goes back to the touch screen; its controller waits for Start.
+void freeFirstController();
 // Adds a player for controller `controller`; the game gives it the first free sub client id. `joined` gets that id,
 // or -1 when no player was added.
 void join(int controller, std::function<void(int sub)> joined = {});

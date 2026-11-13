@@ -543,9 +543,7 @@ std::map<int, int> players() {
     return out;
 }
 
-// Player 1 plays on the touch screen: that is its controller (it is never "without a controller", and nobody takes it
-// over: a controller given to player 1 made the game drop players and crash).
-bool hasController(int controller) { return controller == 0 || controllerConnected(controller); }
+bool hasController(int controller) { return controllerConnected(controller); }
 
 void requestLeave(int sub) {
     if (sub < 1 || sub > 3) return; // player 1 leaving is leaving the world
@@ -563,9 +561,16 @@ void requestLeave(int sub) {
     runOnInputThread([sub] { leaveSplitScreen(sub); }, std::chrono::seconds(3));
 }
 
-void moveController(int from, int to) {
-    if (from == 0 || to == 0) return note("menus: player 1 keeps the touch screen");
-    swapControllers(from, to);
+void moveController(int from, int to) { swapControllers(from, to); }
+
+void freeFirstController() {
+    auto playing = players();
+    for (int c = 1; c <= 3; ++c)
+        if (!playing.contains(c) && !controllerConnected(c)) {
+            note("menus: controller taken from player 1 (it waits for Start as controller {})", c);
+            return swapControllers(0, c);
+        }
+    note("menus: no free place for player 1's controller");
 }
 
 void join(int controller, std::function<void(int)> joined) {
@@ -671,9 +676,9 @@ void enableJoining(Module const& game) {
     writeSlot(&vt[10], reinterpret_cast<uintptr_t>(&queueRemovalDetour));
     hookClientLeave(game);
     writeSlot(&vt[16], reinterpret_cast<uintptr_t>(&releaseSubIdDetour));
-    // Players join through the game's own prompt. With "startJoins" in config.json, Start on a controller without a
-    // player asks to join directly (for when the game shows no prompt).
-    if (ok) onStartPressed([startJoins = configFlag("startJoins", false)](int controller) {
+    // On Windows the game's join prompt asks to add a player; on Android the game shows none, so Start on a controller
+    // without a player asks (the same request; not outside a world). "startJoins": false leaves it to the game.
+    if (ok) onStartPressed([startJoins = configFlag("startJoins", true)](int controller) {
         if (game::players().contains(controller)) return; // its pause menu
         note("join: controller {} pressed Start{}", controller, startJoins ? "" : " (the game's prompt decides)");
         if (startJoins) menus::onJoinRequest(controller);
