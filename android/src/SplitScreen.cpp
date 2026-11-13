@@ -440,6 +440,70 @@ void joinController(int controller) {
     tAddingPlayer = false;
 }
 
+// ClientInstance: the game's own "this player leaves" (requestLeaveGame(bool switchScreen, bool sync)): it closes
+// the player's screens and level and then calls MinecraftGame::queueSubclientRemoval. Calling queueSubclientRemoval
+// alone leaves the player's client half there, and the game crashes on a destroyed mutex. The client of each sub
+// client comes from getClientSubId (the slot requestLeaveGame calls for queueSubclientRemoval's argument).
+using LeaveFn    = void (*)(void*, bool, bool);
+using GetSubIdFn = uint64_t (*)(void*);
+LeaveFn                 gLeave         = nullptr;
+GetSubIdFn              gGetSubId      = nullptr;
+std::atomic<void*>      gClientBySub[4] = {};
+
+uint64_t getSubIdDetour(void* self) {
+    uint64_t sub = gGetSubId(self);
+    if ((sub & 0xFF) < 4 && gClientBySub[sub & 0xFF].load(std::memory_order_relaxed) != self) {
+        gClientBySub[sub & 0xFF].store(self, std::memory_order_relaxed);
+        note("leave: client of sub client {} is {}", sub & 0xFF, self);
+    }
+    return sub;
+}
+
+void leaveDetour(void* self, bool switchScreen, bool sync) {
+    uintptr_t ret = reinterpret_cast<uintptr_t>(__builtin_return_address(0));
+    note("leave: requestLeaveGame({}, {}) of client {} (sub client {}) from +0x{:X}", switchScreen, sync, self,
+         gGetSubId ? int(gGetSubId(self) & 0xFF) : -1, gGameModule ? ret - gGameModule->base : ret);
+    gLeave(self, switchScreen, sync);
+}
+
+void leaveSplitScreen(int sub) {
+    void* client = sub >= 1 && sub < 4 ? gClientBySub[sub].load() : nullptr;
+    if (!gLeave || !client) return note("menus: ERROR: no client for player {} (leave {})", sub + 1, gLeave != nullptr);
+    note("menus: player {} leaves (client {})", sub + 1, client);
+    leaveDetour(client, true, false);
+}
+
+bool hookClientLeave(Module const& game) {
+    constexpr uint32_t kLdrSubIdSlot = 0xF944BD08; // ldr x8, [x8, #0x978]: getClientSubId, slot 303
+    constexpr uint32_t kLdrRemoval   = 0xF9402908; // ldr x8, [x8, #0x50]: MinecraftGame::queueSubclientRemoval
+    for (auto const& c : findClasses(game, "14ClientInstance")) {
+        if (c.name != "14ClientInstance") continue;
+        for (uintptr_t* vt : c.vtables) {
+            size_t count = countSlots(game, vt, 2000);
+            note("leave: ClientInstance vtable +0x{:X}, {} slots", reinterpret_cast<uintptr_t>(vt) - game.base, count);
+            if (count <= 303) continue;
+            for (size_t i = 0; i < count; ++i) {
+                if (!game.isCode(vt[i]) || !game.isCode(vt[i] + 0x400)) continue;
+                auto const* code = reinterpret_cast<uint32_t const*>(vt[i]);
+                for (size_t k = 0; k < 0x100 - 8; ++k) {
+                    if (code[k] != kLdrSubIdSlot) continue;
+                    bool removal = false;
+                    for (size_t j = k + 1; j < k + 8; ++j) removal |= code[j] == kLdrRemoval;
+                    if (!removal) continue;
+                    note("leave: requestLeaveGame is slot {} (+0x{:X}), getClientSubId slot 303 ({})", i,
+                         vt[i] - game.base, describeFunction(game, vt[303]));
+                    gLeave    = reinterpret_cast<LeaveFn>(vt[i]);
+                    gGetSubId = reinterpret_cast<GetSubIdFn>(vt[303]);
+                    return writeSlot(&vt[i], reinterpret_cast<uintptr_t>(&leaveDetour))
+                        && writeSlot(&vt[303], reinterpret_cast<uintptr_t>(&getSubIdDetour));
+                }
+            }
+        }
+    }
+    note("leave: ERROR: ClientInstance::requestLeaveGame not found");
+    return false;
+}
+
 // The Split screen menu, on Select (View / Back) of a controller that plays. The added player's sub client id is its
 // controller number (1-3).
 void openSplitScreenMenu(int controller) {
@@ -456,9 +520,7 @@ void openSplitScreenMenu(int controller) {
                  note("menus: player {} leaves split screen in 1.5 seconds", controller + 1);
                  runOnInputThread(
                      [controller] {
-                         void* game = gMinecraftGame.load();
-                         note("menus: removing player {}", controller + 1);
-                         if (game && gQueueRemoval) queueRemovalDetour(game, controller);
+                         leaveSplitScreen(controller);
                      },
                      std::chrono::milliseconds(1500));
              });
@@ -500,8 +562,7 @@ void enableJoining(Module const& game) {
     gQueueRemoval = reinterpret_cast<SubIdFn>(vt[10]);
     gReleaseSubId = reinterpret_cast<SubIdFn>(vt[16]);
     writeSlot(&vt[10], reinterpret_cast<uintptr_t>(&queueRemovalDetour));
-    // The game's own "player leaves" path (1.21.x): the code before its queueSubclientRemoval call.
-    dumpCode(game, "leave", game.base + 0x9B7B540 - 0x600, 0x640, [](std::string const& line) { note("{}", line); });
+    hookClientLeave(game);
     writeSlot(&vt[16], reinterpret_cast<uintptr_t>(&releaseSubIdDetour));
     if (ok) onStartPressed(joinController);
     if (ok) onSelectPressed(openSplitScreenMenu);
