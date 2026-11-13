@@ -12,7 +12,7 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(MOD_ID "SplitScreenMod" CACHE STRING "LeviLauncher mod package directory name")
 set(MOD_NAME "SplitScreenMod" CACHE STRING "LeviLauncher mod display name")
 set(MOD_AUTHOR "SnakyWarrior" CACHE STRING "LeviLauncher mod author")
-set(MOD_VERSION "0.7.2" CACHE STRING "LeviLauncher mod version")
+set(MOD_VERSION "0.7.3" CACHE STRING "LeviLauncher mod version")
 set(MOD_LIBRARY_NAME "SplitScreenMod" CACHE STRING "Native library name without lib prefix or .so suffix")
 set(MOD_MINECRAFT_VERSIONS "[\"1.26.*\"]" CACHE STRING "Raw JSON array for manifest minecraft_versions")
 
@@ -68,7 +68,8 @@ add_custom_command(TARGET ${MOD_LIBRARY_NAME} POST_BUILD
 
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/manifest.json.in" "${CMAKE_CURRENT_BINARY_DIR}/manifest.json" @ONLY)
 
-# SplitScreenMod-android-arm64.levipack: a zip with SplitScreenMod/manifest.json and SplitScreenMod/libSplitScreenMod.so.
+# SplitScreenMod-android-arm64.levipack: a zip with SplitScreenMod/manifest.json, SplitScreenMod/libSplitScreenMod.so,
+# config/ and pack/ (the resource pack).
 # The same zip is also written as .zip, which LeviLauncher's "Add Mod" accepts.
 set(PACKAGE_ROOT "${CMAKE_CURRENT_BINARY_DIR}/package")
 set(PACKAGE_MOD_DIR "${PACKAGE_ROOT}/${MOD_ID}")
@@ -79,6 +80,9 @@ add_custom_target(levi_package
     COMMAND "${CMAKE_COMMAND}" -E copy "$<TARGET_FILE:${MOD_LIBRARY_NAME}>" "${PACKAGE_MOD_DIR}/lib${MOD_LIBRARY_NAME}.so"
     COMMAND "${CMAKE_COMMAND}" -E copy "${CMAKE_CURRENT_BINARY_DIR}/manifest.json" "${PACKAGE_MOD_DIR}/manifest.json"
     COMMAND "${CMAKE_COMMAND}" -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/config" "${PACKAGE_MOD_DIR}/config"
+    # the mod's resource pack, put into the game and turned on by the mod (its pause menu button is for Windows)
+    COMMAND "${CMAKE_COMMAND}" -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/../resource_packs/SplitScreenUI" "${PACKAGE_MOD_DIR}/pack"
+    COMMAND "${CMAKE_COMMAND}" -E rm -f "${PACKAGE_MOD_DIR}/pack/ui/pause_screen.json"
     COMMAND "${CMAKE_COMMAND}" -E chdir "${PACKAGE_ROOT}" "${CMAKE_COMMAND}" -E tar cf "${PACKAGE_FILE}" --format=zip "${MOD_ID}"
     COMMAND "${CMAKE_COMMAND}" -E copy "${PACKAGE_FILE}" "${CMAKE_CURRENT_BINARY_DIR}/${MOD_ID}-android-arm64.zip"
     DEPENDS ${MOD_LIBRARY_NAME}

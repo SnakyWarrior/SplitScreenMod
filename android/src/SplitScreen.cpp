@@ -943,6 +943,79 @@ void watchGame() {
     }
 }
 
+// The mod's resource pack (menu look, the black "Choose your player" screen, texts in every language) comes in the
+// mod's own folder (pack/) and is put into the game's resource_packs folder and turned on as a global resource pack
+// before the game reads its packs. The game's folder (games/com.mojang) is looked for in the launcher's storage.
+constexpr char const* kPackUuid = "64c369bd-945a-4e1b-ab9a-4b3377148744";
+
+void installResourcePack() {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    fs::path        source = SplitScreenMod::instance().getSelf().getModDir() / "pack";
+    if (!fs::exists(source / "manifest.json", ec)) {
+        // the mod folder LeviLauncher runs from may hold only the library: look next to the config too
+        source = SplitScreenMod::instance().getSelf().getConfigDir().parent_path() / "pack";
+        if (!fs::exists(source / "manifest.json", ec)) return note("pack: the mod's resource pack is not in its folder");
+    }
+    // the app's package, from the mod's path (/data/data/<package>/... or /data/user/0/<package>/...)
+    std::string modPath = SplitScreenMod::instance().getSelf().getModDir().string(), package = "org.levimc.launcher";
+    for (char const* root : {"/data/data/", "/data/user/0/"})
+        if (modPath.starts_with(root)) package = modPath.substr(strlen(root), modPath.find('/', strlen(root)) - strlen(root));
+    std::vector<fs::path> candidates{
+        "/storage/emulated/0/Android/data/" + package + "/files/games/com.mojang",
+        "/data/data/" + package + "/games/com.mojang",
+        "/data/data/" + package + "/files/games/com.mojang",
+        "/data/user/0/" + package + "/games/com.mojang",
+        "/storage/emulated/0/games/com.mojang",
+    };
+    // also any games/com.mojang a few levels down in the app's own folders
+    for (fs::path base : {fs::path("/data/data/" + package), fs::path("/storage/emulated/0/Android/data/" + package)}) {
+        for (auto it = fs::recursive_directory_iterator(base, fs::directory_options::skip_permission_denied, ec);
+             !ec && it != fs::recursive_directory_iterator(); it.increment(ec)) {
+            if (it.depth() > 4) {
+                it.disable_recursion_pending();
+                continue;
+            }
+            if (it->path().filename() == "com.mojang" && it->is_directory(ec)) candidates.push_back(it->path());
+        }
+        ec.clear();
+    }
+    fs::path                       target;
+    fs::file_time_type             newest{};
+    for (auto const& c : candidates) {
+        bool has = fs::exists(c / "minecraftpe", ec);
+        auto t   = fs::last_write_time(c / "minecraftpe", ec);
+        note("pack: game folder {}: {}", c.string(), has ? "found" : "no");
+        if (has && (target.empty() || t > newest)) target = c, newest = t;
+    }
+    if (target.empty()) return note("pack: ERROR: the game's folder (games/com.mojang) was not found");
+
+    fs::path packDir = target / "resource_packs" / "SplitScreenUI";
+    fs::create_directories(packDir, ec);
+    fs::copy(source, packDir, fs::copy_options::recursive | fs::copy_options::overwrite_existing, ec);
+    note("pack: copied to {}{}", packDir.string(), ec ? " (ERROR: " + ec.message() + ")" : "");
+
+    fs::path    globalFile = target / "minecraftpe" / "global_resource_packs.json";
+    std::string text;
+    {
+        std::ifstream in(globalFile);
+        std::stringstream ss;
+        ss << in.rdbuf();
+        text = ss.str();
+    }
+    if (text.find(kPackUuid) != std::string::npos) return note("pack: already turned on in {}", globalFile.string());
+    std::string entry = fmt::format("{{\"pack_id\":\"{}\",\"version\":[1,0,0]}}", kPackUuid);
+    auto        open  = text.find('[');
+    if (open == std::string::npos) text = "[" + entry + "]";
+    else {
+        auto next = text.find_first_not_of(" \t\r\n", open + 1);
+        text.insert(open + 1, next != std::string::npos && text[next] == ']' ? entry : entry + ",");
+    }
+    std::ofstream out(globalFile, std::ios::trunc);
+    out << text;
+    note("pack: turned on in {}{}", globalFile.string(), out ? "" : " (ERROR: could not write)");
+}
+
 } // namespace
 
 SplitScreenMod& SplitScreenMod::instance() {
@@ -958,6 +1031,7 @@ bool SplitScreenMod::load() {
     gLog.open(log, std::ios::trunc);
     openDownloadLog();
     note("SplitScreenMod for Android {} (experimental)", SPLITSCREEN_VERSION);
+    installResourcePack();
     return true;
 }
 
