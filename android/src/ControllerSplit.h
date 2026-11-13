@@ -53,6 +53,9 @@ void blockController(int controller, bool blocked);
 // The device of controller number a now plays as b, and b's (if any) as a.
 void swapControllers(int a, int b);
 
+// Runs the tasks that are due (on the input thread, after each input event: also those of a blocked controller).
+void runDueTasks();
+
 // Runs `task` on the input thread (the game's main thread) at the first input event after `delay`.
 void runOnInputThread(std::function<void()> task, std::chrono::milliseconds delay = std::chrono::milliseconds(0));
 

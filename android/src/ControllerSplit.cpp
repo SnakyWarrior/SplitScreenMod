@@ -215,6 +215,10 @@ struct Task {
 std::vector<Task> gTasks; // run on the input thread, at the first input event after they are due
 constexpr int kKeyActionDown  = 0;
 
+} // namespace
+void runDueTasks();
+namespace {
+
 // --- dispatch ---------------------------------------------------------------------------------------------------
 using Fn8 = uint64_t (*)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
 Fn8              gDispatch = nullptr;
@@ -250,8 +254,11 @@ uint64_t dispatchDetour(uint64_t a0, uint64_t a1, uint64_t variant, uint64_t a3,
                              head[1], controller));
         }
     }
-    if (padEvent && controller < 0 && gFirstController > 0) return 0; // a 5th controller would move player 1
-    if (padEvent && controller >= 0 && gBlocked[controller]) return 0; // its player is leaving
+    // a 5th controller would move player 1; a blocked one's player is leaving
+    if (padEvent && ((controller < 0 && gFirstController > 0) || (controller >= 0 && gBlocked[controller]))) {
+        runDueTasks();
+        return 0;
+    }
     int previous       = tCurrentController;
     tCurrentController = controller;
     uint64_t result    = gDispatch(a0, a1, variant, a3, a4, a5, a6, a7);
@@ -265,18 +272,7 @@ uint64_t dispatchDetour(uint64_t a0, uint64_t a1, uint64_t variant, uint64_t a3,
         for (int c : tookOver) gTookOverFn(c);
     if (startDown && controller >= 1 && gStartPressed) gStartPressed(controller);
     if (selectDown && controller >= 0 && gSelectPressed) gSelectPressed(controller); // 0: a controller given to player 1
-    std::vector<std::function<void()>> tasks;
-    {
-        std::lock_guard lock(gTasksMutex);
-        auto now = std::chrono::steady_clock::now();
-        for (auto it = gTasks.begin(); it != gTasks.end();)
-            if (it->due <= now) {
-                tasks.push_back(std::move(it->run));
-                it = gTasks.erase(it);
-            } else
-                ++it;
-    }
-    for (auto& task : tasks) task();
+    runDueTasks();
     return result;
 }
 
@@ -369,6 +365,21 @@ void collectCalls(Module const& game, uintptr_t from, size_t size, uintptr_t obj
 std::string offset(uintptr_t p) { return fmt::format("+0x{:X}", p - gGame->base); }
 
 } // namespace
+
+void runDueTasks() {
+    std::vector<std::function<void()>> tasks;
+    {
+        std::lock_guard lock(gTasksMutex);
+        auto            now = std::chrono::steady_clock::now();
+        for (auto it = gTasks.begin(); it != gTasks.end();)
+            if (it->due <= now) {
+                tasks.push_back(std::move(it->run));
+                it = gTasks.erase(it);
+            } else
+                ++it;
+    }
+    for (auto& task : tasks) task();
+}
 
 void onStartPressed(std::function<void(int)> handler) { gStartPressed = std::move(handler); }
 
