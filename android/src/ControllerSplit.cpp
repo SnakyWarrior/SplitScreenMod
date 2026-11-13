@@ -4,6 +4,9 @@
 
 #include <pl/memory/Hook.hpp>
 
+#include <dlfcn.h>
+#include <jni.h>
+
 #include <sys/uio.h>
 #include <unistd.h>
 
@@ -54,6 +57,7 @@ std::atomic<int>      gRemapsLogged{0};
 // device id -> controller number; the first controller gets 0 (player 1)
 std::mutex                gDevicesMutex;
 std::map<int32_t, int>    gControllerOf;
+std::map<int32_t, std::chrono::steady_clock::time_point> gLastSeen;
 
 thread_local int tCurrentController = -1;
 
@@ -61,13 +65,90 @@ thread_local int tCurrentController = -1;
 // player, as on Windows player 1 keeps keyboard and mouse); 0 gives the first controller to player 1.
 std::atomic<int> gFirstController{1};
 
+// Whether Android still has input device `device` (InputDevice.getDevice(id) != null). The game does not tell the
+// mod when a controller is switched off, and a controller that comes back gets a new device id: without this check
+// its old device kept its controller number, and with 1-3 taken a returning controller fell to controller 0 and
+// took player 1 (and the game left the world). True when Java cannot be asked.
+JavaVM*   gVm             = nullptr;
+jclass    gInputDevice    = nullptr;
+jmethodID gGetDevice      = nullptr;
+bool      gJavaTried      = false;
+
+bool deviceExists(int32_t device) {
+    if (!gJavaTried) {
+        gJavaTried = true;
+        using GetVms = jint (*)(JavaVM**, jsize, jsize*);
+        GetVms getVms = nullptr;
+        for (char const* lib : {"libart.so", "libnativehelper.so", "libandroid_runtime.so"})
+            if (void* h = dlopen(lib, RTLD_NOW | RTLD_NOLOAD))
+                if ((getVms = reinterpret_cast<GetVms>(dlsym(h, "JNI_GetCreatedJavaVMs")))) break;
+        jsize count = 0;
+        if (!getVms || getVms(&gVm, 1, &count) != JNI_OK || count < 1) gVm = nullptr;
+        gLog(fmt::format("controllers: Java {}", gVm ? "found: gone controllers are noticed" : "NOT found"));
+    }
+    if (!gVm) return true;
+    JNIEnv* env = nullptr;
+    if (gVm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) != JNI_OK
+#ifdef __ANDROID__
+        && gVm->AttachCurrentThread(&env, nullptr) != JNI_OK)
+#else
+        && gVm->AttachCurrentThread(reinterpret_cast<void**>(&env), nullptr) != JNI_OK)
+#endif
+        return true;
+    if (!gInputDevice) {
+        jclass local = env->FindClass("android/view/InputDevice");
+        if (!local || env->ExceptionCheck()) {
+            env->ExceptionClear();
+            gVm = nullptr;
+            gLog("controllers: android.view.InputDevice NOT found");
+            return true;
+        }
+        gInputDevice = static_cast<jclass>(env->NewGlobalRef(local));
+        env->DeleteLocalRef(local);
+        gGetDevice = env->GetStaticMethodID(gInputDevice, "getDevice", "(I)Landroid/view/InputDevice;");
+        if (!gGetDevice || env->ExceptionCheck()) {
+            env->ExceptionClear();
+            gVm = nullptr;
+            return true;
+        }
+    }
+    jobject found = env->CallStaticObjectMethod(gInputDevice, gGetDevice, jint(device));
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+        return true;
+    }
+    bool exists = found != nullptr;
+    if (found) env->DeleteLocalRef(found);
+    return exists;
+}
+
+// Forgets the controllers Android no longer has (gDevicesMutex held), at most once a second unless `now`.
+std::chrono::steady_clock::time_point gLastPurge;
+void purgeGoneDevices(bool now) {
+    auto t = std::chrono::steady_clock::now();
+    if (!now && t - gLastPurge < std::chrono::seconds(1)) return;
+    gLastPurge = t;
+    for (auto it = gControllerOf.begin(); it != gControllerOf.end();)
+        if (!deviceExists(it->first)) {
+            gLog(fmt::format("controllers: device {} (controller {}) is gone", it->first, it->second));
+            it = gControllerOf.erase(it);
+        } else
+            ++it;
+}
+
 std::function<std::vector<int>()> gPlayingFn;
 std::function<void(int)>          gTookOverFn;
 std::vector<int>                  gTookOver; // lost players a new controller took over, told after the event
 
 int controllerFor(int32_t device) {
     std::lock_guard lock(gDevicesMutex);
-    if (auto it = gControllerOf.find(device); it != gControllerOf.end()) return it->second;
+    auto now = std::chrono::steady_clock::now();
+    if (auto it = gControllerOf.find(device); it != gControllerOf.end()) {
+        gLastSeen[device] = now;
+        return it->second;
+    }
+    gLastSeen[device] = now;
+    purgeGoneDevices(true);
     std::array<bool, kMaxControllers> used{};
     for (auto [d, c] : gControllerOf) used[c] = true;
     // a player who lost their controller gets the new one first
@@ -87,7 +168,20 @@ int controllerFor(int32_t device) {
                              c == 0 ? " (player 1)" : " (joins with Start as a new player)"));
             return c;
         }
-    return -1; // more than 4: leave it on controller 0 as the game does
+    // Java could not tell: the controller silent the longest (10 seconds at least) is taken to be gone
+    int32_t   oldest = -1;
+    for (auto [d, c] : gControllerOf)
+        if (c >= gFirstController && (oldest < 0 || gLastSeen[d] < gLastSeen[oldest])) oldest = d;
+    if (oldest >= 0 && now - gLastSeen[oldest] > std::chrono::seconds(10)) {
+        int c = gControllerOf[oldest];
+        gControllerOf.erase(oldest);
+        gControllerOf[device] = c;
+        gLog(fmt::format("controllers: device {} is controller {}: device {} was silent the longest", device, c, oldest));
+        gTookOver.push_back(c);
+        return c;
+    }
+    gLog(fmt::format("controllers: device {} gets no controller: 3 controllers already play", device));
+    return -1;
 }
 
 void releaseDevice(int32_t device) {
@@ -125,13 +219,14 @@ constexpr int kKeyActionDown  = 0;
 using Fn8 = uint64_t (*)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
 Fn8              gDispatch = nullptr;
 std::atomic<int> gEventsLogged{0};
+std::atomic<int> gKeysToLog{0}; // after a swap: which keys each controller presses
 
 uint64_t dispatchDetour(uint64_t a0, uint64_t a1, uint64_t variant, uint64_t a3, uint64_t a4, uint64_t a5, uint64_t a6,
                         uint64_t a7) {
     int       controller = -1;
     uintptr_t event      = 0;
     int32_t   index = -1, head[2] = {0, 0};
-    bool      startDown = false, selectDown = false;
+    bool      startDown = false, selectDown = false, padEvent = false;
     if (safeRead(variant + 8, &index, 4) && index != -1 && safeRead(variant, &event, 8) && event
         && safeRead(event, head, 8)) {
         int32_t key[kKeyCodeIndex + 1] = {};
@@ -142,12 +237,19 @@ uint64_t dispatchDetour(uint64_t a0, uint64_t a1, uint64_t variant, uint64_t a3,
         }
         bool pad = (head[1] & kSourceGamepad) == kSourceGamepad || (head[1] & kSourceJoystick) == kSourceJoystick;
         if (pad) controller = controllerFor(head[0]);
+        padEvent = pad;
+        if (index == 0 && pad && gKeysToLog > 0) {
+            --gKeysToLog;
+            gLog(fmt::format("controllers: device {} (controller {}) key {} {}", head[0], controller, key[kKeyCodeIndex],
+                             key[2] == kKeyActionDown ? "down" : "up"));
+        }
         if (gEventsLogged < 24) {
             ++gEventsLogged;
             gLog(fmt::format("controllers: event kind {} device {} source 0x{:X} -> controller {}", index, head[0],
                              head[1], controller));
         }
     }
+    if (padEvent && controller < 0 && gFirstController > 0) return 0; // a 5th controller would move player 1
     int previous       = tCurrentController;
     tCurrentController = controller;
     uint64_t result    = gDispatch(a0, a1, variant, a3, a4, a5, a6, a7);
@@ -283,6 +385,7 @@ void onLostPlayerTakenOver(std::function<void(int)> handler) { gTookOverFn = std
 
 bool controllerConnected(int controller) {
     std::lock_guard lock(gDevicesMutex);
+    purgeGoneDevices(false);
     for (auto [d, c] : gControllerOf)
         if (c == controller) return true;
     return false;
@@ -294,6 +397,8 @@ void swapControllers(int a, int b) {
         if (c == a) c = b;
         else if (c == b) c = a;
     gLog(fmt::format("controllers: controllers {} and {} swapped", a, b));
+    gKeysToLog    = 40;
+    gRemapsLogged = 0;
 }
 
 bool startControllerSplit(Module const& game, uintptr_t managerObject, uintptr_t managerAdded, uintptr_t managerRemoved,

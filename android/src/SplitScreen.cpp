@@ -401,7 +401,7 @@ bool addCheckDetour(void* game, int controller, uint8_t* out, bool flag) {
 }
 
 
-void joinController(int controller);
+void joinController(int controller, bool askLost = true);
 void openSplitScreenMenu(int controller);
 
 std::vector<int> playingPlayers() {
@@ -428,6 +428,10 @@ int freeController() {
 // "Who is playing?" on player `at`'s screen, whose controller just came from a new controller: it keeps playing
 // `at`, plays another player who lost their controller, or joins as a new player (`at` stays without a controller).
 void showPicker(int at) {
+    {
+        std::lock_guard lock(gPlayingMutex);
+        if (!gPlaying.contains(at)) return; // the controller took a free place: it joins with Start
+    }
     auto lost = lostPlayers();
     lost.erase(std::remove(lost.begin(), lost.end(), at), lost.end());
     std::vector<std::string> buttons{fmt::format("Player {}", at + 1)};
@@ -451,7 +455,7 @@ void showPicker(int at) {
                      if (free < 0) return note("picker: no free place for a new player");
                      note("picker: the controller joins as new player {}", free + 1);
                      swapControllers(at, free);
-                     joinController(free);
+                     joinController(free, false);
                  }, std::chrono::milliseconds(500));
              });
 }
@@ -472,7 +476,7 @@ bool offerLostPlayers(int controller) {
 std::mutex gJoinMutex;
 std::map<int, std::chrono::steady_clock::time_point> gJoinTimes;
 
-void joinController(int controller) {
+void joinController(int controller, bool askLost) {
     void* game = gMinecraftGame.load();
     {
         std::lock_guard lock(gJoinMutex);
@@ -486,7 +490,7 @@ void joinController(int controller) {
         }
         gJoinTimes[controller] = now;
     }
-    if (offerLostPlayers(controller)) return;
+    if (askLost && offerLostPlayers(controller)) return;
     note("join: controller {} pressed Start: adding player {}", controller, controller + 1);
     if (gGameModule) hookUserManager(*gGameModule, game);
     {
@@ -664,7 +668,7 @@ void openSplitScreenMenu(int controller) {
                          if (free < 0) return note("menus: no free place for a new player");
                          note("menus: player {}'s controller becomes new player {}", controller + 1, free + 1);
                          swapControllers(controller, free);
-                         joinController(free);
+                         joinController(free, false);
                      }, std::chrono::milliseconds(500));
                      break;
                  case Act::Leave:
@@ -716,7 +720,7 @@ void enableJoining(Module const& game) {
     writeSlot(&vt[10], reinterpret_cast<uintptr_t>(&queueRemovalDetour));
     hookClientLeave(game);
     writeSlot(&vt[16], reinterpret_cast<uintptr_t>(&releaseSubIdDetour));
-    if (ok) onStartPressed(joinController);
+    if (ok) onStartPressed([](int controller) { joinController(controller); });
     if (ok) onSelectPressed(openSplitScreenMenu);
     if (ok) setPlayingPlayers(playingPlayers);
     if (ok) onLostPlayerTakenOver(showPicker);
