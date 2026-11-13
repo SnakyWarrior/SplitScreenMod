@@ -245,6 +245,11 @@ void hookHandle(Found const& f, void* detour, HandleFn* original, char const* wh
 
 } // namespace
 
+bool menuOpen(int sub) {
+    std::lock_guard lock(gSeenMutex);
+    return gPending.contains(sub);
+}
+
 void showMenu(int sub, std::string const& title, std::string const& content, std::vector<std::string> const& buttons,
               std::function<void(int)> done) {
     std::string json = "{\"type\":\"form\",\"title\":" + jsonString(title) + ",\"content\":" + jsonString(content)

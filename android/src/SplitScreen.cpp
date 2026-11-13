@@ -556,6 +556,7 @@ void openSplitScreenMenu(int controller) {
         std::lock_guard lock(gPlayingMutex);
         if (!gPlaying.contains(controller)) return;
     }
+    if (menuOpen(controller)) return note("menus: player {} already has a menu open", controller + 1);
     note("menus: player {} opens the Split screen menu", controller + 1);
     showMenu(controller, "Split screen", fmt::format("Player {}", controller + 1), {"Leave split screen", "Cancel"},
              [controller](int button) {

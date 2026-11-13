@@ -16,6 +16,9 @@ namespace splitscreen {
 
 void startFormProbe(Module const& game, LogFn log);
 
+// Whether player `sub` has a menu open (or about to open).
+bool menuOpen(int sub);
+
 // Shows player `sub` (sub client id) a menu of buttons; `done` gets the button index, -1 when it is closed. It runs
 // on the server thread.
 void showMenu(int sub, std::string const& title, std::string const& content, std::vector<std::string> const& buttons,
