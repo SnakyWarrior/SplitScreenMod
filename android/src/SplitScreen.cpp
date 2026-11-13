@@ -438,6 +438,7 @@ void joinController(int controller) {
     tControllerTaken = -1;
     addSubDetour(game, controller);
     tAddingPlayer = false;
+    requestTestForm(controller); // the added player's sub client id is its controller number (1-3)
 }
 
 void enableJoining(Module const& game) {

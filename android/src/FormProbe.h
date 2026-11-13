@@ -12,4 +12,7 @@ namespace splitscreen {
 
 void startFormProbe(Module const& game, LogFn log);
 
+// Sends sub client `sub` (an added player) a test form 5 seconds from now.
+void requestTestForm(int sub);
+
 } // namespace splitscreen

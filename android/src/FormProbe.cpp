@@ -124,22 +124,36 @@ bool sendForm(void const* id, uint32_t sub, uint32_t formId, std::string json) {
     return true;
 }
 
-// Test: a simple form for each added player, 5 seconds after it first sends input.
-std::map<int, std::chrono::steady_clock::time_point> gFirstInput;
-std::set<int>                                        gFormSent;
+// Test: a simple form for each added player, 5 seconds after it joins (requested by the join code). A player that
+// is busy (another screen open) answers "UserBusy" at once: the form is sent again 2 seconds later, up to 10 times.
+struct Pending {
+    std::chrono::steady_clock::time_point due;
+    int                                   tries = 0;
+};
+std::map<int, Pending> gPending; // sub client -> pending test form
 
 void maybeSendTestForm(void const* source, int sub) {
     if (sub < 1 || sub > 3) return;
     auto now = std::chrono::steady_clock::now();
+    int  tries;
     {
         std::lock_guard lock(gSeenMutex);
-        auto [it, fresh] = gFirstInput.try_emplace(sub, now);
-        if (fresh || now - it->second < std::chrono::seconds(5) || gFormSent.contains(sub)) return;
-        gFormSent.insert(sub);
+        auto it = gPending.find(sub);
+        if (it == gPending.end() || now < it->second.due) return;
+        tries          = ++it->second.tries;
+        it->second.due = now + std::chrono::hours(1); // until it is answered
     }
     sendForm(source, uint32_t(sub), 0x5C5C0000u + uint32_t(sub),
-             fmt::format(R"({{"type":"form","title":"Split screen","content":"Player {} - test menu","buttons":[{{"text":"First"}},{{"text":"Second"}}]}})",
-                         sub + 1));
+             fmt::format(R"j({{"type":"form","title":"Split screen","content":"Player {} - test menu (try {})","buttons":[{{"text":"First"}},{{"text":"Second"}}]}})j",
+                         sub + 1, tries));
+}
+
+void formAnswered(int sub, bool busy) {
+    std::lock_guard lock(gSeenMutex);
+    auto it = gPending.find(sub);
+    if (it == gPending.end()) return;
+    if (busy && it->second.tries < 10) it->second.due = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    else gPending.erase(it);
 }
 
 uint8_t packetSubId(void* packetRef) {
@@ -178,10 +192,13 @@ void responseHandleDetour(void* self, void* source, void* callback, void* packet
     // optional<ModalFormCancelReason> +0x50 (engaged +0x51)
     uint8_t answer[0x28] = {};
     if (packet) safeRead(packet + 0x30, answer, sizeof answer);
-    gLog(fmt::format("forms: ModalFormResponsePacket from sub client {}, form id {}, value [{:016X} {:016X}] engaged {}, "
-                     "cancel {} engaged {}",
+    std::string raw;
+    for (int i = 8; i < 0x28; ++i) raw += fmt::format("{:02x}", answer[i]);
+    gLog(fmt::format("forms: ModalFormResponsePacket from sub client {}, form id 0x{:X}: json value [{:016X} {:016X}] "
+                     "engaged {}, cancel reason {} engaged {} (raw +0x38: {})",
                      packetSubId(packetRef), formId, *reinterpret_cast<uint64_t*>(answer + 8),
-                     *reinterpret_cast<uint64_t*>(answer + 16), answer[0x18], answer[0x20], answer[0x21]));
+                     *reinterpret_cast<uint64_t*>(answer + 16), answer[0x18], answer[0x20], answer[0x21], raw));
+    if (formId >> 16 == 0x5C5C) formAnswered(int(formId & 0xFFFF), answer[0x21] && answer[0x20] == 1);
     gResponseHandle(self, source, callback, packetRef);
 }
 
@@ -194,6 +211,12 @@ void hookHandle(Found const& f, void* detour, HandleFn* original, char const* wh
 }
 
 } // namespace
+
+void requestTestForm(int sub) {
+    std::lock_guard lock(gSeenMutex);
+    gPending[sub] = Pending{std::chrono::steady_clock::now() + std::chrono::seconds(5), 0};
+    gLog(fmt::format("forms: test form for sub client {} in 5 seconds", sub));
+}
 
 void startFormProbe(Module const& game, LogFn log) {
     static Module copy = game;
