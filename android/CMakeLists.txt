@@ -12,7 +12,7 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(MOD_ID "SplitScreenMod" CACHE STRING "LeviLauncher mod package directory name")
 set(MOD_NAME "SplitScreenMod" CACHE STRING "LeviLauncher mod display name")
 set(MOD_AUTHOR "SnakyWarrior" CACHE STRING "LeviLauncher mod author")
-set(MOD_VERSION "0.6.3" CACHE STRING "LeviLauncher mod version")
+set(MOD_VERSION "0.6.4" CACHE STRING "LeviLauncher mod version")
 set(MOD_LIBRARY_NAME "SplitScreenMod" CACHE STRING "Native library name without lib prefix or .so suffix")
 set(MOD_MINECRAFT_VERSIONS "[\"1.26.*\"]" CACHE STRING "Raw JSON array for manifest minecraft_versions")
 

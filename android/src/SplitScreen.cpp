@@ -440,7 +440,7 @@ void joinController(int controller) {
     tAddingPlayer = false;
 }
 
-// ClientInstance virtual 24 runs every frame for each client (args true, true). When the client's byte +0x6E5 is
+// ClientInstance virtual 24 runs every frame for each client (args true, true). When the client's leave flags are
 // set and the client is not the primary one, it closes the client and calls MinecraftGame::queueSubclientRemoval,
 // the game's own way a player leaves (calling queueSubclientRemoval alone left the client half there, and the game
 // crashed on a destroyed mutex). The leave flags +0x6E0..+0x6E5 are logged when they change, to see what the game
@@ -473,8 +473,12 @@ uint64_t leaveFlags(void* client) {
 void clientTickDetour(void* self, bool a, bool b) {
     int sub = gGetSubId ? int(gGetSubId(self) & 0xFF) : -1;
     if (sub >= 1 && sub < 4 && gLeaveWanted[sub].exchange(false)) {
-        note("leave: player {} leaves: client {} byte +0x{:X} = 1", sub + 1, self, kLeaveFlag);
-        static_cast<uint8_t*>(self)[kLeaveFlag] = 1;
+        // what the game sets when a player leaves from the pause menu (0.6.3 log: 000000000000 -> 000100000101):
+        // +0x6E0, +0x6E1 (leave requested) and +0x6E4. Its next frame sets +0x6E3 and +0x6E5 and clears +0x6E1, and
+        // the frame after removes the player. Setting +0x6E5 alone skipped the closing and crashed.
+        note("leave: player {} leaves: client {} bytes +0x6E0, +0x6E1, +0x6E4 = 1", sub + 1, self);
+        auto* bytes = static_cast<uint8_t*>(self);
+        bytes[0x6E0] = bytes[0x6E1] = bytes[0x6E4] = 1;
     }
     if (sub >= 0 && sub < 4) {
         uint64_t flags = leaveFlags(self);
