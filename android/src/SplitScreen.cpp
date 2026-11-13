@@ -482,6 +482,8 @@ using GetSubIdFn = uint64_t (*)(void*);
 constexpr size_t   kLeaveFlags  = 0x6E0;
 TickFn             gClientTick  = nullptr;
 uintptr_t*         gClientVt    = nullptr;
+using RequestLeaveFn = void (*)(void*, bool, bool);
+RequestLeaveFn     gRequestLeave = nullptr; // ClientInstance virtual 15
 GetSubIdFn         gGetSubId    = nullptr;
 std::atomic<void*> gClientBySub[4] = {};
 std::atomic<bool>  gLeaveWanted[4] = {};
@@ -505,12 +507,18 @@ uint64_t leaveFlags(void* client) {
 void clientTickDetour(void* self, bool a, bool b) {
     int sub = gGetSubId ? int(gGetSubId(self) & 0xFF) : -1;
     if (sub >= 1 && sub < 4 && gLeaveWanted[sub].exchange(false)) {
-        // what the game sets when a player leaves from the pause menu (0.6.3 log: 000000000000 -> 000100000101):
-        // +0x6E0, +0x6E1 (leave requested) and +0x6E4. Its next frame sets +0x6E3 and +0x6E5 and clears +0x6E1, and
-        // the frame after removes the player. Setting +0x6E5 alone skipped the closing and crashed.
-        note("leave: player {} leaves: client {} bytes +0x6E0, +0x6E1, +0x6E4 = 1", sub + 1, self);
-        auto* bytes = static_cast<uint8_t*>(self);
-        bytes[0x6E0] = bytes[0x6E1] = bytes[0x6E4] = 1;
+        // What the pause menu's Save & Leave calls (0.9.7 log: ClientInstance virtual 15 with true, true, right before
+        // the game sets the leave bytes; the Windows version's requestLeaveGameAsync). Only setting the bytes
+        // (+0x6E0, +0x6E1, +0x6E4) left the player's actor in the game's lists after it was removed, and the game
+        // crashed ("terminating") on it.
+        if (gRequestLeave) {
+            note("leave: player {} leaves: requestLeaveGame on client {}", sub + 1, self);
+            gRequestLeave(self, true, true);
+        } else {
+            note("leave: player {} leaves: client {} bytes +0x6E0, +0x6E1, +0x6E4 = 1", sub + 1, self);
+            auto* bytes = static_cast<uint8_t*>(self);
+            bytes[0x6E0] = bytes[0x6E1] = bytes[0x6E4] = 1;
+        }
     }
     if (sub >= 0 && sub < 4) {
         uint64_t flags = leaveFlags(self);
@@ -543,10 +551,10 @@ void leaveSplitScreen(int sub) {
 
 void logLine(std::string const& line) { note("{}", line); }
 
-// The player leaves once its last menu is 6 seconds old (a player removed soon after a menu took the game down).
+// The player leaves once its last menu has closed (1.5 s after it was answered).
 void leaveWhenQuiet(int sub) {
     runOnInputThread([sub] {
-        if (msSinceMenu(sub) < 6000) return leaveWhenQuiet(sub);
+        if (msSinceMenu(sub) < 1500) return leaveWhenQuiet(sub);
         leaveSplitScreen(sub);
     }, std::chrono::milliseconds(500));
 }
@@ -571,12 +579,10 @@ void requestLeave(int sub) {
         if (!gPlaying.contains(sub) || !gLeaving.insert(sub).second) return;
     }
     cancelMenu(sub);
-    // A leaving player gets no more input: a button press that reached the player while it was being removed made the
-    // game throw (0.7.3 and 0.8.1 crashes, "terminating").
+    // A leaving player gets no new presses (their releases still come).
     blockController(sub, true);
     // Removed at once, a player whose menu is still closing takes the game down with it (a destroyed mutex): the
-    // player leaves once its screen has closed
-    // (3 s: with the resource pack's menu look, 1.5 s was not enough)
+    // player leaves once its screen has closed.
     leaveWhenQuiet(sub);
 }
 
@@ -643,6 +649,9 @@ bool hookClientLeave(Module const& game) {
                          vt[i] - game.base, describeFunction(game, vt[303]));
                     gClientTick = reinterpret_cast<TickFn>(vt[i]);
                     gClientVt   = vt;
+                    // requestLeaveGame: the slot the pause menu calls (1.26: 15), checked to be a function
+                    if (count > 15 && game.isCode(vt[15])) gRequestLeave = reinterpret_cast<RequestLeaveFn>(vt[15]);
+                    note("leave: requestLeaveGame is slot 15 ({})", describeFunction(game, vt[15]));
                     gGetSubId   = reinterpret_cast<GetSubIdFn>(vt[303]);
                     // The game's own "this player leaves" (the pause menu's Save & Leave): a function that sets the
                     // "leave requested" byte +0x6E1 (strb wN, [xM, #0x6E1], before its first ret). The mod only sets
@@ -760,15 +769,7 @@ void enableJoining(Module const& game) {
         else note("join: add-player check +0x{:X} hooked", check - game.base);
     }
     // after the patches above, so the trace sees our detours' slots as the originals
-    // ClientInstance's functions (instead of MinecraftGame's): which one the pause menu's Save & Leave calls (the
-    // Windows version calls requestLeaveGameAsync; on Android it sets the leave bytes later, from another place).
-    if (gClientVt) {
-        size_t n = countSlots(game, gClientVt, 600);
-        traceVtable(game, gClientVt, std::min<size_t>(n, 316), 0, "ClientInstance", [](std::string const& l) { note("{}", l); });
-        if (n > 316)
-            traceVtable(game, gClientVt + 316, std::min<size_t>(n - 316, 101), 474, "ClientInstance+316",
-                        [](std::string const& l) { note("{}", l); });
-    }
+    if (ok) traceVtable(game, vt, count, 0, "MinecraftGame", [](std::string const& l) { note("{}", l); });
     // The pause menu (its Split screen button) and the game's join prompt: which of their functions run, to find
     // how the Windows version's button and prompt work here.
     for (auto const& c : findClasses(game, "21PauseScreenController"))
