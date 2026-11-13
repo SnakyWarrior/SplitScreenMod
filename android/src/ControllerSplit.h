@@ -31,4 +31,11 @@ void setFirstControllerIsPlayer1(bool yes);
 // Called on the input thread, after the game handled it, when a controller other than the first presses Start.
 void onStartPressed(std::function<void(int controller)> handler);
 
+// Called on the input thread, after the game handled it, when a controller other than the first presses Select
+// (View / Back / Share).
+void onSelectPressed(std::function<void(int controller)> handler);
+
+// Runs `task` on the input thread (the game's main thread) after the next controller event.
+void runOnInputThread(std::function<void()> task);
+
 } // namespace splitscreen

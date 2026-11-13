@@ -438,7 +438,24 @@ void joinController(int controller) {
     tControllerTaken = -1;
     addSubDetour(game, controller);
     tAddingPlayer = false;
-    requestTestForm(controller); // the added player's sub client id is its controller number (1-3)
+}
+
+// The Split screen menu, on Select (View / Back) of a controller that plays. The added player's sub client id is its
+// controller number (1-3).
+void openSplitScreenMenu(int controller) {
+    {
+        std::lock_guard lock(gPlayingMutex);
+        if (!gPlaying.contains(controller)) return;
+    }
+    note("menus: player {} opens the Split screen menu", controller + 1);
+    showMenu(controller, "Split screen", fmt::format("Player {}", controller + 1), {"Leave split screen", "Cancel"},
+             [controller](int button) {
+                 if (button != 0) return;
+                 runOnInputThread([controller] {
+                     void* game = gMinecraftGame.load();
+                     if (game && gQueueRemoval) queueRemovalDetour(game, controller);
+                 });
+             });
 }
 
 void enableJoining(Module const& game) {
@@ -479,6 +496,7 @@ void enableJoining(Module const& game) {
     writeSlot(&vt[10], reinterpret_cast<uintptr_t>(&queueRemovalDetour));
     writeSlot(&vt[16], reinterpret_cast<uintptr_t>(&releaseSubIdDetour));
     if (ok) onStartPressed(joinController);
+    if (ok) onSelectPressed(openSplitScreenMenu);
     // W: in _addSubClientInstanceAndAssociateToUserInternal (the "b" target of slot 210), the first bl after
     // "add x2, sp, #164" (its out parameter)
     {

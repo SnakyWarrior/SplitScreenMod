@@ -8,6 +8,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <functional>
 #include <map>
 #include <new>
 #include <mutex>
@@ -124,36 +125,63 @@ bool sendForm(void const* id, uint32_t sub, uint32_t formId, std::string json) {
     return true;
 }
 
-// Test: a simple form for each added player, 5 seconds after it joins (requested by the join code). A player that
-// is busy (another screen open) answers "UserBusy" at once: the form is sent again 2 seconds later, up to 10 times.
+// Menus: one pending form per player (sub client), sent from that player's next PlayerAuthInputPacket (the server
+// thread). A busy player (another screen open) answers "UserBusy" at once: the form is sent again 2 seconds later,
+// up to 10 times. The answer: a Json::Value (+0x38: 8-byte value, type +0x40, 1 = int) holding the button index.
 struct Pending {
+    uint32_t                              formId = 0;
+    std::string                           json;
+    std::function<void(int)>              done;
     std::chrono::steady_clock::time_point due;
     int                                   tries = 0;
 };
-std::map<int, Pending> gPending; // sub client -> pending test form
+std::map<int, Pending> gPending; // sub client -> its form
+uint32_t               gNextFormId = 0x5C5C0001;
 
-void maybeSendTestForm(void const* source, int sub) {
-    if (sub < 1 || sub > 3) return;
-    auto now = std::chrono::steady_clock::now();
-    int  tries;
+void maybeSendMenu(void const* source, int sub) {
+    uint32_t    formId;
+    std::string json;
     {
         std::lock_guard lock(gSeenMutex);
         auto it = gPending.find(sub);
-        if (it == gPending.end() || now < it->second.due) return;
-        tries          = ++it->second.tries;
-        it->second.due = now + std::chrono::hours(1); // until it is answered
+        if (it == gPending.end() || std::chrono::steady_clock::now() < it->second.due) return;
+        ++it->second.tries;
+        it->second.due = std::chrono::steady_clock::now() + std::chrono::hours(1); // until it is answered
+        formId         = it->second.formId;
+        json           = it->second.json;
     }
-    sendForm(source, uint32_t(sub), 0x5C5C0000u + uint32_t(sub),
-             fmt::format(R"j({{"type":"form","title":"Split screen","content":"Player {} - test menu (try {})","buttons":[{{"text":"First"}},{{"text":"Second"}}]}})j",
-                         sub + 1, tries));
+    sendForm(source, uint32_t(sub), formId, std::move(json));
 }
 
-void formAnswered(int sub, bool busy) {
-    std::lock_guard lock(gSeenMutex);
-    auto it = gPending.find(sub);
-    if (it == gPending.end()) return;
-    if (busy && it->second.tries < 10) it->second.due = std::chrono::steady_clock::now() + std::chrono::seconds(2);
-    else gPending.erase(it);
+// The answer to form `formId` from `sub`: button index, -1 when closed; busy sends it again.
+void menuAnswered(int sub, uint32_t formId, bool busy, int button) {
+    std::function<void(int)> done;
+    {
+        std::lock_guard lock(gSeenMutex);
+        auto it = gPending.find(sub);
+        if (it == gPending.end() || it->second.formId != formId) return;
+        if (busy && it->second.tries < 10) {
+            it->second.due = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+            return;
+        }
+        done = std::move(it->second.done);
+        gPending.erase(it);
+    }
+    gLog(fmt::format("menus: player {} chose {}", sub + 1, button));
+    if (done) done(busy ? -1 : button);
+}
+
+std::string jsonString(std::string const& text) {
+    std::string out = "\"";
+    for (char c : text) {
+        if (c == '"' || c == '\\') out += '\\';
+        if (static_cast<unsigned char>(c) < 0x20) {
+            out += fmt::format("\\u{:04x}", int(c));
+            continue;
+        }
+        out += c;
+    }
+    return out + "\"";
 }
 
 uint8_t packetSubId(void* packetRef) {
@@ -181,7 +209,7 @@ void authHandleDetour(void* self, void* source, void* callback, void* packetRef)
         if (!gTracingStarted.exchange(true)) startTracing(30); // the packet sender's calls while in a world
     }
     gAuthHandle(self, source, callback, packetRef);
-    maybeSendTestForm(source, sub);
+    maybeSendMenu(source, sub);
 }
 
 void responseHandleDetour(void* self, void* source, void* callback, void* packetRef) {
@@ -198,7 +226,12 @@ void responseHandleDetour(void* self, void* source, void* callback, void* packet
                      "engaged {}, cancel reason {} engaged {} (raw +0x38: {})",
                      packetSubId(packetRef), formId, *reinterpret_cast<uint64_t*>(answer + 8),
                      *reinterpret_cast<uint64_t*>(answer + 16), answer[0x18], answer[0x20], answer[0x21], raw));
-    if (formId >> 16 == 0x5C5C) formAnswered(int(formId & 0xFFFF), answer[0x21] && answer[0x20] == 1);
+    if (formId >> 16 == 0x5C5C) {
+        bool    busy   = answer[0x21] && answer[0x20] == 1;
+        int64_t value  = *reinterpret_cast<int64_t*>(answer + 8);
+        int     button = answer[0x18] && answer[0x10] == 1 ? int(value) : -1;
+        menuAnswered(packetSubId(packetRef), formId, busy, button);
+    }
     gResponseHandle(self, source, callback, packetRef);
 }
 
@@ -212,10 +245,15 @@ void hookHandle(Found const& f, void* detour, HandleFn* original, char const* wh
 
 } // namespace
 
-void requestTestForm(int sub) {
+void showMenu(int sub, std::string const& title, std::string const& content, std::vector<std::string> const& buttons,
+              std::function<void(int)> done) {
+    std::string json = "{\"type\":\"form\",\"title\":" + jsonString(title) + ",\"content\":" + jsonString(content)
+                     + ",\"buttons\":[";
+    for (size_t i = 0; i < buttons.size(); ++i) json += (i ? "," : "") + std::string("{\"text\":") + jsonString(buttons[i]) + "}";
+    json += "]}";
     std::lock_guard lock(gSeenMutex);
-    gPending[sub] = Pending{std::chrono::steady_clock::now() + std::chrono::seconds(5), 0};
-    gLog(fmt::format("forms: test form for sub client {} in 5 seconds", sub));
+    gPending[sub] = Pending{gNextFormId++, std::move(json), std::move(done), std::chrono::steady_clock::now(), 0};
+    if (gNextFormId > 0x5C5CFFFF) gNextFormId = 0x5C5C0001;
 }
 
 void startFormProbe(Module const& game, LogFn log) {

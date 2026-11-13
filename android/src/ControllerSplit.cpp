@@ -13,6 +13,7 @@
 #include <map>
 #include <mutex>
 #include <set>
+#include <vector>
 
 #include <fmt/format.h>
 
@@ -94,6 +95,11 @@ std::function<void(int)> gStartPressed;
 // repeatCount, keyCode, scanCode, ... (checked on a device: the int at index 12 is the Android key code)
 constexpr int kKeyCodeIndex   = 12;
 constexpr int kKeyCodeStart   = 108; // KEYCODE_BUTTON_START
+constexpr int kKeyCodeSelect  = 109; // KEYCODE_BUTTON_SELECT (View / Back / Share / -)
+
+std::function<void(int)>           gSelectPressed;
+std::mutex                         gTasksMutex;
+std::vector<std::function<void()>> gTasks; // run on the input thread, after the next controller event
 constexpr int kKeyActionDown  = 0;
 
 // --- dispatch ---------------------------------------------------------------------------------------------------
@@ -106,12 +112,15 @@ uint64_t dispatchDetour(uint64_t a0, uint64_t a1, uint64_t variant, uint64_t a3,
     int       controller = -1;
     uintptr_t event      = 0;
     int32_t   index = -1, head[2] = {0, 0};
-    bool      startDown = false;
+    bool      startDown = false, selectDown = false;
     if (safeRead(variant + 8, &index, 4) && index != -1 && safeRead(variant, &event, 8) && event
         && safeRead(event, head, 8)) {
         int32_t key[kKeyCodeIndex + 1] = {};
         if (index == 0 && safeRead(event, key, sizeof key))
-            startDown = key[kKeyCodeIndex] == kKeyCodeStart && key[2] == kKeyActionDown;
+        {
+            startDown  = key[kKeyCodeIndex] == kKeyCodeStart && key[2] == kKeyActionDown;
+            selectDown = key[kKeyCodeIndex] == kKeyCodeSelect && key[2] == kKeyActionDown;
+        }
         bool pad = (head[1] & kSourceGamepad) == kSourceGamepad || (head[1] & kSourceJoystick) == kSourceJoystick;
         if (pad) controller = controllerFor(head[0]);
         if (gEventsLogged < 24) {
@@ -125,6 +134,13 @@ uint64_t dispatchDetour(uint64_t a0, uint64_t a1, uint64_t variant, uint64_t a3,
     uint64_t result    = gDispatch(a0, a1, variant, a3, a4, a5, a6, a7);
     tCurrentController = previous;
     if (startDown && controller >= 1 && gStartPressed) gStartPressed(controller);
+    if (selectDown && controller >= 1 && gSelectPressed) gSelectPressed(controller);
+    std::vector<std::function<void()>> tasks;
+    {
+        std::lock_guard lock(gTasksMutex);
+        tasks.swap(gTasks);
+    }
+    for (auto& task : tasks) task();
     return result;
 }
 
@@ -219,6 +235,13 @@ std::string offset(uintptr_t p) { return fmt::format("+0x{:X}", p - gGame->base)
 } // namespace
 
 void onStartPressed(std::function<void(int)> handler) { gStartPressed = std::move(handler); }
+
+void onSelectPressed(std::function<void(int)> handler) { gSelectPressed = std::move(handler); }
+
+void runOnInputThread(std::function<void()> task) {
+    std::lock_guard lock(gTasksMutex);
+    gTasks.push_back(std::move(task));
+}
 
 void setFirstControllerIsPlayer1(bool yes) { gFirstController = yes ? 0 : 1; }
 

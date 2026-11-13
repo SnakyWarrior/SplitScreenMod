@@ -8,11 +8,17 @@
 #include "Elf.h"
 #include "InputProbe.h"
 
+#include <functional>
+#include <string>
+#include <vector>
+
 namespace splitscreen {
 
 void startFormProbe(Module const& game, LogFn log);
 
-// Sends sub client `sub` (an added player) a test form 5 seconds from now.
-void requestTestForm(int sub);
+// Shows player `sub` (sub client id) a menu of buttons; `done` gets the button index, -1 when it is closed. It runs
+// on the server thread.
+void showMenu(int sub, std::string const& title, std::string const& content, std::vector<std::string> const& buttons,
+              std::function<void(int)> done);
 
 } // namespace splitscreen
