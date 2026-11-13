@@ -204,10 +204,14 @@ Module const* gGameModule = nullptr;
 // for the same controller made the game release sub client 0 and crash (0.3.1).
 std::mutex    gPlayingMutex;
 std::set<int> gPlaying;
+// players asked to leave: no longer in game::players(), so no menu opens on a screen that is about to go (opening
+// one there crashed the game)
+std::set<int> gLeaving;
 
 void forgetPlayers(char const* why, int sub) {
     {
         std::lock_guard lock(gPlayingMutex);
+        gLeaving.erase(sub);
         if (!gPlaying.erase(sub)) return;
     }
     note("join: {}({}): player {} is gone", why, sub, sub + 1);
@@ -521,7 +525,8 @@ namespace game {
 std::map<int, int> players() {
     std::map<int, int> out{{0, 0}};
     std::lock_guard    lock(gPlayingMutex);
-    for (int sub : gPlaying) out[sub] = sub;
+    for (int sub : gPlaying)
+        if (!gLeaving.contains(sub)) out[sub] = sub;
     return out;
 }
 
@@ -529,6 +534,11 @@ bool hasController(int controller) { return controllerConnected(controller); }
 
 void requestLeave(int sub) {
     if (sub < 1 || sub > 3) return; // player 1 leaving is leaving the world
+    {
+        std::lock_guard lock(gPlayingMutex);
+        if (!gPlaying.contains(sub) || !gLeaving.insert(sub).second) return;
+    }
+    cancelMenu(sub);
     // Removed at once, a player whose menu is still closing takes the game down with it (a destroyed mutex): the
     // player leaves once its screen has closed.
     runOnInputThread([sub] { leaveSplitScreen(sub); }, std::chrono::milliseconds(1500));
