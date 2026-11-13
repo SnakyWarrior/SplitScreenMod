@@ -440,15 +440,20 @@ void joinController(int controller) {
     tAddingPlayer = false;
 }
 
-// ClientInstance: the game's own "this player leaves" (requestLeaveGame(bool switchScreen, bool sync)): it closes
-// the player's screens and level and then calls MinecraftGame::queueSubclientRemoval. Calling queueSubclientRemoval
-// alone leaves the player's client half there, and the game crashes on a destroyed mutex. The client of each sub
-// client comes from getClientSubId (the slot requestLeaveGame calls for queueSubclientRemoval's argument).
-using LeaveFn    = void (*)(void*, bool, bool);
+// ClientInstance virtual 24 runs every frame for each client (args true, true). When the client's byte +0x6E5 is
+// set and the client is not the primary one, it closes the client and calls MinecraftGame::queueSubclientRemoval,
+// the game's own way a player leaves (calling queueSubclientRemoval alone left the client half there, and the game
+// crashed on a destroyed mutex). The leave flags +0x6E0..+0x6E5 are logged when they change, to see what the game
+// sets when a player leaves from the pause menu. The client of each sub client comes from getClientSubId (slot 303).
+using TickFn     = void (*)(void*, bool, bool);
 using GetSubIdFn = uint64_t (*)(void*);
-LeaveFn                 gLeave         = nullptr;
-GetSubIdFn              gGetSubId      = nullptr;
-std::atomic<void*>      gClientBySub[4] = {};
+constexpr size_t   kLeaveFlags  = 0x6E0;
+constexpr size_t   kLeaveFlag   = 0x6E5;
+TickFn             gClientTick  = nullptr;
+GetSubIdFn         gGetSubId    = nullptr;
+std::atomic<void*> gClientBySub[4] = {};
+std::atomic<bool>  gLeaveWanted[4] = {};
+uint64_t           gFlagsSeen[4]   = {};
 
 uint64_t getSubIdDetour(void* self) {
     uint64_t sub = gGetSubId(self);
@@ -459,18 +464,43 @@ uint64_t getSubIdDetour(void* self) {
     return sub;
 }
 
-void leaveDetour(void* self, bool switchScreen, bool sync) {
-    uintptr_t ret = reinterpret_cast<uintptr_t>(__builtin_return_address(0));
-    note("leave: requestLeaveGame({}, {}) of client {} (sub client {}) from +0x{:X}", switchScreen, sync, self,
-         gGetSubId ? int(gGetSubId(self) & 0xFF) : -1, gGameModule ? ret - gGameModule->base : ret);
-    gLeave(self, switchScreen, sync);
+uint64_t leaveFlags(void* client) {
+    uint64_t flags = 0;
+    std::memcpy(&flags, static_cast<uint8_t*>(client) + kLeaveFlags, 6);
+    return flags;
+}
+
+void clientTickDetour(void* self, bool a, bool b) {
+    int sub = gGetSubId ? int(gGetSubId(self) & 0xFF) : -1;
+    if (sub >= 1 && sub < 4 && gLeaveWanted[sub].exchange(false)) {
+        note("leave: player {} leaves: client {} byte +0x{:X} = 1", sub + 1, self, kLeaveFlag);
+        static_cast<uint8_t*>(self)[kLeaveFlag] = 1;
+    }
+    if (sub >= 0 && sub < 4) {
+        uint64_t flags = leaveFlags(self);
+        if (flags != gFlagsSeen[sub]) {
+            note("leave: client of sub client {} flags +0x6E0: {:012X} -> {:012X} (args {} {})", sub, gFlagsSeen[sub],
+                 flags, a, b);
+            gFlagsSeen[sub] = flags;
+        }
+    }
+    gClientTick(self, a, b);
+    if (sub >= 0 && sub < 4) {
+        uint64_t flags = leaveFlags(self);
+        if (flags != gFlagsSeen[sub]) {
+            note("leave: client of sub client {} flags +0x6E0 after its frame: {:012X} -> {:012X}", sub,
+                 gFlagsSeen[sub], flags);
+            gFlagsSeen[sub] = flags;
+        }
+    }
 }
 
 void leaveSplitScreen(int sub) {
     void* client = sub >= 1 && sub < 4 ? gClientBySub[sub].load() : nullptr;
-    if (!gLeave || !client) return note("menus: ERROR: no client for player {} (leave {})", sub + 1, gLeave != nullptr);
-    note("menus: player {} leaves (client {})", sub + 1, client);
-    leaveDetour(client, true, false);
+    if (!gClientTick || !client)
+        return note("menus: ERROR: no client for player {} (tick {})", sub + 1, gClientTick != nullptr);
+    note("menus: player {} leaves (client {}) at its next frame", sub + 1, client);
+    gLeaveWanted[sub] = true;
 }
 
 bool hookClientLeave(Module const& game) {
@@ -490,11 +520,22 @@ bool hookClientLeave(Module const& game) {
                     bool removal = false;
                     for (size_t j = k + 1; j < k + 8; ++j) removal |= code[j] == kLdrRemoval;
                     if (!removal) continue;
-                    note("leave: requestLeaveGame is slot {} (+0x{:X}), getClientSubId slot 303 ({})", i,
+                    note("leave: the client frame is slot {} (+0x{:X}), getClientSubId slot 303 ({})", i,
                          vt[i] - game.base, describeFunction(game, vt[303]));
-                    gLeave    = reinterpret_cast<LeaveFn>(vt[i]);
-                    gGetSubId = reinterpret_cast<GetSubIdFn>(vt[303]);
-                    return writeSlot(&vt[i], reinterpret_cast<uintptr_t>(&leaveDetour))
+                    gClientTick = reinterpret_cast<TickFn>(vt[i]);
+                    gGetSubId   = reinterpret_cast<GetSubIdFn>(vt[303]);
+                    // functions that set the leave flag: one of them is how the game asks a player to leave
+                    constexpr uint32_t kStrbLeaveFlag = 0x39000000 | (kLeaveFlag << 10); // strb wN, [xM, #0x6E5]
+                    for (size_t w = 0; w < count; ++w) {
+                        if (!game.isCode(vt[w]) || !game.isCode(vt[w] + 0x800)) continue;
+                        auto const* fn = reinterpret_cast<uint32_t const*>(vt[w]);
+                        for (size_t n = 0; n < 0x200; ++n)
+                            if ((fn[n] & 0xFFFFFC00) == kStrbLeaveFlag && (fn[n] & 31) != 31) {
+                                note("leave: slot {} (+0x{:X}) sets +0x6E5 at +0x{:X}", w, vt[w] - game.base, n * 4);
+                                break;
+                            }
+                    }
+                    return writeSlot(&vt[i], reinterpret_cast<uintptr_t>(&clientTickDetour))
                         && writeSlot(&vt[303], reinterpret_cast<uintptr_t>(&getSubIdDetour));
                 }
             }
