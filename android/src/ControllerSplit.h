@@ -47,6 +47,9 @@ void onLostPlayerTakenOver(std::function<void(int controller)> handler);
 // Whether a connected device plays as controller number `controller`.
 bool controllerConnected(int controller);
 
+// While `blocked`, the controller's buttons and sticks reach nobody (its player is leaving).
+void blockController(int controller, bool blocked);
+
 // The device of controller number a now plays as b, and b's (if any) as a.
 void swapControllers(int a, int b);
 

@@ -216,6 +216,7 @@ void forgetPlayers(char const* why, int sub) {
     }
     note("join: {}({}): player {} is gone", why, sub, sub + 1);
     menus::onPlayerLeft(sub);
+    runOnInputThread([sub] { blockController(sub, false); }, std::chrono::seconds(1)); // once it is gone for good
 }
 
 using SubIdFn = void (*)(void*, int);
@@ -539,6 +540,9 @@ void requestLeave(int sub) {
         if (!gPlaying.contains(sub) || !gLeaving.insert(sub).second) return;
     }
     cancelMenu(sub);
+    // A leaving player gets no more input: a button press that reached the player while it was being removed made the
+    // game throw (0.7.3 and 0.8.1 crashes, "terminating").
+    blockController(sub, true);
     // Removed at once, a player whose menu is still closing takes the game down with it (a destroyed mutex): the
     // player leaves once its screen has closed.
     runOnInputThread([sub] { leaveSplitScreen(sub); }, std::chrono::milliseconds(1500));
@@ -654,8 +658,11 @@ void enableJoining(Module const& game) {
     });
     if (ok) onSelectPressed(menus::onSettingsButton);
     if (ok) setPlayingPlayers([] {
-        std::lock_guard lock(gPlayingMutex);
-        return std::vector<int>(gPlaying.begin(), gPlaying.end());
+        std::lock_guard  lock(gPlayingMutex);
+        std::vector<int> out;
+        for (int sub : gPlaying)
+            if (!gLeaving.contains(sub)) out.push_back(sub); // a leaving player does not get a new controller
+        return out;
     });
     if (ok) onLostPlayerTakenOver(menus::onControllerConnected);
     // W: in _addSubClientInstanceAndAssociateToUserInternal (the "b" target of slot 210), the first bl after

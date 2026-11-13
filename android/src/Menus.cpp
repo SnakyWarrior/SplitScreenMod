@@ -12,6 +12,8 @@
 
 #include <fmt/format.h>
 
+#include <sys/system_properties.h>
+
 namespace splitscreen {
 
 void logLine(std::string const& line); // SplitScreen.cpp
@@ -178,6 +180,12 @@ void setTexts(std::filesystem::path const& pack, std::filesystem::path const& op
             language = line.substr(14);
             while (!language.empty() && (language.back() == '\r' || language.back() == ' ')) language.pop_back();
         }
+    if (language.empty()) { // the game follows the phone's language: "el-GR" -> "el_GR"
+        char value[PROP_VALUE_MAX] = {};
+        __system_property_get("persist.sys.locale", value);
+        language = value;
+        std::replace(language.begin(), language.end(), '-', '_');
+    }
     auto texts = readLang(pack / "texts" / "en_US.lang");
     for (auto& [k, v] : readLang(pack / "texts" / (language + ".lang"))) texts[k] = v;
     note("menus: texts in {} ({} lines)", language, texts.size());

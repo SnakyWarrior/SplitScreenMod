@@ -220,6 +220,7 @@ using Fn8 = uint64_t (*)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint6
 Fn8              gDispatch = nullptr;
 std::atomic<int> gEventsLogged{0};
 std::atomic<int> gKeysToLog{0}; // after a swap: which keys each controller presses
+std::atomic<bool> gBlocked[kMaxControllers] = {};
 
 uint64_t dispatchDetour(uint64_t a0, uint64_t a1, uint64_t variant, uint64_t a3, uint64_t a4, uint64_t a5, uint64_t a6,
                         uint64_t a7) {
@@ -250,6 +251,7 @@ uint64_t dispatchDetour(uint64_t a0, uint64_t a1, uint64_t variant, uint64_t a3,
         }
     }
     if (padEvent && controller < 0 && gFirstController > 0) return 0; // a 5th controller would move player 1
+    if (padEvent && controller >= 0 && gBlocked[controller]) return 0; // its player is leaving
     int previous       = tCurrentController;
     tCurrentController = controller;
     uint64_t result    = gDispatch(a0, a1, variant, a3, a4, a5, a6, a7);
@@ -389,6 +391,10 @@ bool controllerConnected(int controller) {
     for (auto [d, c] : gControllerOf)
         if (c == controller) return true;
     return false;
+}
+
+void blockController(int controller, bool blocked) {
+    if (controller >= 0 && controller < kMaxControllers) gBlocked[controller] = blocked;
 }
 
 void swapControllers(int a, int b) {
