@@ -27,6 +27,7 @@ size_t                gSlots[kMaxSlots]; // its vtable slot
 std::atomic<bool>     gTracing{false};
 std::atomic<uint64_t> gCounts[kMaxSlots];
 std::atomic<bool>     gSeen[kMaxSlots];
+std::atomic<int>      gAlways[kMaxSlots]; // calls still logged whether tracing or not
 
 std::string offset(uintptr_t p) {
     return gGame && gGame->isCode(p) ? fmt::format("+0x{:X}", p - gGame->base) : fmt::format("0x{:X}", p);
@@ -34,7 +35,8 @@ std::string offset(uintptr_t p) {
 
 } // namespace
 
-bool traceVtable(Module const& game, uintptr_t* vtable, size_t slots, size_t first, char const* name, LogFn log) {
+bool traceVtable(Module const& game, uintptr_t* vtable, size_t slots, size_t first, char const* name, LogFn log,
+                 int alwaysLog) {
     static Module copy = game;
     gGame              = &copy;
     gLog               = std::move(log);
@@ -44,6 +46,7 @@ bool traceVtable(Module const& game, uintptr_t* vtable, size_t slots, size_t fir
         size_t t                  = first + i;
         gNames[t]                 = name;
         gSlots[t]                 = i;
+        gAlways[t]                = alwaysLog;
         splitscreen_voriginals[t] = vtable[i];
         if (!writeSlot(&vtable[i], splitscreen_vtrampolines[t])) {
             gLog(fmt::format("trace: ERROR: could not write {} slot {}", name, i));
@@ -74,6 +77,11 @@ void startTracing(int seconds) {
 
 extern "C" void splitscreen_on_vcall(uint64_t slot, uint64_t* regs, uint64_t ret) {
     using namespace splitscreen;
+    if (gAlways[slot].load(std::memory_order_relaxed) > 0) {
+        --gAlways[slot];
+        gLog(fmt::format("trace: {} called from {} (x1=0x{:X} w1={} w2={} w3={})", gNames[slot], offset(ret), regs[1],
+                         int32_t(regs[1]), int32_t(regs[2]), int32_t(regs[3])));
+    }
     if (!gTracing.load(std::memory_order_relaxed)) return;
     ++gCounts[slot];
     if (gSeen[slot].exchange(true)) return;

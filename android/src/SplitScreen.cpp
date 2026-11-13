@@ -480,7 +480,6 @@ void joinController(int controller) {
 using TickFn     = void (*)(void*, bool, bool);
 using GetSubIdFn = uint64_t (*)(void*);
 constexpr size_t   kLeaveFlags  = 0x6E0;
-constexpr size_t   kLeaveFlag   = 0x6E5;
 TickFn             gClientTick  = nullptr;
 GetSubIdFn         gGetSubId    = nullptr;
 std::atomic<void*> gClientBySub[4] = {};
@@ -643,14 +642,26 @@ bool hookClientLeave(Module const& game) {
                          vt[i] - game.base, describeFunction(game, vt[303]));
                     gClientTick = reinterpret_cast<TickFn>(vt[i]);
                     gGetSubId   = reinterpret_cast<GetSubIdFn>(vt[303]);
-                    // functions that set the leave flag: one of them is how the game asks a player to leave
-                    constexpr uint32_t kStrbLeaveFlag = 0x39000000 | (kLeaveFlag << 10); // strb wN, [xM, #0x6E5]
+                    // The game's own "this player leaves" (the pause menu's Save & Leave): a function that sets the
+                    // "leave requested" byte +0x6E1 (strb wN, [xM, #0x6E1], before its first ret). The mod only sets
+                    // the bytes; the game's function may do more first, and players removed by the mod's bytes made the
+                    // game crash on a removed player's actor. Each candidate is traced (which one the pause menu calls,
+                    // and with what).
+                    constexpr uint32_t kStrbRequested = 0x39000000 | (0x6E1 << 10);
+                    size_t             traced         = 0;
                     for (size_t w = 0; w < count; ++w) {
                         if (!game.isCode(vt[w]) || !game.isCode(vt[w] + 0x800)) continue;
                         auto const* fn = reinterpret_cast<uint32_t const*>(vt[w]);
-                        for (size_t n = 0; n < 0x200; ++n)
-                            if ((fn[n] & 0xFFFFFC00) == kStrbLeaveFlag && (fn[n] & 31) != 31) {
-                                note("leave: slot {} (+0x{:X}) sets +0x6E5 at +0x{:X}", w, vt[w] - game.base, n * 4);
+                        for (size_t n = 0; n < 0x200 && fn[n] != 0xD65F03C0; ++n)
+                            if ((fn[n] & 0xFFFFFC00) == kStrbRequested && (fn[n] & 31) != 31) {
+                                note("leave: slot {} (+0x{:X}) sets +0x6E1 at +0x{:X}", w, vt[w] - game.base, n * 4);
+                                if (traced < 8) {
+                                    static std::string names[8];
+                                    names[traced] = fmt::format("ClientInstance{}", w);
+                                    traceVtable(game, vt + w, 1, 412 + traced, names[traced].c_str(),
+                                                [](std::string const& l) { note("{}", l); }, 20);
+                                    ++traced;
+                                }
                                 break;
                             }
                     }
