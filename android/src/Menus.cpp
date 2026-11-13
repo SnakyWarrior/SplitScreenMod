@@ -269,6 +269,7 @@ void onSettingsButton(int who) {
 // A new controller joins at once as the first free player, and its own part of the screen (black, see the resource
 // pack's server_form.json) asks who is playing; picking someone else swaps that player in.
 void onJoinRequest(int controller) {
+    if (!inWorld()) return note("controller {} asked to join outside a world (or while it loads): not joining", controller);
     if (gFreshSub >= 0) return; // someone is joining already
     auto players = game::players();
     int  sub     = 1;

@@ -269,7 +269,17 @@ bool canAddDetour(void* self, int controller) {
     return answer;
 }
 
+// The game's own join prompt ("press Start to join") calls addSubClientInstanceAndAssociateToUser; as on Windows
+// (joinRequestDetour) the menus decide who joins, and the mod's own call (tOurJoin) goes through.
+thread_local bool tOurJoin = false;
 void addSubDetour(void* self, int controller) {
+    uintptr_t ret = reinterpret_cast<uintptr_t>(__builtin_return_address(0));
+    if (!tOurJoin) {
+        note("join: the game asks to add a player for controller {} (from +0x{:X})", controller,
+             gGameModule ? ret - gGameModule->base : ret);
+        if (controller <= 0) return gAddSub(self, controller);
+        return menus::onJoinRequest(controller);
+    }
     note("join: addSubClientInstanceAndAssociateToUser({}) called", controller);
     gAddSub(self, controller);
     note("join: addSubClientInstanceAndAssociateToUser({}) returned", controller);
@@ -428,7 +438,7 @@ void joinController(int controller) {
         }
         gJoinTimes[controller] = now;
     }
-    note("join: controller {} pressed Start: adding player {}", controller, controller + 1);
+    note("join: adding player {} for controller {}", controller + 1, controller);
     if (gGameModule) hookUserManager(*gGameModule, game);
     {
         auto const* g     = reinterpret_cast<uint8_t const*>(game);
@@ -445,7 +455,9 @@ void joinController(int controller) {
     tAddingPlayer    = true;
     tGameCanAdd      = -1;
     tControllerTaken = -1;
+    tOurJoin         = true;
     addSubDetour(game, controller);
+    tOurJoin      = false;
     tAddingPlayer = false;
 }
 
@@ -531,7 +543,9 @@ std::map<int, int> players() {
     return out;
 }
 
-bool hasController(int controller) { return controllerConnected(controller); }
+// Player 1 plays on the touch screen: that is its controller (it is never "without a controller", and nobody takes it
+// over: a controller given to player 1 made the game drop players and crash).
+bool hasController(int controller) { return controller == 0 || controllerConnected(controller); }
 
 void requestLeave(int sub) {
     if (sub < 1 || sub > 3) return; // player 1 leaving is leaving the world
@@ -544,11 +558,15 @@ void requestLeave(int sub) {
     // game throw (0.7.3 and 0.8.1 crashes, "terminating").
     blockController(sub, true);
     // Removed at once, a player whose menu is still closing takes the game down with it (a destroyed mutex): the
-    // player leaves once its screen has closed.
-    runOnInputThread([sub] { leaveSplitScreen(sub); }, std::chrono::milliseconds(1500));
+    // player leaves once its screen has closed
+    // (3 s: with the resource pack's menu look, 1.5 s was not enough)
+    runOnInputThread([sub] { leaveSplitScreen(sub); }, std::chrono::seconds(3));
 }
 
-void moveController(int from, int to) { swapControllers(from, to); }
+void moveController(int from, int to) {
+    if (from == 0 || to == 0) return note("menus: player 1 keeps the touch screen");
+    swapControllers(from, to);
+}
 
 void join(int controller, std::function<void(int)> joined) {
     runOnInputThread([controller, joined = std::move(joined)] {
@@ -653,8 +671,12 @@ void enableJoining(Module const& game) {
     writeSlot(&vt[10], reinterpret_cast<uintptr_t>(&queueRemovalDetour));
     hookClientLeave(game);
     writeSlot(&vt[16], reinterpret_cast<uintptr_t>(&releaseSubIdDetour));
-    if (ok) onStartPressed([](int controller) {
-        if (!game::players().contains(controller)) menus::onJoinRequest(controller); // else: its pause menu
+    // Players join through the game's own prompt. With "startJoins" in config.json, Start on a controller without a
+    // player asks to join directly (for when the game shows no prompt).
+    if (ok) onStartPressed([startJoins = configFlag("startJoins", false)](int controller) {
+        if (game::players().contains(controller)) return; // its pause menu
+        note("join: controller {} pressed Start{}", controller, startJoins ? "" : " (the game's prompt decides)");
+        if (startJoins) menus::onJoinRequest(controller);
     });
     if (ok) onSelectPressed(menus::onSettingsButton);
     if (ok) setPlayingPlayers([] {

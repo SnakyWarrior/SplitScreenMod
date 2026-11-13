@@ -151,8 +151,8 @@ bool sendForm(void const* id, uint32_t sub, uint32_t formId, std::string json) {
 }
 
 // Menus: one pending form per player (sub client), sent from that player's next PlayerAuthInputPacket (the server
-// thread). A busy player (another screen open) answers "UserBusy" at once: the form is sent again 2 seconds later,
-// up to 10 times. The answer: a Json::Value (+0x38: 8-byte value, type +0x40, 1 = int) holding the button index.
+// thread). A busy player (another screen open) answers "UserBusy" at once: the form is sent again half a second
+// later, for up to 20 seconds. The answer: a Json::Value (+0x38: 8-byte value, type +0x40, 1 = int) holding the button index.
 struct Pending {
     uint32_t                              formId = 0;
     std::string                           json;
@@ -184,7 +184,7 @@ void maybeSendMenu(void const* source, int sub) {
             gPending.erase(it);
         } else {
             if (now < p.due) return;
-            if (p.tries == 0) p.shown = now;
+            p.shown = now; // the countdown starts with the send that shows (a busy player answers the earlier ones)
             ++p.tries;
             p.due  = now + std::chrono::hours(1); // until it is answered
             formId = p.formId;
@@ -207,8 +207,8 @@ void menuAnswered(int sub, uint32_t formId, bool busy, int button) {
         std::lock_guard lock(gSeenMutex);
         auto it = gPending.find(sub);
         if (it == gPending.end() || it->second.formId != formId) return;
-        if (busy && it->second.tries < 10) {
-            it->second.due = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+        if (busy && it->second.tries < 40) { // busy while the player loads or another screen is open
+            it->second.due = std::chrono::steady_clock::now() + std::chrono::milliseconds(500);
             return;
         }
         done = std::move(it->second.done);
@@ -238,8 +238,20 @@ uint8_t packetSubId(void* packetRef) {
     return sub;
 }
 
+// Player 1 in a world: its PlayerAuthInputPacket keeps coming (one a tick), for 3 seconds at least.
+std::atomic<int64_t> gFirstAuth{0}, gLastAuth{0};
+int64_t              nowMs() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch())
+        .count();
+}
+
 void authHandleDetour(void* self, void* source, void* callback, void* packetRef) {
     uint8_t sub = packetSubId(packetRef);
+    if (sub == 0) {
+        int64_t now = nowMs();
+        if (now - gLastAuth > 1000) gFirstAuth = now; // a new stretch (a world was left or is loading)
+        gLastAuth = now;
+    }
     bool    fresh;
     {
         std::lock_guard lock(gSeenMutex);
@@ -291,6 +303,11 @@ void hookHandle(Found const& f, void* detour, HandleFn* original, char const* wh
 }
 
 } // namespace
+
+bool inWorld() {
+    int64_t now = nowMs();
+    return now - gLastAuth < 1000 && now - gFirstAuth > 3000;
+}
 
 bool menuOpen(int sub) {
     std::lock_guard lock(gSeenMutex);

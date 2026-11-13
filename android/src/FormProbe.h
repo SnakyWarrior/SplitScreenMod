@@ -24,6 +24,9 @@ void showForm(int sub, std::string const& title, std::string const& content, std
 // Forgets player `sub`'s menu (the player leaves); its answer, if one still comes, is ignored.
 void cancelMenu(int sub);
 
+// Whether player 1 is in a world (and has been for a few seconds: not while it loads).
+bool inWorld();
+
 // Whether player `sub` has a menu open (or about to open).
 bool menuOpen(int sub);
 
