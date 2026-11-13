@@ -440,7 +440,7 @@ void showPicker(int at) {
     if (canAdd) buttons.push_back("New player");
     note("picker: asking who plays player {}'s new controller ({} other(s) without one, new player {})", at + 1,
          lost.size(), canAdd);
-    showMenu(at, "Who is playing?", "A controller was connected. Who plays with it?", buttons,
+    showMenu(at, "[ss:c]", "A controller was connected. Who plays with it?", buttons,
              [lost, at, canAdd](int button) {
                  if (button <= 0) return; // it keeps playing `at` (or the menu was closed)
                  if (button <= int(lost.size())) {
@@ -457,7 +457,8 @@ void showPicker(int at) {
                      swapControllers(at, free);
                      joinController(free, false);
                  }, std::chrono::milliseconds(500));
-             });
+             },
+             10, 0); // after 10 seconds it keeps playing `at`
 }
 
 // A controller that was already connected (and plays nobody) pressed Start while players have lost their
@@ -651,7 +652,7 @@ void openSplitScreenMenu(int controller) {
     buttons.push_back("Leave split screen");
     items.push_back({Act::Cancel, -1});
     buttons.push_back("Cancel");
-    showMenu(controller, "Split screen", fmt::format("You are Player {}", controller + 1), buttons,
+    showMenu(controller, "[ss:m]", fmt::format("You are Player {}", controller + 1), buttons,
              [controller, items](int button) {
                  if (button < 0 || button >= int(items.size())) return;
                  Item item = items[size_t(button)];

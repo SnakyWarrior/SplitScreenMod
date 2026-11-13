@@ -109,6 +109,31 @@ static_assert(offsetof(RequestPacket, formId) == 0x30 && offsetof(RequestPacket,
               && offsetof(RequestPacket, serializationMode) == 0x50);
 #endif
 
+// ClientboundCloseFormPacket: closes the open form; only the Packet base (0x30 bytes, room left for more).
+uintptr_t gCloseVtable = 0, gCloseDispatcher = 0;
+struct ClosePacket {
+    uintptr_t vptr;
+    int32_t   priority;
+    int32_t   reliability;
+    uint8_t   senderSubId;
+    bool      handled;
+    uint8_t   pad[6];
+    int64_t   receiveTime;
+    uintptr_t handler;
+    int32_t   compressible;
+    int32_t   pad2;
+    uint8_t   room[0x40];
+};
+
+bool sendCloseForm(void const* id, uint32_t sub) {
+    void* sender = gSender.load();
+    if (!sender || !gSendToClient || !gCloseVtable || !gCloseDispatcher) return false;
+    auto* packet = new ClosePacket{gCloseVtable, 2, 1, 0, false, {}, 0, gCloseDispatcher, 0, 0, {}};
+    gLog(fmt::format("forms: closing the form of sub client {}", sub));
+    gSendToClient(sender, id, packet, sub);
+    return true;
+}
+
 // The packet is kept (never freed): the loopback may hand the object itself to the client.
 bool sendForm(void const* id, uint32_t sub, uint32_t formId, std::string json) {
     void* sender = gSender.load();
@@ -135,23 +160,44 @@ struct Pending {
     std::chrono::steady_clock::time_point due;
     int                                   tries = 0;
     std::chrono::steady_clock::time_point created = std::chrono::steady_clock::now();
+    std::chrono::seconds                  timeout{0}; // closed with `timeoutAnswer` this long after it shows
+    int                                   timeoutAnswer = -1;
+    std::chrono::steady_clock::time_point shown{};
 };
 std::map<int, Pending> gPending; // sub client -> its form
 uint32_t               gNextFormId = 0x5C5C0001;
 
 void maybeSendMenu(void const* source, int sub) {
-    uint32_t    formId;
-    std::string json;
+    uint32_t                 formId = 0;
+    std::string              json;
+    std::function<void(int)> expired;
+    int                      answer = -1;
     {
         std::lock_guard lock(gSeenMutex);
         auto it = gPending.find(sub);
-        if (it == gPending.end() || std::chrono::steady_clock::now() < it->second.due) return;
-        ++it->second.tries;
-        it->second.due = std::chrono::steady_clock::now() + std::chrono::hours(1); // until it is answered
-        formId         = it->second.formId;
-        json           = it->second.json;
+        if (it == gPending.end()) return;
+        auto  now = std::chrono::steady_clock::now();
+        auto& p   = it->second;
+        if (p.timeout.count() && p.tries > 0 && now > p.shown + p.timeout) {
+            expired = std::move(p.done);
+            answer  = p.timeoutAnswer;
+            gPending.erase(it);
+        } else {
+            if (now < p.due) return;
+            if (p.tries == 0) p.shown = now;
+            ++p.tries;
+            p.due  = now + std::chrono::hours(1); // until it is answered
+            formId = p.formId;
+            json   = p.json;
+        }
     }
-    sendForm(source, uint32_t(sub), formId, std::move(json));
+    if (formId) {
+        sendForm(source, uint32_t(sub), formId, std::move(json));
+        return;
+    }
+    sendCloseForm(source, uint32_t(sub));
+    gLog(fmt::format("menus: player {} did not choose in time: {}", sub + 1, answer));
+    if (expired) expired(answer);
 }
 
 // The answer to form `formId` from `sub`: button index, -1 when closed; busy sends it again.
@@ -259,13 +305,16 @@ bool menuOpen(int sub) {
 }
 
 void showMenu(int sub, std::string const& title, std::string const& content, std::vector<std::string> const& buttons,
-              std::function<void(int)> done) {
+              std::function<void(int)> done, int timeoutSeconds, int timeoutAnswer) {
     std::string json = "{\"type\":\"form\",\"title\":" + jsonString(title) + ",\"content\":" + jsonString(content)
                      + ",\"buttons\":[";
     for (size_t i = 0; i < buttons.size(); ++i) json += (i ? "," : "") + std::string("{\"text\":") + jsonString(buttons[i]) + "}";
     json += "]}";
     std::lock_guard lock(gSeenMutex);
-    gPending[sub] = Pending{gNextFormId++, std::move(json), std::move(done), std::chrono::steady_clock::now(), 0};
+    Pending p{gNextFormId++, std::move(json), std::move(done), std::chrono::steady_clock::now(), 0};
+    p.timeout       = std::chrono::seconds(timeoutSeconds);
+    p.timeoutAnswer = timeoutAnswer;
+    gPending[sub]   = std::move(p);
     if (gNextFormId > 0x5C5CFFFF) gNextFormId = 0x5C5C0001;
 }
 
@@ -294,6 +343,23 @@ void startFormProbe(Module const& game, LogFn log) {
         }
     }
     gLog(fmt::format("forms: ModalFormRequestPacket vtable {}", gRequestVtable ? offset(gRequestVtable) : "not found"));
+    // ClientboundCloseFormPacket (closes a form when its time is up) and its dispatcher object
+    for (auto const& f : find("26ClientboundCloseFormPacket", false)) {
+        if (f.name == "26ClientboundCloseFormPacket" && f.slots > 2) gCloseVtable = reinterpret_cast<uintptr_t>(f.vtable);
+        if (f.name == "31PacketHandlerDispatcherInstanceI26ClientboundCloseFormPacketLb0EE")
+            for (auto const& seg : copy.segments) {
+                if (!seg.read || !seg.write || gCloseDispatcher) continue;
+                for (uintptr_t p = (seg.start + 7) & ~uintptr_t(7); p + 8 <= seg.end; p += 8)
+                    if (*reinterpret_cast<uintptr_t const*>(p) == reinterpret_cast<uintptr_t>(f.vtable)) {
+                        gCloseDispatcher = p;
+                        break;
+                    }
+            }
+    }
+    gLog(fmt::format("forms: ClientboundCloseFormPacket vtable {} (id {}), dispatcher {}",
+                     gCloseVtable ? offset(gCloseVtable) : "not found",
+                     gCloseVtable ? int(constantReturn(reinterpret_cast<uintptr_t*>(gCloseVtable)[2]).value_or(0)) : -1,
+                     gCloseDispatcher ? offset(gCloseDispatcher) : "not found"));
 
     // the server's packet sender: traced (its slots, arguments and callers) while in a world
     auto senders = find("20LoopbackPacketSender", false);
