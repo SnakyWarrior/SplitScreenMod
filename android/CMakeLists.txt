@@ -12,7 +12,7 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(MOD_ID "SplitScreenMod" CACHE STRING "LeviLauncher mod package directory name")
 set(MOD_NAME "SplitScreenMod" CACHE STRING "LeviLauncher mod display name")
 set(MOD_AUTHOR "SnakyWarrior" CACHE STRING "LeviLauncher mod author")
-set(MOD_VERSION "0.9.1" CACHE STRING "LeviLauncher mod version")
+set(MOD_VERSION "0.9.2" CACHE STRING "LeviLauncher mod version")
 set(MOD_LIBRARY_NAME "SplitScreenMod" CACHE STRING "Native library name without lib prefix or .so suffix")
 set(MOD_MINECRAFT_VERSIONS "[\"1.26.*\"]" CACHE STRING "Raw JSON array for manifest minecraft_versions")
 
@@ -80,9 +80,9 @@ add_custom_target(levi_package
     COMMAND "${CMAKE_COMMAND}" -E copy "$<TARGET_FILE:${MOD_LIBRARY_NAME}>" "${PACKAGE_MOD_DIR}/lib${MOD_LIBRARY_NAME}.so"
     COMMAND "${CMAKE_COMMAND}" -E copy "${CMAKE_CURRENT_BINARY_DIR}/manifest.json" "${PACKAGE_MOD_DIR}/manifest.json"
     COMMAND "${CMAKE_COMMAND}" -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/config" "${PACKAGE_MOD_DIR}/config"
-    # the mod's resource pack, put into the game and turned on by the mod (its pause menu button is for Windows)
+    # the mod's resource pack, put into the game and turned on by the mod, with the Android changes from android/pack
     COMMAND "${CMAKE_COMMAND}" -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/../resource_packs/SplitScreenUI" "${PACKAGE_MOD_DIR}/pack"
-    COMMAND "${CMAKE_COMMAND}" -E rm -f "${PACKAGE_MOD_DIR}/pack/ui/pause_screen.json"
+    COMMAND "${CMAKE_COMMAND}" -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/pack" "${PACKAGE_MOD_DIR}/pack"
     COMMAND "${CMAKE_COMMAND}" -E chdir "${PACKAGE_ROOT}" "${CMAKE_COMMAND}" -E tar cf "${PACKAGE_FILE}" --format=zip "${MOD_ID}"
     COMMAND "${CMAKE_COMMAND}" -E copy "${PACKAGE_FILE}" "${CMAKE_CURRENT_BINARY_DIR}/${MOD_ID}-android-arm64.zip"
     DEPENDS ${MOD_LIBRARY_NAME}

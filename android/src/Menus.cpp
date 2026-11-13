@@ -162,9 +162,10 @@ void offerPicker(int owner, bool fresh) {
         auto& choice = choices[pick];
         switch (choice.kind) {
         case Kind::TakeOver:
-            game::moveController(controller, choice.value);
+            // (fresh: the player made for this controller is not needed any more)
+            if (fresh) game::handOver(owner, controller, choice.value);
+            else game::moveController(controller, choice.value);
             tell(choice.sub, tr("splitscreen.tell.youAreNow", {localName(choice.sub)}));
-            if (fresh) game::requestLeave(owner); // the player made for this controller is not needed any more
             break;
         case Kind::NewPlayer: game::join(controller); break; // this player stays and waits for a controller
         default: break;
@@ -261,10 +262,10 @@ void onSettingsButton(int who) {
             bool iHavePad    = game::hasController(myPad);
             bool theyHavePad = game::hasController(players.at(item.sub));
             if (!iHavePad) return tell(who, tr("splitscreen.tell.needController"));
-            game::moveController(myPad, players.at(item.sub));
-            tell(item.sub, tr("splitscreen.tell.youAreNow", {localName(item.sub)}));
             // nothing comes back to this player (the other one had no controller): it leaves instead of waiting
-            if (!theyHavePad && who != 0) game::requestLeave(who);
+            if (!theyHavePad && who != 0) game::handOver(who, myPad, players.at(item.sub));
+            else game::moveController(myPad, players.at(item.sub));
+            tell(item.sub, tr("splitscreen.tell.youAreNow", {localName(item.sub)}));
             return;
         }
         case Act::FreePad: // player 1 goes back to the touch screen; the controller waits for start to be pressed

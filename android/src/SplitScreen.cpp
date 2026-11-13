@@ -207,15 +207,26 @@ std::set<int> gPlaying;
 // players asked to leave: no longer in game::players(), so no menu opens on a screen that is about to go (opening
 // one there crashed the game)
 std::set<int> gLeaving;
+std::map<int, std::pair<int, int>> gHandOvers; // leaving player -> (its controller, where that goes) once it is gone
 
 void forgetPlayers(char const* why, int sub) {
+    std::optional<std::pair<int, int>> handOver;
     {
         std::lock_guard lock(gPlayingMutex);
         gLeaving.erase(sub);
         if (!gPlaying.erase(sub)) return;
+        if (auto it = gHandOvers.find(sub); it != gHandOvers.end()) {
+            handOver = it->second;
+            gHandOvers.erase(it);
+        }
     }
     note("join: {}({}): player {} is gone", why, sub, sub + 1);
     menus::onPlayerLeft(sub);
+    if (handOver)
+        runOnInputThread([h = *handOver] {
+            blockController(h.first, false);
+            swapControllers(h.first, h.second);
+        }, std::chrono::seconds(1));
     runOnInputThread([sub] { blockController(sub, false); }, std::chrono::seconds(1)); // once it is gone for good
 }
 
@@ -563,6 +574,15 @@ void requestLeave(int sub) {
 
 void moveController(int from, int to) { swapControllers(from, to); }
 
+void handOver(int sub, int from, int to) {
+    {
+        std::lock_guard lock(gPlayingMutex);
+        gHandOvers[sub] = {from, to};
+    }
+    note("menus: player {} leaves, then controller {} plays as controller {}", sub + 1, from, to);
+    requestLeave(sub);
+}
+
 void freeFirstController() {
     auto playing = players();
     for (int c = 1; c <= 3; ++c)
@@ -679,7 +699,7 @@ void enableJoining(Module const& game) {
     // On Windows the game's join prompt asks to add a player; on Android the game shows none, so Start on a controller
     // without a player asks (the same request; not outside a world). "startJoins": false leaves it to the game.
     if (ok) onStartPressed([startJoins = configFlag("startJoins", true)](int controller) {
-        if (game::players().contains(controller)) return; // its pause menu
+        if (game::players().contains(controller)) return startTracing(60); // its pause menu (traced)
         note("join: controller {} pressed Start{}", controller, startJoins ? "" : " (the game's prompt decides)");
         if (startJoins) menus::onJoinRequest(controller);
     });
@@ -716,6 +736,13 @@ void enableJoining(Module const& game) {
     }
     // after the patches above, so the trace sees our detours' slots as the originals
     if (ok) traceVtable(game, vt, count, 0, "MinecraftGame", [](std::string const& l) { note("{}", l); });
+    // The pause menu (its Split screen button) and the game's join prompt: which of their functions run, to find
+    // how the Windows version's button and prompt work here.
+    for (auto const& [cls, base, max] : {std::tuple{"21PauseScreenController", 420, 150}, {"23SplitscreenJoinListener", 575, 25}})
+        for (auto const& c : findClasses(game, cls))
+            if (c.name == cls && !c.vtables.empty())
+                traceVtable(game, c.vtables.front(), std::min<size_t>(countSlots(game, c.vtables.front(), 400), max), base,
+                            cls, [](std::string const& l) { note("{}", l); });
 }
 
 void probe() {

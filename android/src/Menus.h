@@ -25,6 +25,9 @@ bool hasController(int controller);
 void requestLeave(int sub);
 // The controller of `from` now plays `to`, and `to`'s (if any) plays `from`.
 void moveController(int from, int to);
+// Player `sub` leaves and its controller `from` then plays `to` (what moveController and requestLeave do on Windows;
+// on Android the controller moves once the player is gone: moved first, the leaving player crashed the game).
+void handOver(int sub, int from, int to);
 // Player 1 goes back to the touch screen; its controller waits for Start.
 void freeFirstController();
 // Adds a player for controller `controller`; the game gives it the first free sub client id. `joined` gets that id,
