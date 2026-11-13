@@ -1,6 +1,7 @@
 #include "ControllerSplit.h"
 
 #include "DeviceManagerProbe.h"
+#include "VTrace.h"
 
 #include <pl/memory/Hook.hpp>
 
@@ -58,6 +59,7 @@ std::atomic<int>      gRemapsLogged{0};
 std::mutex                gDevicesMutex;
 std::map<int32_t, int>    gControllerOf;
 std::map<int32_t, std::chrono::steady_clock::time_point> gLastSeen;
+std::map<int32_t, std::set<int32_t>> gHeld; // device -> key codes held down (see applyPendingSwaps)
 
 thread_local int tCurrentController = -1;
 
@@ -131,9 +133,36 @@ void purgeGoneDevices(bool now) {
     for (auto it = gControllerOf.begin(); it != gControllerOf.end();)
         if (!deviceExists(it->first)) {
             gLog(fmt::format("controllers: device {} (controller {}) is gone", it->first, it->second));
+            gHeld.erase(it->first);
             it = gControllerOf.erase(it);
         } else
             ++it;
+}
+
+// A press and its release must reach the same player: a controller that moves to another player (or is blocked)
+// while a button is held left the game with a button held on a player that was then removed, and the game crashed
+// ("terminating"). So swaps wait until the controllers involved hold no button. (gDevicesMutex)
+std::vector<std::pair<int, int>>     gPendingSwaps;  // controller numbers to swap once nothing is held
+
+bool holdsKeys(int controller) {
+    for (auto& [d, c] : gControllerOf)
+        if (c == controller && gHeld.contains(d) && !gHeld[d].empty()) return true;
+    return false;
+}
+
+void applyPendingSwaps() { // gDevicesMutex held
+    for (auto it = gPendingSwaps.begin(); it != gPendingSwaps.end();) {
+        auto [a, b] = *it;
+        if (holdsKeys(a) || holdsKeys(b)) {
+            ++it;
+            continue;
+        }
+        for (auto& [d, c] : gControllerOf)
+            if (c == a) c = b;
+            else if (c == b) c = a;
+        gLog(fmt::format("controllers: controllers {} and {} swapped", a, b));
+        it = gPendingSwaps.erase(it);
+    }
 }
 
 std::function<std::vector<int>()> gPlayingFn;
@@ -225,6 +254,7 @@ Fn8              gDispatch = nullptr;
 std::atomic<int> gEventsLogged{0};
 std::atomic<int> gKeysToLog{0}; // after a swap: which keys each controller presses
 std::atomic<bool> gBlocked[kMaxControllers] = {};
+std::atomic<int>  gUnassignedPresses{0};
 
 uint64_t dispatchDetour(uint64_t a0, uint64_t a1, uint64_t variant, uint64_t a3, uint64_t a4, uint64_t a5, uint64_t a6,
                         uint64_t a7) {
@@ -232,11 +262,13 @@ uint64_t dispatchDetour(uint64_t a0, uint64_t a1, uint64_t variant, uint64_t a3,
     uintptr_t event      = 0;
     int32_t   index = -1, head[2] = {0, 0};
     bool      startDown = false, selectDown = false, padEvent = false;
+    int32_t   keyCode = -1, keyAction = -1;
     if (safeRead(variant + 8, &index, 4) && index != -1 && safeRead(variant, &event, 8) && event
         && safeRead(event, head, 8)) {
         int32_t key[kKeyCodeIndex + 1] = {};
-        if (index == 0 && safeRead(event, key, sizeof key))
-        {
+        if (index == 0 && safeRead(event, key, sizeof key)) {
+            keyCode   = key[kKeyCodeIndex];
+            keyAction = key[2];
             startDown  = key[kKeyCodeIndex] == kKeyCodeStart && key[2] == kKeyActionDown;
             selectDown = key[kKeyCodeIndex] == kKeyCodeSelect && key[2] == kKeyActionDown;
         }
@@ -254,16 +286,37 @@ uint64_t dispatchDetour(uint64_t a0, uint64_t a1, uint64_t variant, uint64_t a3,
                              head[1], controller));
         }
     }
-    // a 5th controller would move player 1; a blocked one's player is leaving
-    if (padEvent && ((controller < 0 && gFirstController > 0) || (controller >= 0 && gBlocked[controller]))) {
+    // a 5th controller would move player 1; a blocked one's player is leaving (it gets no new presses, but the
+    // release of a held button still reaches it)
+    bool keyDown = index == 0 && keyAction == kKeyActionDown, keyUp = index == 0 && keyAction != kKeyActionDown;
+    if (padEvent && ((controller < 0 && gFirstController > 0) || (controller >= 0 && gBlocked[controller] && !keyUp))) {
         runDueTasks();
         return 0;
+    }
+    if (padEvent && index == 0) {
+        std::lock_guard lock(gDevicesMutex);
+        if (keyDown) gHeld[head[0]].insert(keyCode);
+        else gHeld[head[0]].erase(keyCode);
+    }
+    // the first presses of a controller that plays nobody: what the game does with them (its join prompt)
+    if (padEvent && keyDown && controller > 0 && gPlayingFn && gUnassignedPresses < 6) {
+        auto playing = gPlayingFn();
+        if (std::find(playing.begin(), playing.end(), controller) == playing.end()) {
+            ++gUnassignedPresses;
+            gLog(fmt::format("controllers: key {} on controller {}, which plays nobody (tracing what the game does)",
+                             keyCode, controller));
+            startTracing(20);
+        }
     }
     int previous       = tCurrentController;
     tCurrentController = controller;
     uint64_t result    = gDispatch(a0, a1, variant, a3, a4, a5, a6, a7);
     tCurrentController = previous;
     std::vector<int> tookOver;
+    {
+        std::lock_guard lock(gDevicesMutex);
+        if (!gPendingSwaps.empty()) applyPendingSwaps();
+    }
     {
         std::lock_guard lock(gDevicesMutex);
         tookOver.swap(gTookOver);
@@ -410,10 +463,9 @@ void blockController(int controller, bool blocked) {
 
 void swapControllers(int a, int b) {
     std::lock_guard lock(gDevicesMutex);
-    for (auto& [d, c] : gControllerOf)
-        if (c == a) c = b;
-        else if (c == b) c = a;
-    gLog(fmt::format("controllers: controllers {} and {} swapped", a, b));
+    gPendingSwaps.push_back({a, b});
+    applyPendingSwaps();
+    if (!gPendingSwaps.empty()) gLog(fmt::format("controllers: controllers {} and {} swap once no button is held", a, b));
     gKeysToLog    = 40;
     gRemapsLogged = 0;
 }

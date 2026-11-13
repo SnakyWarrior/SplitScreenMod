@@ -738,11 +738,19 @@ void enableJoining(Module const& game) {
     if (ok) traceVtable(game, vt, count, 0, "MinecraftGame", [](std::string const& l) { note("{}", l); });
     // The pause menu (its Split screen button) and the game's join prompt: which of their functions run, to find
     // how the Windows version's button and prompt work here.
-    for (auto const& [cls, base, max] : {std::tuple{"21PauseScreenController", 420, 150}, {"23SplitscreenJoinListener", 575, 25}})
-        for (auto const& c : findClasses(game, cls))
-            if (c.name == cls && !c.vtables.empty())
-                traceVtable(game, c.vtables.front(), std::min<size_t>(countSlots(game, c.vtables.front(), 400), max), base,
-                            cls, [](std::string const& l) { note("{}", l); });
+    for (auto const& c : findClasses(game, "21PauseScreenController"))
+        if (c.name == "21PauseScreenController" && !c.vtables.empty())
+            traceVtable(game, c.vtables.front(), std::min<size_t>(countSlots(game, c.vtables.front(), 400), 150), 420,
+                        "PauseScreenController", [](std::string const& l) { note("{}", l); });
+    size_t listenerBase = 575;
+    for (auto const& c : findClasses(game, "SplitscreenJoinListener"))
+        for (auto* lvt : c.vtables) {
+            size_t n = std::min<size_t>(countSlots(game, lvt, 400), 600 - listenerBase);
+            if (!n) continue;
+            note("join: tracing {} ({} slots)", c.name, n);
+            traceVtable(game, lvt, n, listenerBase, "SplitscreenJoinListener", [](std::string const& l) { note("{}", l); });
+            listenerBase += n;
+        }
 }
 
 void probe() {
@@ -880,7 +888,9 @@ void probe() {
         note("{} classes named *{}*", classes.size(), needle);
         for (auto const& c : classes) {
             if (std::string_view(needle) == "MinecraftGame" && c.name != "13MinecraftGame") continue;
-            if (c.name.find("__function") != std::string::npos || c.name.find("shared_ptr") != std::string::npos) continue;
+            if (std::string_view(needle) == "MinecraftGame"
+                && (c.name.find("__function") != std::string::npos || c.name.find("shared_ptr") != std::string::npos))
+                continue;
             note("class {}: {} vtable(s)", c.name, c.vtables.size());
         }
     }
