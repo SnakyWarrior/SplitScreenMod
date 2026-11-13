@@ -262,7 +262,7 @@ uint64_t dispatchDetour(uint64_t a0, uint64_t a1, uint64_t variant, uint64_t a3,
     if (gTookOverFn)
         for (int c : tookOver) gTookOverFn(c);
     if (startDown && controller >= 1 && gStartPressed) gStartPressed(controller);
-    if (selectDown && controller >= 1 && gSelectPressed) gSelectPressed(controller);
+    if (selectDown && controller >= 0 && gSelectPressed) gSelectPressed(controller); // 0: a controller given to player 1
     std::vector<std::function<void()>> tasks;
     {
         std::lock_guard lock(gTasksMutex);

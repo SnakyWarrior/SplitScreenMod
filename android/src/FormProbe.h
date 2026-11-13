@@ -16,6 +16,14 @@ namespace splitscreen {
 
 void startFormProbe(Module const& game, LogFn log);
 
+// A menu like showMenu whose buttons carry pictures (texture paths; "" for none).
+void showForm(int sub, std::string const& title, std::string const& content, std::vector<std::string> const& buttons,
+              std::vector<std::string> const& pictures, std::function<void(int)> done, int timeoutSeconds = 0,
+              int timeoutAnswer = -1);
+
+// Forgets player `sub`'s menu (the player leaves); its answer, if one still comes, is ignored.
+void cancelMenu(int sub);
+
 // Whether player `sub` has a menu open (or about to open).
 bool menuOpen(int sub);
 

@@ -18,6 +18,7 @@
 #include "VTrace.h"
 #include "PostTrace.h"
 #include "FormProbe.h"
+#include "Menus.h"
 
 
 #include <dlfcn.h>
@@ -205,10 +206,12 @@ std::mutex    gPlayingMutex;
 std::set<int> gPlaying;
 
 void forgetPlayers(char const* why, int sub) {
-    std::lock_guard lock(gPlayingMutex);
-    if (gPlaying.empty()) return;
-    if (!gPlaying.erase(sub)) return;
+    {
+        std::lock_guard lock(gPlayingMutex);
+        if (!gPlaying.erase(sub)) return;
+    }
     note("join: {}({}): player {} is gone", why, sub, sub + 1);
+    menus::onPlayerLeft(sub);
 }
 
 using SubIdFn = void (*)(void*, int);
@@ -401,83 +404,12 @@ bool addCheckDetour(void* game, int controller, uint8_t* out, bool flag) {
 }
 
 
-void joinController(int controller, bool askLost = true);
-void openSplitScreenMenu(int controller);
-
-std::vector<int> playingPlayers() {
-    std::lock_guard lock(gPlayingMutex);
-    return {gPlaying.begin(), gPlaying.end()};
-}
-
-// Players 2-4 who play but have no controller (theirs was disconnected).
-std::vector<int> lostPlayers() {
-    std::vector<int> out;
-    for (int p : playingPlayers())
-        if (!controllerConnected(p)) out.push_back(p);
-    return out;
-}
-
-// A controller number that neither plays nor has a controller, for a new player; -1 when all are taken.
-int freeController() {
-    auto playing = playingPlayers();
-    for (int c = 1; c <= 3; ++c)
-        if (std::find(playing.begin(), playing.end(), c) == playing.end() && !controllerConnected(c)) return c;
-    return -1;
-}
-
-// "Who is playing?" on player `at`'s screen, whose controller just came from a new controller: it keeps playing
-// `at`, plays another player who lost their controller, or joins as a new player (`at` stays without a controller).
-void showPicker(int at) {
-    {
-        std::lock_guard lock(gPlayingMutex);
-        if (!gPlaying.contains(at)) return; // the controller took a free place: it joins with Start
-    }
-    auto lost = lostPlayers();
-    lost.erase(std::remove(lost.begin(), lost.end(), at), lost.end());
-    std::vector<std::string> buttons{fmt::format("Player {}", at + 1)};
-    for (int p : lost) buttons.push_back(fmt::format("Player {} (no controller)", p + 1));
-    bool canAdd = freeController() >= 0;
-    if (canAdd) buttons.push_back("New player");
-    note("picker: asking who plays player {}'s new controller ({} other(s) without one, new player {})", at + 1,
-         lost.size(), canAdd);
-    showMenu(at, "[ss:c]", "A controller was connected. Who plays with it?", buttons,
-             [lost, at, canAdd](int button) {
-                 if (button <= 0) return; // it keeps playing `at` (or the menu was closed)
-                 if (button <= int(lost.size())) {
-                     int pick = lost[size_t(button - 1)];
-                     note("picker: the controller plays player {}", pick + 1);
-                     runOnInputThread([at, pick] { swapControllers(at, pick); });
-                     return;
-                 }
-                 if (!canAdd) return;
-                 runOnInputThread([at] {
-                     int free = freeController();
-                     if (free < 0) return note("picker: no free place for a new player");
-                     note("picker: the controller joins as new player {}", free + 1);
-                     swapControllers(at, free);
-                     joinController(free, false);
-                 }, std::chrono::milliseconds(500));
-             },
-             10, 0); // after 10 seconds it keeps playing `at`
-}
-
-// A controller that was already connected (and plays nobody) pressed Start while players have lost their
-// controller: it goes to the first of them, who is asked who plays.
-bool offerLostPlayers(int controller) {
-    auto lost = lostPlayers();
-    if (lost.empty()) return false;
-    note("picker: controller {} joins while {} player(s) have no controller", controller, lost.size());
-    swapControllers(controller, lost.front());
-    showPicker(lost.front());
-    return true;
-}
-
 // A controller other than the first pressed Start: add a player for it, once (the game's own "press Start to join"
 // does not react to it on Android).
 std::mutex gJoinMutex;
 std::map<int, std::chrono::steady_clock::time_point> gJoinTimes;
 
-void joinController(int controller, bool askLost) {
+void joinController(int controller) {
     void* game = gMinecraftGame.load();
     {
         std::lock_guard lock(gJoinMutex);
@@ -491,7 +423,6 @@ void joinController(int controller, bool askLost) {
         }
         gJoinTimes[controller] = now;
     }
-    if (askLost && offerLostPlayers(controller)) return;
     note("join: controller {} pressed Start: adding player {}", controller, controller + 1);
     if (gGameModule) hookUserManager(*gGameModule, game);
     {
@@ -580,6 +511,52 @@ void leaveSplitScreen(int sub) {
     gLeaveWanted[sub] = true;
 }
 
+} // namespace
+
+void logLine(std::string const& line) { note("{}", line); }
+
+// What the menus (Menus.cpp) ask of the game.
+namespace game {
+
+std::map<int, int> players() {
+    std::map<int, int> out{{0, 0}};
+    std::lock_guard    lock(gPlayingMutex);
+    for (int sub : gPlaying) out[sub] = sub;
+    return out;
+}
+
+bool hasController(int controller) { return controllerConnected(controller); }
+
+void requestLeave(int sub) {
+    if (sub < 1 || sub > 3) return; // player 1 leaving is leaving the world
+    // Removed at once, a player whose menu is still closing takes the game down with it (a destroyed mutex): the
+    // player leaves once its screen has closed.
+    runOnInputThread([sub] { leaveSplitScreen(sub); }, std::chrono::milliseconds(1500));
+}
+
+void moveController(int from, int to) { swapControllers(from, to); }
+
+void join(int controller, std::function<void(int)> joined) {
+    runOnInputThread([controller, joined = std::move(joined)] {
+        // the new player's sub client id is the first free one: the controller takes that number first
+        auto playing = players();
+        int  sub     = 1;
+        while (sub <= 3 && playing.contains(sub)) ++sub;
+        if (sub > 3) {
+            note("join: no free place for controller {}", controller);
+            if (joined) joined(-1);
+            return;
+        }
+        if (controller != sub) swapControllers(controller, sub);
+        joinController(sub);
+        if (joined) joined(players().contains(sub) ? sub : -1);
+    });
+}
+
+} // namespace game
+
+namespace {
+
 bool hookClientLeave(Module const& game) {
     constexpr uint32_t kLdrSubIdSlot = 0xF944BD08; // ldr x8, [x8, #0x978]: getClientSubId, slot 303
     constexpr uint32_t kLdrRemoval   = 0xF9402908; // ldr x8, [x8, #0x50]: MinecraftGame::queueSubclientRemoval
@@ -624,65 +601,6 @@ bool hookClientLeave(Module const& game) {
 
 // The Split screen menu, on Select (View / Back) of a controller that plays. The added player's sub client id is its
 // controller number (1-3).
-void openSplitScreenMenu(int controller) {
-    {
-        std::lock_guard lock(gPlayingMutex);
-        if (!gPlaying.contains(controller)) return;
-    }
-    if (menuOpen(controller)) return note("menus: player {} already has a menu open", controller + 1);
-    note("menus: player {} opens the Split screen menu", controller + 1);
-    enum class Act { Swap, NewPlayer, Leave, Cancel };
-    struct Item {
-        Act act;
-        int other;
-    };
-    std::vector<Item>        items;
-    std::vector<std::string> buttons;
-    for (int p : playingPlayers()) {
-        if (p == controller) continue;
-        items.push_back({Act::Swap, p});
-        buttons.push_back(controllerConnected(p) ? fmt::format("Swap places with Player {}", p + 1)
-                                                 : fmt::format("Play Player {} (no controller)", p + 1));
-    }
-    if (freeController() >= 0) {
-        items.push_back({Act::NewPlayer, -1});
-        buttons.push_back("Become a new player");
-    }
-    items.push_back({Act::Leave, -1});
-    buttons.push_back("Leave split screen");
-    items.push_back({Act::Cancel, -1});
-    buttons.push_back("Cancel");
-    showMenu(controller, "[ss:m]", fmt::format("You are Player {}", controller + 1), buttons,
-             [controller, items](int button) {
-                 if (button < 0 || button >= int(items.size())) return;
-                 Item item = items[size_t(button)];
-                 switch (item.act) {
-                 case Act::Swap:
-                     // this controller plays the other player; theirs (if any) plays this one
-                     note("menus: player {} swaps places with player {}", controller + 1, item.other + 1);
-                     runOnInputThread([controller, other = item.other] { swapControllers(controller, other); });
-                     break;
-                 case Act::NewPlayer:
-                     // this player stays, without a controller; the controller joins as a new player
-                     runOnInputThread([controller] {
-                         int free = freeController();
-                         if (free < 0) return note("menus: no free place for a new player");
-                         note("menus: player {}'s controller becomes new player {}", controller + 1, free + 1);
-                         swapControllers(controller, free);
-                         joinController(free, false);
-                     }, std::chrono::milliseconds(500));
-                     break;
-                 case Act::Leave:
-                     // Removed at once, the player's client goes while its form screen is still closing, and the
-                     // game crashes on a destroyed mutex: wait for the screen to close.
-                     note("menus: player {} leaves split screen in 1.5 seconds", controller + 1);
-                     runOnInputThread([controller] { leaveSplitScreen(controller); }, std::chrono::milliseconds(1500));
-                     break;
-                 case Act::Cancel: break;
-                 }
-             });
-}
-
 void enableJoining(Module const& game) {
     static Module copy = game;
     gGameModule        = &copy;
@@ -721,10 +639,15 @@ void enableJoining(Module const& game) {
     writeSlot(&vt[10], reinterpret_cast<uintptr_t>(&queueRemovalDetour));
     hookClientLeave(game);
     writeSlot(&vt[16], reinterpret_cast<uintptr_t>(&releaseSubIdDetour));
-    if (ok) onStartPressed([](int controller) { joinController(controller); });
-    if (ok) onSelectPressed(openSplitScreenMenu);
-    if (ok) setPlayingPlayers(playingPlayers);
-    if (ok) onLostPlayerTakenOver(showPicker);
+    if (ok) onStartPressed([](int controller) {
+        if (!game::players().contains(controller)) menus::onJoinRequest(controller); // else: its pause menu
+    });
+    if (ok) onSelectPressed(menus::onSettingsButton);
+    if (ok) setPlayingPlayers([] {
+        std::lock_guard lock(gPlayingMutex);
+        return std::vector<int>(gPlaying.begin(), gPlaying.end());
+    });
+    if (ok) onLostPlayerTakenOver(menus::onControllerConnected);
     // W: in _addSubClientInstanceAndAssociateToUserInternal (the "b" target of slot 210), the first bl after
     // "add x2, sp, #164" (its out parameter)
     {
@@ -944,66 +867,49 @@ void watchGame() {
 }
 
 // The mod's resource pack (menu look, the black "Choose your player" screen, texts in every language) comes in the
-// mod's own folder (pack/) and is put into the game's resource_packs folder and turned on as a global resource pack
-// before the game reads its packs. The game's folder (games/com.mojang) is looked for in the launcher's storage.
+// mod's own folder (pack/). It is put into the game's resource_packs folder and turned on as a global resource pack;
+// the menus read their texts from it. The game's folder (games/com.mojang) is not in a fixed place under
+// LeviLauncher: it is the one the game itself opens files in (/proc/self/fd), remembered in the mod's data folder
+// for the next start, when the pack is put in before the game reads its packs.
 constexpr char const* kPackUuid = "64c369bd-945a-4e1b-ab9a-4b3377148744";
+namespace fs                    = std::filesystem;
 
-void installResourcePack() {
-    namespace fs = std::filesystem;
+fs::path packSource() { return SplitScreenMod::instance().getSelf().getModDir() / "pack"; }
+fs::path rememberedFolderFile() { return SplitScreenMod::instance().getSelf().getDataDir() / "game_folder.txt"; }
+
+// games/com.mojang from a path the game has open, e.g. ".../games/com.mojang/minecraftpe/options.txt"
+fs::path gameFolderIn(std::string const& path) {
+    auto at = path.find("/games/com.mojang/");
+    return at == std::string::npos ? fs::path() : fs::path(path.substr(0, at + strlen("/games/com.mojang")));
+}
+
+fs::path openGameFolder() {
     std::error_code ec;
-    fs::path        source = SplitScreenMod::instance().getSelf().getModDir() / "pack";
-    if (!fs::exists(source / "manifest.json", ec)) {
-        // the mod folder LeviLauncher runs from may hold only the library: look next to the config too
-        source = SplitScreenMod::instance().getSelf().getConfigDir().parent_path() / "pack";
-        if (!fs::exists(source / "manifest.json", ec)) return note("pack: the mod's resource pack is not in its folder");
+    for (auto const& fd : fs::directory_iterator("/proc/self/fd", ec)) {
+        auto target = fs::read_symlink(fd.path(), ec);
+        if (ec) continue;
+        if (auto folder = gameFolderIn(target.string()); !folder.empty()) return folder;
     }
-    // the app's package, from the mod's path (/data/data/<package>/... or /data/user/0/<package>/...)
-    std::string modPath = SplitScreenMod::instance().getSelf().getModDir().string(), package = "org.levimc.launcher";
-    for (char const* root : {"/data/data/", "/data/user/0/"})
-        if (modPath.starts_with(root)) package = modPath.substr(strlen(root), modPath.find('/', strlen(root)) - strlen(root));
-    std::vector<fs::path> candidates{
-        "/storage/emulated/0/Android/data/" + package + "/files/games/com.mojang",
-        "/data/data/" + package + "/games/com.mojang",
-        "/data/data/" + package + "/files/games/com.mojang",
-        "/data/user/0/" + package + "/games/com.mojang",
-        "/storage/emulated/0/games/com.mojang",
-    };
-    // also any games/com.mojang a few levels down in the app's own folders
-    for (fs::path base : {fs::path("/data/data/" + package), fs::path("/storage/emulated/0/Android/data/" + package)}) {
-        for (auto it = fs::recursive_directory_iterator(base, fs::directory_options::skip_permission_denied, ec);
-             !ec && it != fs::recursive_directory_iterator(); it.increment(ec)) {
-            if (it.depth() > 4) {
-                it.disable_recursion_pending();
-                continue;
-            }
-            if (it->path().filename() == "com.mojang" && it->is_directory(ec)) candidates.push_back(it->path());
-        }
-        ec.clear();
-    }
-    fs::path                       target;
-    fs::file_time_type             newest{};
-    for (auto const& c : candidates) {
-        bool has = fs::exists(c / "minecraftpe", ec);
-        auto t   = fs::last_write_time(c / "minecraftpe", ec);
-        note("pack: game folder {}: {}", c.string(), has ? "found" : "no");
-        if (has && (target.empty() || t > newest)) target = c, newest = t;
-    }
-    if (target.empty()) return note("pack: ERROR: the game's folder (games/com.mojang) was not found");
+    return {};
+}
 
-    fs::path packDir = target / "resource_packs" / "SplitScreenUI";
+void turnOnPack(fs::path const& folder) {
+    std::error_code ec;
+    if (!fs::exists(packSource() / "manifest.json", ec)) return note("pack: the mod's resource pack is not in its folder");
+    fs::path packDir = folder / "resource_packs" / "SplitScreenUI";
     fs::create_directories(packDir, ec);
-    fs::copy(source, packDir, fs::copy_options::recursive | fs::copy_options::overwrite_existing, ec);
+    fs::copy(packSource(), packDir, fs::copy_options::recursive | fs::copy_options::overwrite_existing, ec);
     note("pack: copied to {}{}", packDir.string(), ec ? " (ERROR: " + ec.message() + ")" : "");
 
-    fs::path    globalFile = target / "minecraftpe" / "global_resource_packs.json";
+    fs::path    globalFile = folder / "minecraftpe" / "global_resource_packs.json";
     std::string text;
     {
-        std::ifstream in(globalFile);
+        std::ifstream     in(globalFile);
         std::stringstream ss;
         ss << in.rdbuf();
         text = ss.str();
     }
-    if (text.find(kPackUuid) != std::string::npos) return note("pack: already turned on in {}", globalFile.string());
+    if (text.find(kPackUuid) != std::string::npos) return note("pack: turned on in {}", globalFile.string());
     std::string entry = fmt::format("{{\"pack_id\":\"{}\",\"version\":[1,0,0]}}", kPackUuid);
     auto        open  = text.find('[');
     if (open == std::string::npos) text = "[" + entry + "]";
@@ -1013,7 +919,46 @@ void installResourcePack() {
     }
     std::ofstream out(globalFile, std::ios::trunc);
     out << text;
-    note("pack: turned on in {}{}", globalFile.string(), out ? "" : " (ERROR: could not write)");
+    note("pack: turned on in {}{}", globalFile.string(), out ? " (from the next start of the game)" : " (ERROR: could not write)");
+}
+
+// At load: the folder found last time.
+void installResourcePack() {
+    std::ifstream in(rememberedFolderFile());
+    std::string   folder;
+    std::getline(in, folder);
+    if (folder.empty()) return note("pack: the game's folder is not known yet (found once the game runs)");
+    note("pack: game folder {}", folder);
+    turnOnPack(folder);
+    menus::setTexts(packSource(), fs::path(folder) / "minecraftpe" / "options.txt");
+}
+
+// While the game runs: the folder it has files open in; a new one is remembered and gets the pack.
+void findGameFolder() {
+    static fs::path known = [] {
+        std::ifstream in(rememberedFolderFile());
+        std::string   folder;
+        std::getline(in, folder);
+        return fs::path(folder);
+    }();
+    fs::path folder = openGameFolder();
+    if (folder.empty() || folder == known) return;
+    known = folder;
+    note("pack: the game's folder is {}", folder.string());
+    std::error_code ec;
+    fs::create_directories(rememberedFolderFile().parent_path(), ec);
+    std::ofstream(rememberedFolderFile(), std::ios::trunc) << folder.string() << "\n";
+    turnOnPack(folder);
+    menus::setTexts(packSource(), folder / "minecraftpe" / "options.txt");
+}
+
+void watchControllers() {
+    for (;;) {
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+        menus::checkControllers();
+        static int tick = 0;
+        if (tick++ % 10 == 0) findGameFolder();
+    }
 }
 
 } // namespace
@@ -1039,6 +984,7 @@ bool SplitScreenMod::enable() {
     std::call_once(gStarted, [] {
         std::thread([] {
             probe();
+            std::thread(watchControllers).detach();
             watchGame();
         }).detach();
     });

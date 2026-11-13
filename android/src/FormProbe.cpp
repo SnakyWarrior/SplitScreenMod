@@ -304,11 +304,27 @@ bool menuOpen(int sub) {
     return true;
 }
 
+void cancelMenu(int sub) {
+    std::lock_guard lock(gSeenMutex);
+    gPending.erase(sub);
+}
+
 void showMenu(int sub, std::string const& title, std::string const& content, std::vector<std::string> const& buttons,
               std::function<void(int)> done, int timeoutSeconds, int timeoutAnswer) {
+    showForm(sub, title, content, buttons, {}, std::move(done), timeoutSeconds, timeoutAnswer);
+}
+
+void showForm(int sub, std::string const& title, std::string const& content, std::vector<std::string> const& buttons,
+              std::vector<std::string> const& pictures, std::function<void(int)> done, int timeoutSeconds,
+              int timeoutAnswer) {
     std::string json = "{\"type\":\"form\",\"title\":" + jsonString(title) + ",\"content\":" + jsonString(content)
                      + ",\"buttons\":[";
-    for (size_t i = 0; i < buttons.size(); ++i) json += (i ? "," : "") + std::string("{\"text\":") + jsonString(buttons[i]) + "}";
+    for (size_t i = 0; i < buttons.size(); ++i) {
+        json += (i ? "," : "") + std::string("{\"text\":") + jsonString(buttons[i]);
+        if (i < pictures.size() && !pictures[i].empty())
+            json += ",\"image\":{\"type\":\"path\",\"data\":" + jsonString(pictures[i]) + "}";
+        json += "}";
+    }
     json += "]}";
     std::lock_guard lock(gSeenMutex);
     Pending p{gNextFormId++, std::move(json), std::move(done), std::chrono::steady_clock::now(), 0};
