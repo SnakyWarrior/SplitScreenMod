@@ -12,6 +12,7 @@
 #include <atomic>
 #include <map>
 #include <mutex>
+#include <chrono>
 #include <set>
 #include <vector>
 
@@ -99,7 +100,11 @@ constexpr int kKeyCodeSelect  = 109; // KEYCODE_BUTTON_SELECT (View / Back / Sha
 
 std::function<void(int)>           gSelectPressed;
 std::mutex                         gTasksMutex;
-std::vector<std::function<void()>> gTasks; // run on the input thread, after the next controller event
+struct Task {
+    std::chrono::steady_clock::time_point due;
+    std::function<void()>                 run;
+};
+std::vector<Task> gTasks; // run on the input thread, at the first input event after they are due
 constexpr int kKeyActionDown  = 0;
 
 // --- dispatch ---------------------------------------------------------------------------------------------------
@@ -138,7 +143,13 @@ uint64_t dispatchDetour(uint64_t a0, uint64_t a1, uint64_t variant, uint64_t a3,
     std::vector<std::function<void()>> tasks;
     {
         std::lock_guard lock(gTasksMutex);
-        tasks.swap(gTasks);
+        auto now = std::chrono::steady_clock::now();
+        for (auto it = gTasks.begin(); it != gTasks.end();)
+            if (it->due <= now) {
+                tasks.push_back(std::move(it->run));
+                it = gTasks.erase(it);
+            } else
+                ++it;
     }
     for (auto& task : tasks) task();
     return result;
@@ -238,9 +249,9 @@ void onStartPressed(std::function<void(int)> handler) { gStartPressed = std::mov
 
 void onSelectPressed(std::function<void(int)> handler) { gSelectPressed = std::move(handler); }
 
-void runOnInputThread(std::function<void()> task) {
+void runOnInputThread(std::function<void()> task, std::chrono::milliseconds delay) {
     std::lock_guard lock(gTasksMutex);
-    gTasks.push_back(std::move(task));
+    gTasks.push_back(Task{std::chrono::steady_clock::now() + delay, std::move(task)});
 }
 
 void setFirstControllerIsPlayer1(bool yes) { gFirstController = yes ? 0 : 1; }

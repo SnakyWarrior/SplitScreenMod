@@ -206,8 +206,8 @@ std::set<int> gPlaying;
 void forgetPlayers(char const* why, int sub) {
     std::lock_guard lock(gPlayingMutex);
     if (gPlaying.empty()) return;
-    note("join: {}({}): the added players are gone", why, sub);
-    gPlaying.clear();
+    if (!gPlaying.erase(sub)) return;
+    note("join: {}({}): player {} is gone", why, sub, sub + 1);
 }
 
 using SubIdFn = void (*)(void*, int);
@@ -451,10 +451,16 @@ void openSplitScreenMenu(int controller) {
     showMenu(controller, "Split screen", fmt::format("Player {}", controller + 1), {"Leave split screen", "Cancel"},
              [controller](int button) {
                  if (button != 0) return;
-                 runOnInputThread([controller] {
-                     void* game = gMinecraftGame.load();
-                     if (game && gQueueRemoval) queueRemovalDetour(game, controller);
-                 });
+                 // Removed at once, the player's client goes while its form screen is still closing, and the game
+                 // crashes on a destroyed mutex: wait for the screen to close.
+                 note("menus: player {} leaves split screen in 1.5 seconds", controller + 1);
+                 runOnInputThread(
+                     [controller] {
+                         void* game = gMinecraftGame.load();
+                         note("menus: removing player {}", controller + 1);
+                         if (game && gQueueRemoval) queueRemovalDetour(game, controller);
+                     },
+                     std::chrono::milliseconds(1500));
              });
 }
 
@@ -494,6 +500,8 @@ void enableJoining(Module const& game) {
     gQueueRemoval = reinterpret_cast<SubIdFn>(vt[10]);
     gReleaseSubId = reinterpret_cast<SubIdFn>(vt[16]);
     writeSlot(&vt[10], reinterpret_cast<uintptr_t>(&queueRemovalDetour));
+    // The game's own "player leaves" path (1.21.x): the code before its queueSubclientRemoval call.
+    dumpCode(game, "leave", game.base + 0x9B7B540 - 0x600, 0x640, [](std::string const& line) { note("{}", line); });
     writeSlot(&vt[16], reinterpret_cast<uintptr_t>(&releaseSubIdDetour));
     if (ok) onStartPressed(joinController);
     if (ok) onSelectPressed(openSplitScreenMenu);

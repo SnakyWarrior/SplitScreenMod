@@ -16,6 +16,7 @@
 #include "Elf.h"
 #include "InputProbe.h"
 
+#include <chrono>
 #include <functional>
 
 namespace splitscreen {
@@ -35,7 +36,7 @@ void onStartPressed(std::function<void(int controller)> handler);
 // (View / Back / Share).
 void onSelectPressed(std::function<void(int controller)> handler);
 
-// Runs `task` on the input thread (the game's main thread) after the next controller event.
-void runOnInputThread(std::function<void()> task);
+// Runs `task` on the input thread (the game's main thread) at the first input event after `delay`.
+void runOnInputThread(std::function<void()> task, std::chrono::milliseconds delay = std::chrono::milliseconds(0));
 
 } // namespace splitscreen
