@@ -22,6 +22,7 @@
 
 #include <dlfcn.h>
 
+#include <algorithm>
 #include <atomic>
 #include <cctype>
 #include <chrono>
@@ -400,6 +401,72 @@ bool addCheckDetour(void* game, int controller, uint8_t* out, bool flag) {
 }
 
 
+void joinController(int controller);
+void openSplitScreenMenu(int controller);
+
+std::vector<int> playingPlayers() {
+    std::lock_guard lock(gPlayingMutex);
+    return {gPlaying.begin(), gPlaying.end()};
+}
+
+// Players 2-4 who play but have no controller (theirs was disconnected).
+std::vector<int> lostPlayers() {
+    std::vector<int> out;
+    for (int p : playingPlayers())
+        if (!controllerConnected(p)) out.push_back(p);
+    return out;
+}
+
+// A controller number that neither plays nor has a controller, for a new player; -1 when all are taken.
+int freeController() {
+    auto playing = playingPlayers();
+    for (int c = 1; c <= 3; ++c)
+        if (std::find(playing.begin(), playing.end(), c) == playing.end() && !controllerConnected(c)) return c;
+    return -1;
+}
+
+// "Who is playing?" on player `at`'s screen, whose controller just came from a new controller: it keeps playing
+// `at`, plays another player who lost their controller, or joins as a new player (`at` stays without a controller).
+void showPicker(int at) {
+    auto lost = lostPlayers();
+    lost.erase(std::remove(lost.begin(), lost.end(), at), lost.end());
+    std::vector<std::string> buttons{fmt::format("Player {}", at + 1)};
+    for (int p : lost) buttons.push_back(fmt::format("Player {} (no controller)", p + 1));
+    bool canAdd = freeController() >= 0;
+    if (canAdd) buttons.push_back("New player");
+    note("picker: asking who plays player {}'s new controller ({} other(s) without one, new player {})", at + 1,
+         lost.size(), canAdd);
+    showMenu(at, "Who is playing?", "A controller was connected. Who plays with it?", buttons,
+             [lost, at, canAdd](int button) {
+                 if (button <= 0) return; // it keeps playing `at` (or the menu was closed)
+                 if (button <= int(lost.size())) {
+                     int pick = lost[size_t(button - 1)];
+                     note("picker: the controller plays player {}", pick + 1);
+                     runOnInputThread([at, pick] { swapControllers(at, pick); });
+                     return;
+                 }
+                 if (!canAdd) return;
+                 runOnInputThread([at] {
+                     int free = freeController();
+                     if (free < 0) return note("picker: no free place for a new player");
+                     note("picker: the controller joins as new player {}", free + 1);
+                     swapControllers(at, free);
+                     joinController(free);
+                 }, std::chrono::milliseconds(500));
+             });
+}
+
+// A controller that was already connected (and plays nobody) pressed Start while players have lost their
+// controller: it goes to the first of them, who is asked who plays.
+bool offerLostPlayers(int controller) {
+    auto lost = lostPlayers();
+    if (lost.empty()) return false;
+    note("picker: controller {} joins while {} player(s) have no controller", controller, lost.size());
+    swapControllers(controller, lost.front());
+    showPicker(lost.front());
+    return true;
+}
+
 // A controller other than the first pressed Start: add a player for it, once (the game's own "press Start to join"
 // does not react to it on Android).
 std::mutex gJoinMutex;
@@ -419,6 +486,7 @@ void joinController(int controller) {
         }
         gJoinTimes[controller] = now;
     }
+    if (offerLostPlayers(controller)) return;
     note("join: controller {} pressed Start: adding player {}", controller, controller + 1);
     if (gGameModule) hookUserManager(*gGameModule, game);
     {
@@ -558,17 +626,55 @@ void openSplitScreenMenu(int controller) {
     }
     if (menuOpen(controller)) return note("menus: player {} already has a menu open", controller + 1);
     note("menus: player {} opens the Split screen menu", controller + 1);
-    showMenu(controller, "Split screen", fmt::format("Player {}", controller + 1), {"Leave split screen", "Cancel"},
-             [controller](int button) {
-                 if (button != 0) return;
-                 // Removed at once, the player's client goes while its form screen is still closing, and the game
-                 // crashes on a destroyed mutex: wait for the screen to close.
-                 note("menus: player {} leaves split screen in 1.5 seconds", controller + 1);
-                 runOnInputThread(
-                     [controller] {
-                         leaveSplitScreen(controller);
-                     },
-                     std::chrono::milliseconds(1500));
+    enum class Act { Swap, NewPlayer, Leave, Cancel };
+    struct Item {
+        Act act;
+        int other;
+    };
+    std::vector<Item>        items;
+    std::vector<std::string> buttons;
+    for (int p : playingPlayers()) {
+        if (p == controller) continue;
+        items.push_back({Act::Swap, p});
+        buttons.push_back(controllerConnected(p) ? fmt::format("Swap places with Player {}", p + 1)
+                                                 : fmt::format("Play Player {} (no controller)", p + 1));
+    }
+    if (freeController() >= 0) {
+        items.push_back({Act::NewPlayer, -1});
+        buttons.push_back("Become a new player");
+    }
+    items.push_back({Act::Leave, -1});
+    buttons.push_back("Leave split screen");
+    items.push_back({Act::Cancel, -1});
+    buttons.push_back("Cancel");
+    showMenu(controller, "Split screen", fmt::format("You are Player {}", controller + 1), buttons,
+             [controller, items](int button) {
+                 if (button < 0 || button >= int(items.size())) return;
+                 Item item = items[size_t(button)];
+                 switch (item.act) {
+                 case Act::Swap:
+                     // this controller plays the other player; theirs (if any) plays this one
+                     note("menus: player {} swaps places with player {}", controller + 1, item.other + 1);
+                     runOnInputThread([controller, other = item.other] { swapControllers(controller, other); });
+                     break;
+                 case Act::NewPlayer:
+                     // this player stays, without a controller; the controller joins as a new player
+                     runOnInputThread([controller] {
+                         int free = freeController();
+                         if (free < 0) return note("menus: no free place for a new player");
+                         note("menus: player {}'s controller becomes new player {}", controller + 1, free + 1);
+                         swapControllers(controller, free);
+                         joinController(free);
+                     }, std::chrono::milliseconds(500));
+                     break;
+                 case Act::Leave:
+                     // Removed at once, the player's client goes while its form screen is still closing, and the
+                     // game crashes on a destroyed mutex: wait for the screen to close.
+                     note("menus: player {} leaves split screen in 1.5 seconds", controller + 1);
+                     runOnInputThread([controller] { leaveSplitScreen(controller); }, std::chrono::milliseconds(1500));
+                     break;
+                 case Act::Cancel: break;
+                 }
              });
 }
 
@@ -612,6 +718,8 @@ void enableJoining(Module const& game) {
     writeSlot(&vt[16], reinterpret_cast<uintptr_t>(&releaseSubIdDetour));
     if (ok) onStartPressed(joinController);
     if (ok) onSelectPressed(openSplitScreenMenu);
+    if (ok) setPlayingPlayers(playingPlayers);
+    if (ok) onLostPlayerTakenOver(showPicker);
     // W: in _addSubClientInstanceAndAssociateToUserInternal (the "b" target of slot 210), the first bl after
     // "add x2, sp, #164" (its out parameter)
     {
@@ -676,6 +784,32 @@ void probe() {
                 }
         }
         note("{} JNI functions in all", jni);
+    }
+    // The split screen layout option: its name in the game's strings (for the layout menu).
+    {
+        int shown = 0;
+        for (auto const& seg : game->segments) {
+            if (!seg.read || seg.write) continue;
+            auto const* begin = reinterpret_cast<char const*>(seg.start);
+            size_t      size  = seg.end - seg.start;
+            for (char const* needle : {"plitscreen", "plit_screen", "plitScreen", "plit-screen"}) {
+                size_t n = strlen(needle);
+                for (size_t at = 0; at + n <= size && shown < 80;) {
+                    auto const* hit = static_cast<char const*>(memmem(begin + at, size - at, needle, n));
+                    if (!hit) break;
+                    char const* start = hit;
+                    while (start > begin && start[-1] >= 0x20 && start[-1] < 0x7F && hit - start < 120) --start;
+                    std::string text(start, strnlen(start, 160));
+                    at = size_t(hit - begin) + std::max<size_t>(1, text.size() - size_t(hit - start));
+                    if (text.find("irection") == std::string::npos && text.find("ayout") == std::string::npos
+                        && text.find("ertical") == std::string::npos && text.find("orizontal") == std::string::npos
+                        && text.find("option") == std::string::npos)
+                        continue;
+                    note("layout string +0x{:X}: {}", reinterpret_cast<uintptr_t>(start) - game->base, text);
+                    ++shown;
+                }
+            }
+        }
     }
     // which Android input functions the game imports (native input queue, Paddleboat controller library, ...)
     {

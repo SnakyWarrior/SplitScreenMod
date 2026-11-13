@@ -18,6 +18,7 @@
 
 #include <chrono>
 #include <functional>
+#include <vector>
 
 namespace splitscreen {
 
@@ -35,6 +36,19 @@ void onStartPressed(std::function<void(int controller)> handler);
 // Called on the input thread, after the game handled it, when a controller other than the first presses Select
 // (View / Back / Share).
 void onSelectPressed(std::function<void(int controller)> handler);
+
+// The controller numbers that play (players 2-4 by controller number): a new controller takes over one of them
+// whose controller is gone before it gets a free number.
+void setPlayingPlayers(std::function<std::vector<int>()> playing);
+
+// Called on the input thread when a new controller took over player `controller`, who had none.
+void onLostPlayerTakenOver(std::function<void(int controller)> handler);
+
+// Whether a connected device plays as controller number `controller`.
+bool controllerConnected(int controller);
+
+// The device of controller number a now plays as b, and b's (if any) as a.
+void swapControllers(int a, int b);
 
 // Runs `task` on the input thread (the game's main thread) at the first input event after `delay`.
 void runOnInputThread(std::function<void()> task, std::chrono::milliseconds delay = std::chrono::milliseconds(0));

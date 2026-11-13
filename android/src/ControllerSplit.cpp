@@ -61,11 +61,25 @@ thread_local int tCurrentController = -1;
 // player, as on Windows player 1 keeps keyboard and mouse); 0 gives the first controller to player 1.
 std::atomic<int> gFirstController{1};
 
+std::function<std::vector<int>()> gPlayingFn;
+std::function<void(int)>          gTookOverFn;
+std::vector<int>                  gTookOver; // lost players a new controller took over, told after the event
+
 int controllerFor(int32_t device) {
     std::lock_guard lock(gDevicesMutex);
     if (auto it = gControllerOf.find(device); it != gControllerOf.end()) return it->second;
     std::array<bool, kMaxControllers> used{};
     for (auto [d, c] : gControllerOf) used[c] = true;
+    // a player who lost their controller gets the new one first
+    if (gPlayingFn)
+        for (int c : gPlayingFn())
+            if (c >= gFirstController && c < kMaxControllers && !used[c]) {
+                gControllerOf[device] = c;
+                gLog(fmt::format("controllers: device {} is controller {}: it takes over player {}, who had none", device,
+                                 c, c + 1));
+                gTookOver.push_back(c);
+                return c;
+            }
     for (int c = gFirstController; c < kMaxControllers; ++c)
         if (!used[c]) {
             gControllerOf[device] = c;
@@ -138,6 +152,13 @@ uint64_t dispatchDetour(uint64_t a0, uint64_t a1, uint64_t variant, uint64_t a3,
     tCurrentController = controller;
     uint64_t result    = gDispatch(a0, a1, variant, a3, a4, a5, a6, a7);
     tCurrentController = previous;
+    std::vector<int> tookOver;
+    {
+        std::lock_guard lock(gDevicesMutex);
+        tookOver.swap(gTookOver);
+    }
+    if (gTookOverFn)
+        for (int c : tookOver) gTookOverFn(c);
     if (startDown && controller >= 1 && gStartPressed) gStartPressed(controller);
     if (selectDown && controller >= 1 && gSelectPressed) gSelectPressed(controller);
     std::vector<std::function<void()>> tasks;
@@ -255,6 +276,25 @@ void runOnInputThread(std::function<void()> task, std::chrono::milliseconds dela
 }
 
 void setFirstControllerIsPlayer1(bool yes) { gFirstController = yes ? 0 : 1; }
+
+void setPlayingPlayers(std::function<std::vector<int>()> playing) { gPlayingFn = std::move(playing); }
+
+void onLostPlayerTakenOver(std::function<void(int)> handler) { gTookOverFn = std::move(handler); }
+
+bool controllerConnected(int controller) {
+    std::lock_guard lock(gDevicesMutex);
+    for (auto [d, c] : gControllerOf)
+        if (c == controller) return true;
+    return false;
+}
+
+void swapControllers(int a, int b) {
+    std::lock_guard lock(gDevicesMutex);
+    for (auto& [d, c] : gControllerOf)
+        if (c == a) c = b;
+        else if (c == b) c = a;
+    gLog(fmt::format("controllers: controllers {} and {} swapped", a, b));
+}
 
 bool startControllerSplit(Module const& game, uintptr_t managerObject, uintptr_t managerAdded, uintptr_t managerRemoved,
                           LogFn log) {
