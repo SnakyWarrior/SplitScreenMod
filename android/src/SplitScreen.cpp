@@ -702,6 +702,7 @@ constexpr uint32_t fnv1a(std::string_view s) {
     return h;
 }
 constexpr uint32_t kSplitScreenButton = fnv1a("button.splitscreen_menu");
+constexpr uint32_t kTouchPress        = fnv1a("button.menu_select");
 constexpr uint64_t kCloseScreen       = 16;
 
 uint64_t pauseEventDetour(void* self, void* event) {
@@ -709,7 +710,9 @@ uint64_t pauseEventDetour(void* self, void* event) {
     std::memcpy(words, event, sizeof words);
     if (words[0] == 1 && words[2] == kSplitScreenButton) { // type, (padding), hash, (?), state
         if ((words[4] & 0xFF) != 1) return 0;
-        int who = lastPresser();
+        // what pressed it (at +12): button.menu_select is a touch (player 1's), button.menu_ok a controller's A (the
+        // controller that pressed a button last)
+        int who = words[3] == kTouchPress ? 0 : lastPresser();
         note("pause menu: Split screen pressed by player {}", who + 1);
         runOnInputThread([who] { menus::onSettingsButton(who); }, std::chrono::milliseconds(300));
         return kCloseScreen;
