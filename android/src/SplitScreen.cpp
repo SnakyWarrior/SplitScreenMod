@@ -694,7 +694,7 @@ std::atomic<int> gPauseEventsLogged{0};
 
 // The resource pack's Split screen button in the pause menu sends "button.splitscreen_menu". The game names buttons
 // by the FNV-1a hash of their name (0.9.11 log: B8B6D7EF for it, D65033DE for button.menu_continue); a button event
-// is type 1 with the hash, then the state (1 = pressed). As on Windows, the pause menu closes (16: what Resume
+// is type 1, then (at +8) the hash, then (at +16) the state (1 = pressed). As on Windows, the pause menu closes (16: what Resume
 // answers) and the player who pressed it gets the Split screen menu.
 constexpr uint32_t fnv1a(std::string_view s) {
     uint32_t h = 0x811C9DC5;
@@ -707,8 +707,8 @@ constexpr uint64_t kCloseScreen       = 16;
 uint64_t pauseEventDetour(void* self, void* event) {
     uint32_t words[8] = {};
     std::memcpy(words, event, sizeof words);
-    if (words[0] == 1 && words[1] == kSplitScreenButton) {
-        if ((words[3] & 0xFF) != 1) return 0;
+    if (words[0] == 1 && words[2] == kSplitScreenButton) { // type, (padding), hash, (?), state
+        if ((words[4] & 0xFF) != 1) return 0;
         int who = lastPresser();
         note("pause menu: Split screen pressed by player {}", who + 1);
         runOnInputThread([who] { menus::onSettingsButton(who); }, std::chrono::milliseconds(300));
