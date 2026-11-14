@@ -1,0 +1,31 @@
+{
+  "title": "SplitScreenMod",
+  "type": "object",
+  "properties": {
+    "forceSplitScreen": {
+      "type": "boolean",
+      "title": "Turn split screen on",
+      "description": "Turns the game's split screen on when the mod can find it for certain. Turn off if the game misbehaves."
+    },
+    "separateControllers": {
+      "type": "boolean",
+      "title": "One player per controller",
+      "description": "Gives each controller its own player (the game on Android sends every controller to player 1). Turn off if controllers misbehave."
+    },
+    "forceSplitscreenJoin": {
+      "type": "boolean",
+      "title": "Let other controllers join",
+      "description": "Lets a second, third or fourth controller join as a split-screen player. Turn off if the game misbehaves."
+    },
+    "firstControllerIsPlayer1": {
+      "type": "boolean",
+      "title": "First controller plays player 1",
+      "description": "Off: player 1 keeps the touch screen and every controller joins as a new player with Start. On: the first controller plays player 1."
+    },
+    "startJoins": {
+      "type": "boolean",
+      "title": "Start joins directly",
+      "description": "On: Start on a controller without a player adds a player in a loaded world (the game shows no join prompt on Android). Off: only the game's own join prompt adds players."
+    }
+  }
+}

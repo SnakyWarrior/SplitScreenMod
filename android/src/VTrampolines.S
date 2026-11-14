@@ -1,0 +1,1249 @@
+// Generated (android/src/VTrampolines.S): one register-saving detour per vtable slot, for tracing which virtual
+// functions of a class are called. Each saves x0-x8 and q0-q7, calls
+// splitscreen_on_vcall(slot, saved registers, return address) and jumps to splitscreen_voriginals[slot].
+
+    .text
+
+.macro VTRAMPOLINE i
+    .p2align 2
+    .type splitscreen_vtrampoline_\i, %function
+splitscreen_vtrampoline_\i:
+    stp x29, x30, [sp, #-240]!
+    mov x29, sp
+    stp x0, x1, [sp, #16]
+    stp x2, x3, [sp, #32]
+    stp x4, x5, [sp, #48]
+    stp x6, x7, [sp, #64]
+    str x8, [sp, #80]
+    stp q0, q1, [sp, #96]
+    stp q2, q3, [sp, #128]
+    stp q4, q5, [sp, #160]
+    stp q6, q7, [sp, #192]
+    mov x0, #\i
+    add x1, sp, #16
+    ldr x2, [sp, #8]
+    bl splitscreen_on_vcall
+    ldp q6, q7, [sp, #192]
+    ldp q4, q5, [sp, #160]
+    ldp q2, q3, [sp, #128]
+    ldp q0, q1, [sp, #96]
+    ldr x8, [sp, #80]
+    ldp x6, x7, [sp, #64]
+    ldp x4, x5, [sp, #48]
+    ldp x2, x3, [sp, #32]
+    ldp x0, x1, [sp, #16]
+    ldp x29, x30, [sp], #240
+    adrp x16, splitscreen_voriginals
+    add x16, x16, :lo12:splitscreen_voriginals
+    ldr x16, [x16, #(\i * 8)]
+    br x16
+    .size splitscreen_vtrampoline_\i, . - splitscreen_vtrampoline_\i
+.endm
+
+VTRAMPOLINE 0
+VTRAMPOLINE 1
+VTRAMPOLINE 2
+VTRAMPOLINE 3
+VTRAMPOLINE 4
+VTRAMPOLINE 5
+VTRAMPOLINE 6
+VTRAMPOLINE 7
+VTRAMPOLINE 8
+VTRAMPOLINE 9
+VTRAMPOLINE 10
+VTRAMPOLINE 11
+VTRAMPOLINE 12
+VTRAMPOLINE 13
+VTRAMPOLINE 14
+VTRAMPOLINE 15
+VTRAMPOLINE 16
+VTRAMPOLINE 17
+VTRAMPOLINE 18
+VTRAMPOLINE 19
+VTRAMPOLINE 20
+VTRAMPOLINE 21
+VTRAMPOLINE 22
+VTRAMPOLINE 23
+VTRAMPOLINE 24
+VTRAMPOLINE 25
+VTRAMPOLINE 26
+VTRAMPOLINE 27
+VTRAMPOLINE 28
+VTRAMPOLINE 29
+VTRAMPOLINE 30
+VTRAMPOLINE 31
+VTRAMPOLINE 32
+VTRAMPOLINE 33
+VTRAMPOLINE 34
+VTRAMPOLINE 35
+VTRAMPOLINE 36
+VTRAMPOLINE 37
+VTRAMPOLINE 38
+VTRAMPOLINE 39
+VTRAMPOLINE 40
+VTRAMPOLINE 41
+VTRAMPOLINE 42
+VTRAMPOLINE 43
+VTRAMPOLINE 44
+VTRAMPOLINE 45
+VTRAMPOLINE 46
+VTRAMPOLINE 47
+VTRAMPOLINE 48
+VTRAMPOLINE 49
+VTRAMPOLINE 50
+VTRAMPOLINE 51
+VTRAMPOLINE 52
+VTRAMPOLINE 53
+VTRAMPOLINE 54
+VTRAMPOLINE 55
+VTRAMPOLINE 56
+VTRAMPOLINE 57
+VTRAMPOLINE 58
+VTRAMPOLINE 59
+VTRAMPOLINE 60
+VTRAMPOLINE 61
+VTRAMPOLINE 62
+VTRAMPOLINE 63
+VTRAMPOLINE 64
+VTRAMPOLINE 65
+VTRAMPOLINE 66
+VTRAMPOLINE 67
+VTRAMPOLINE 68
+VTRAMPOLINE 69
+VTRAMPOLINE 70
+VTRAMPOLINE 71
+VTRAMPOLINE 72
+VTRAMPOLINE 73
+VTRAMPOLINE 74
+VTRAMPOLINE 75
+VTRAMPOLINE 76
+VTRAMPOLINE 77
+VTRAMPOLINE 78
+VTRAMPOLINE 79
+VTRAMPOLINE 80
+VTRAMPOLINE 81
+VTRAMPOLINE 82
+VTRAMPOLINE 83
+VTRAMPOLINE 84
+VTRAMPOLINE 85
+VTRAMPOLINE 86
+VTRAMPOLINE 87
+VTRAMPOLINE 88
+VTRAMPOLINE 89
+VTRAMPOLINE 90
+VTRAMPOLINE 91
+VTRAMPOLINE 92
+VTRAMPOLINE 93
+VTRAMPOLINE 94
+VTRAMPOLINE 95
+VTRAMPOLINE 96
+VTRAMPOLINE 97
+VTRAMPOLINE 98
+VTRAMPOLINE 99
+VTRAMPOLINE 100
+VTRAMPOLINE 101
+VTRAMPOLINE 102
+VTRAMPOLINE 103
+VTRAMPOLINE 104
+VTRAMPOLINE 105
+VTRAMPOLINE 106
+VTRAMPOLINE 107
+VTRAMPOLINE 108
+VTRAMPOLINE 109
+VTRAMPOLINE 110
+VTRAMPOLINE 111
+VTRAMPOLINE 112
+VTRAMPOLINE 113
+VTRAMPOLINE 114
+VTRAMPOLINE 115
+VTRAMPOLINE 116
+VTRAMPOLINE 117
+VTRAMPOLINE 118
+VTRAMPOLINE 119
+VTRAMPOLINE 120
+VTRAMPOLINE 121
+VTRAMPOLINE 122
+VTRAMPOLINE 123
+VTRAMPOLINE 124
+VTRAMPOLINE 125
+VTRAMPOLINE 126
+VTRAMPOLINE 127
+VTRAMPOLINE 128
+VTRAMPOLINE 129
+VTRAMPOLINE 130
+VTRAMPOLINE 131
+VTRAMPOLINE 132
+VTRAMPOLINE 133
+VTRAMPOLINE 134
+VTRAMPOLINE 135
+VTRAMPOLINE 136
+VTRAMPOLINE 137
+VTRAMPOLINE 138
+VTRAMPOLINE 139
+VTRAMPOLINE 140
+VTRAMPOLINE 141
+VTRAMPOLINE 142
+VTRAMPOLINE 143
+VTRAMPOLINE 144
+VTRAMPOLINE 145
+VTRAMPOLINE 146
+VTRAMPOLINE 147
+VTRAMPOLINE 148
+VTRAMPOLINE 149
+VTRAMPOLINE 150
+VTRAMPOLINE 151
+VTRAMPOLINE 152
+VTRAMPOLINE 153
+VTRAMPOLINE 154
+VTRAMPOLINE 155
+VTRAMPOLINE 156
+VTRAMPOLINE 157
+VTRAMPOLINE 158
+VTRAMPOLINE 159
+VTRAMPOLINE 160
+VTRAMPOLINE 161
+VTRAMPOLINE 162
+VTRAMPOLINE 163
+VTRAMPOLINE 164
+VTRAMPOLINE 165
+VTRAMPOLINE 166
+VTRAMPOLINE 167
+VTRAMPOLINE 168
+VTRAMPOLINE 169
+VTRAMPOLINE 170
+VTRAMPOLINE 171
+VTRAMPOLINE 172
+VTRAMPOLINE 173
+VTRAMPOLINE 174
+VTRAMPOLINE 175
+VTRAMPOLINE 176
+VTRAMPOLINE 177
+VTRAMPOLINE 178
+VTRAMPOLINE 179
+VTRAMPOLINE 180
+VTRAMPOLINE 181
+VTRAMPOLINE 182
+VTRAMPOLINE 183
+VTRAMPOLINE 184
+VTRAMPOLINE 185
+VTRAMPOLINE 186
+VTRAMPOLINE 187
+VTRAMPOLINE 188
+VTRAMPOLINE 189
+VTRAMPOLINE 190
+VTRAMPOLINE 191
+VTRAMPOLINE 192
+VTRAMPOLINE 193
+VTRAMPOLINE 194
+VTRAMPOLINE 195
+VTRAMPOLINE 196
+VTRAMPOLINE 197
+VTRAMPOLINE 198
+VTRAMPOLINE 199
+VTRAMPOLINE 200
+VTRAMPOLINE 201
+VTRAMPOLINE 202
+VTRAMPOLINE 203
+VTRAMPOLINE 204
+VTRAMPOLINE 205
+VTRAMPOLINE 206
+VTRAMPOLINE 207
+VTRAMPOLINE 208
+VTRAMPOLINE 209
+VTRAMPOLINE 210
+VTRAMPOLINE 211
+VTRAMPOLINE 212
+VTRAMPOLINE 213
+VTRAMPOLINE 214
+VTRAMPOLINE 215
+VTRAMPOLINE 216
+VTRAMPOLINE 217
+VTRAMPOLINE 218
+VTRAMPOLINE 219
+VTRAMPOLINE 220
+VTRAMPOLINE 221
+VTRAMPOLINE 222
+VTRAMPOLINE 223
+VTRAMPOLINE 224
+VTRAMPOLINE 225
+VTRAMPOLINE 226
+VTRAMPOLINE 227
+VTRAMPOLINE 228
+VTRAMPOLINE 229
+VTRAMPOLINE 230
+VTRAMPOLINE 231
+VTRAMPOLINE 232
+VTRAMPOLINE 233
+VTRAMPOLINE 234
+VTRAMPOLINE 235
+VTRAMPOLINE 236
+VTRAMPOLINE 237
+VTRAMPOLINE 238
+VTRAMPOLINE 239
+VTRAMPOLINE 240
+VTRAMPOLINE 241
+VTRAMPOLINE 242
+VTRAMPOLINE 243
+VTRAMPOLINE 244
+VTRAMPOLINE 245
+VTRAMPOLINE 246
+VTRAMPOLINE 247
+VTRAMPOLINE 248
+VTRAMPOLINE 249
+VTRAMPOLINE 250
+VTRAMPOLINE 251
+VTRAMPOLINE 252
+VTRAMPOLINE 253
+VTRAMPOLINE 254
+VTRAMPOLINE 255
+VTRAMPOLINE 256
+VTRAMPOLINE 257
+VTRAMPOLINE 258
+VTRAMPOLINE 259
+VTRAMPOLINE 260
+VTRAMPOLINE 261
+VTRAMPOLINE 262
+VTRAMPOLINE 263
+VTRAMPOLINE 264
+VTRAMPOLINE 265
+VTRAMPOLINE 266
+VTRAMPOLINE 267
+VTRAMPOLINE 268
+VTRAMPOLINE 269
+VTRAMPOLINE 270
+VTRAMPOLINE 271
+VTRAMPOLINE 272
+VTRAMPOLINE 273
+VTRAMPOLINE 274
+VTRAMPOLINE 275
+VTRAMPOLINE 276
+VTRAMPOLINE 277
+VTRAMPOLINE 278
+VTRAMPOLINE 279
+VTRAMPOLINE 280
+VTRAMPOLINE 281
+VTRAMPOLINE 282
+VTRAMPOLINE 283
+VTRAMPOLINE 284
+VTRAMPOLINE 285
+VTRAMPOLINE 286
+VTRAMPOLINE 287
+VTRAMPOLINE 288
+VTRAMPOLINE 289
+VTRAMPOLINE 290
+VTRAMPOLINE 291
+VTRAMPOLINE 292
+VTRAMPOLINE 293
+VTRAMPOLINE 294
+VTRAMPOLINE 295
+VTRAMPOLINE 296
+VTRAMPOLINE 297
+VTRAMPOLINE 298
+VTRAMPOLINE 299
+VTRAMPOLINE 300
+VTRAMPOLINE 301
+VTRAMPOLINE 302
+VTRAMPOLINE 303
+VTRAMPOLINE 304
+VTRAMPOLINE 305
+VTRAMPOLINE 306
+VTRAMPOLINE 307
+VTRAMPOLINE 308
+VTRAMPOLINE 309
+VTRAMPOLINE 310
+VTRAMPOLINE 311
+VTRAMPOLINE 312
+VTRAMPOLINE 313
+VTRAMPOLINE 314
+VTRAMPOLINE 315
+VTRAMPOLINE 316
+VTRAMPOLINE 317
+VTRAMPOLINE 318
+VTRAMPOLINE 319
+VTRAMPOLINE 320
+VTRAMPOLINE 321
+VTRAMPOLINE 322
+VTRAMPOLINE 323
+VTRAMPOLINE 324
+VTRAMPOLINE 325
+VTRAMPOLINE 326
+VTRAMPOLINE 327
+VTRAMPOLINE 328
+VTRAMPOLINE 329
+VTRAMPOLINE 330
+VTRAMPOLINE 331
+VTRAMPOLINE 332
+VTRAMPOLINE 333
+VTRAMPOLINE 334
+VTRAMPOLINE 335
+VTRAMPOLINE 336
+VTRAMPOLINE 337
+VTRAMPOLINE 338
+VTRAMPOLINE 339
+VTRAMPOLINE 340
+VTRAMPOLINE 341
+VTRAMPOLINE 342
+VTRAMPOLINE 343
+VTRAMPOLINE 344
+VTRAMPOLINE 345
+VTRAMPOLINE 346
+VTRAMPOLINE 347
+VTRAMPOLINE 348
+VTRAMPOLINE 349
+VTRAMPOLINE 350
+VTRAMPOLINE 351
+VTRAMPOLINE 352
+VTRAMPOLINE 353
+VTRAMPOLINE 354
+VTRAMPOLINE 355
+VTRAMPOLINE 356
+VTRAMPOLINE 357
+VTRAMPOLINE 358
+VTRAMPOLINE 359
+VTRAMPOLINE 360
+VTRAMPOLINE 361
+VTRAMPOLINE 362
+VTRAMPOLINE 363
+VTRAMPOLINE 364
+VTRAMPOLINE 365
+VTRAMPOLINE 366
+VTRAMPOLINE 367
+VTRAMPOLINE 368
+VTRAMPOLINE 369
+VTRAMPOLINE 370
+VTRAMPOLINE 371
+VTRAMPOLINE 372
+VTRAMPOLINE 373
+VTRAMPOLINE 374
+VTRAMPOLINE 375
+VTRAMPOLINE 376
+VTRAMPOLINE 377
+VTRAMPOLINE 378
+VTRAMPOLINE 379
+VTRAMPOLINE 380
+VTRAMPOLINE 381
+VTRAMPOLINE 382
+VTRAMPOLINE 383
+VTRAMPOLINE 384
+VTRAMPOLINE 385
+VTRAMPOLINE 386
+VTRAMPOLINE 387
+VTRAMPOLINE 388
+VTRAMPOLINE 389
+VTRAMPOLINE 390
+VTRAMPOLINE 391
+VTRAMPOLINE 392
+VTRAMPOLINE 393
+VTRAMPOLINE 394
+VTRAMPOLINE 395
+VTRAMPOLINE 396
+VTRAMPOLINE 397
+VTRAMPOLINE 398
+VTRAMPOLINE 399
+VTRAMPOLINE 400
+VTRAMPOLINE 401
+VTRAMPOLINE 402
+VTRAMPOLINE 403
+VTRAMPOLINE 404
+VTRAMPOLINE 405
+VTRAMPOLINE 406
+VTRAMPOLINE 407
+VTRAMPOLINE 408
+VTRAMPOLINE 409
+VTRAMPOLINE 410
+VTRAMPOLINE 411
+VTRAMPOLINE 412
+VTRAMPOLINE 413
+VTRAMPOLINE 414
+VTRAMPOLINE 415
+VTRAMPOLINE 416
+VTRAMPOLINE 417
+VTRAMPOLINE 418
+VTRAMPOLINE 419
+VTRAMPOLINE 420
+VTRAMPOLINE 421
+VTRAMPOLINE 422
+VTRAMPOLINE 423
+VTRAMPOLINE 424
+VTRAMPOLINE 425
+VTRAMPOLINE 426
+VTRAMPOLINE 427
+VTRAMPOLINE 428
+VTRAMPOLINE 429
+VTRAMPOLINE 430
+VTRAMPOLINE 431
+VTRAMPOLINE 432
+VTRAMPOLINE 433
+VTRAMPOLINE 434
+VTRAMPOLINE 435
+VTRAMPOLINE 436
+VTRAMPOLINE 437
+VTRAMPOLINE 438
+VTRAMPOLINE 439
+VTRAMPOLINE 440
+VTRAMPOLINE 441
+VTRAMPOLINE 442
+VTRAMPOLINE 443
+VTRAMPOLINE 444
+VTRAMPOLINE 445
+VTRAMPOLINE 446
+VTRAMPOLINE 447
+VTRAMPOLINE 448
+VTRAMPOLINE 449
+VTRAMPOLINE 450
+VTRAMPOLINE 451
+VTRAMPOLINE 452
+VTRAMPOLINE 453
+VTRAMPOLINE 454
+VTRAMPOLINE 455
+VTRAMPOLINE 456
+VTRAMPOLINE 457
+VTRAMPOLINE 458
+VTRAMPOLINE 459
+VTRAMPOLINE 460
+VTRAMPOLINE 461
+VTRAMPOLINE 462
+VTRAMPOLINE 463
+VTRAMPOLINE 464
+VTRAMPOLINE 465
+VTRAMPOLINE 466
+VTRAMPOLINE 467
+VTRAMPOLINE 468
+VTRAMPOLINE 469
+VTRAMPOLINE 470
+VTRAMPOLINE 471
+VTRAMPOLINE 472
+VTRAMPOLINE 473
+VTRAMPOLINE 474
+VTRAMPOLINE 475
+VTRAMPOLINE 476
+VTRAMPOLINE 477
+VTRAMPOLINE 478
+VTRAMPOLINE 479
+VTRAMPOLINE 480
+VTRAMPOLINE 481
+VTRAMPOLINE 482
+VTRAMPOLINE 483
+VTRAMPOLINE 484
+VTRAMPOLINE 485
+VTRAMPOLINE 486
+VTRAMPOLINE 487
+VTRAMPOLINE 488
+VTRAMPOLINE 489
+VTRAMPOLINE 490
+VTRAMPOLINE 491
+VTRAMPOLINE 492
+VTRAMPOLINE 493
+VTRAMPOLINE 494
+VTRAMPOLINE 495
+VTRAMPOLINE 496
+VTRAMPOLINE 497
+VTRAMPOLINE 498
+VTRAMPOLINE 499
+VTRAMPOLINE 500
+VTRAMPOLINE 501
+VTRAMPOLINE 502
+VTRAMPOLINE 503
+VTRAMPOLINE 504
+VTRAMPOLINE 505
+VTRAMPOLINE 506
+VTRAMPOLINE 507
+VTRAMPOLINE 508
+VTRAMPOLINE 509
+VTRAMPOLINE 510
+VTRAMPOLINE 511
+VTRAMPOLINE 512
+VTRAMPOLINE 513
+VTRAMPOLINE 514
+VTRAMPOLINE 515
+VTRAMPOLINE 516
+VTRAMPOLINE 517
+VTRAMPOLINE 518
+VTRAMPOLINE 519
+VTRAMPOLINE 520
+VTRAMPOLINE 521
+VTRAMPOLINE 522
+VTRAMPOLINE 523
+VTRAMPOLINE 524
+VTRAMPOLINE 525
+VTRAMPOLINE 526
+VTRAMPOLINE 527
+VTRAMPOLINE 528
+VTRAMPOLINE 529
+VTRAMPOLINE 530
+VTRAMPOLINE 531
+VTRAMPOLINE 532
+VTRAMPOLINE 533
+VTRAMPOLINE 534
+VTRAMPOLINE 535
+VTRAMPOLINE 536
+VTRAMPOLINE 537
+VTRAMPOLINE 538
+VTRAMPOLINE 539
+VTRAMPOLINE 540
+VTRAMPOLINE 541
+VTRAMPOLINE 542
+VTRAMPOLINE 543
+VTRAMPOLINE 544
+VTRAMPOLINE 545
+VTRAMPOLINE 546
+VTRAMPOLINE 547
+VTRAMPOLINE 548
+VTRAMPOLINE 549
+VTRAMPOLINE 550
+VTRAMPOLINE 551
+VTRAMPOLINE 552
+VTRAMPOLINE 553
+VTRAMPOLINE 554
+VTRAMPOLINE 555
+VTRAMPOLINE 556
+VTRAMPOLINE 557
+VTRAMPOLINE 558
+VTRAMPOLINE 559
+VTRAMPOLINE 560
+VTRAMPOLINE 561
+VTRAMPOLINE 562
+VTRAMPOLINE 563
+VTRAMPOLINE 564
+VTRAMPOLINE 565
+VTRAMPOLINE 566
+VTRAMPOLINE 567
+VTRAMPOLINE 568
+VTRAMPOLINE 569
+VTRAMPOLINE 570
+VTRAMPOLINE 571
+VTRAMPOLINE 572
+VTRAMPOLINE 573
+VTRAMPOLINE 574
+VTRAMPOLINE 575
+VTRAMPOLINE 576
+VTRAMPOLINE 577
+VTRAMPOLINE 578
+VTRAMPOLINE 579
+VTRAMPOLINE 580
+VTRAMPOLINE 581
+VTRAMPOLINE 582
+VTRAMPOLINE 583
+VTRAMPOLINE 584
+VTRAMPOLINE 585
+VTRAMPOLINE 586
+VTRAMPOLINE 587
+VTRAMPOLINE 588
+VTRAMPOLINE 589
+VTRAMPOLINE 590
+VTRAMPOLINE 591
+VTRAMPOLINE 592
+VTRAMPOLINE 593
+VTRAMPOLINE 594
+VTRAMPOLINE 595
+VTRAMPOLINE 596
+VTRAMPOLINE 597
+VTRAMPOLINE 598
+VTRAMPOLINE 599
+    .section .data.rel.ro, "aw"
+    .p2align 3
+    .globl splitscreen_vtrampolines
+    .hidden splitscreen_vtrampolines
+splitscreen_vtrampolines:
+    .quad splitscreen_vtrampoline_0
+    .quad splitscreen_vtrampoline_1
+    .quad splitscreen_vtrampoline_2
+    .quad splitscreen_vtrampoline_3
+    .quad splitscreen_vtrampoline_4
+    .quad splitscreen_vtrampoline_5
+    .quad splitscreen_vtrampoline_6
+    .quad splitscreen_vtrampoline_7
+    .quad splitscreen_vtrampoline_8
+    .quad splitscreen_vtrampoline_9
+    .quad splitscreen_vtrampoline_10
+    .quad splitscreen_vtrampoline_11
+    .quad splitscreen_vtrampoline_12
+    .quad splitscreen_vtrampoline_13
+    .quad splitscreen_vtrampoline_14
+    .quad splitscreen_vtrampoline_15
+    .quad splitscreen_vtrampoline_16
+    .quad splitscreen_vtrampoline_17
+    .quad splitscreen_vtrampoline_18
+    .quad splitscreen_vtrampoline_19
+    .quad splitscreen_vtrampoline_20
+    .quad splitscreen_vtrampoline_21
+    .quad splitscreen_vtrampoline_22
+    .quad splitscreen_vtrampoline_23
+    .quad splitscreen_vtrampoline_24
+    .quad splitscreen_vtrampoline_25
+    .quad splitscreen_vtrampoline_26
+    .quad splitscreen_vtrampoline_27
+    .quad splitscreen_vtrampoline_28
+    .quad splitscreen_vtrampoline_29
+    .quad splitscreen_vtrampoline_30
+    .quad splitscreen_vtrampoline_31
+    .quad splitscreen_vtrampoline_32
+    .quad splitscreen_vtrampoline_33
+    .quad splitscreen_vtrampoline_34
+    .quad splitscreen_vtrampoline_35
+    .quad splitscreen_vtrampoline_36
+    .quad splitscreen_vtrampoline_37
+    .quad splitscreen_vtrampoline_38
+    .quad splitscreen_vtrampoline_39
+    .quad splitscreen_vtrampoline_40
+    .quad splitscreen_vtrampoline_41
+    .quad splitscreen_vtrampoline_42
+    .quad splitscreen_vtrampoline_43
+    .quad splitscreen_vtrampoline_44
+    .quad splitscreen_vtrampoline_45
+    .quad splitscreen_vtrampoline_46
+    .quad splitscreen_vtrampoline_47
+    .quad splitscreen_vtrampoline_48
+    .quad splitscreen_vtrampoline_49
+    .quad splitscreen_vtrampoline_50
+    .quad splitscreen_vtrampoline_51
+    .quad splitscreen_vtrampoline_52
+    .quad splitscreen_vtrampoline_53
+    .quad splitscreen_vtrampoline_54
+    .quad splitscreen_vtrampoline_55
+    .quad splitscreen_vtrampoline_56
+    .quad splitscreen_vtrampoline_57
+    .quad splitscreen_vtrampoline_58
+    .quad splitscreen_vtrampoline_59
+    .quad splitscreen_vtrampoline_60
+    .quad splitscreen_vtrampoline_61
+    .quad splitscreen_vtrampoline_62
+    .quad splitscreen_vtrampoline_63
+    .quad splitscreen_vtrampoline_64
+    .quad splitscreen_vtrampoline_65
+    .quad splitscreen_vtrampoline_66
+    .quad splitscreen_vtrampoline_67
+    .quad splitscreen_vtrampoline_68
+    .quad splitscreen_vtrampoline_69
+    .quad splitscreen_vtrampoline_70
+    .quad splitscreen_vtrampoline_71
+    .quad splitscreen_vtrampoline_72
+    .quad splitscreen_vtrampoline_73
+    .quad splitscreen_vtrampoline_74
+    .quad splitscreen_vtrampoline_75
+    .quad splitscreen_vtrampoline_76
+    .quad splitscreen_vtrampoline_77
+    .quad splitscreen_vtrampoline_78
+    .quad splitscreen_vtrampoline_79
+    .quad splitscreen_vtrampoline_80
+    .quad splitscreen_vtrampoline_81
+    .quad splitscreen_vtrampoline_82
+    .quad splitscreen_vtrampoline_83
+    .quad splitscreen_vtrampoline_84
+    .quad splitscreen_vtrampoline_85
+    .quad splitscreen_vtrampoline_86
+    .quad splitscreen_vtrampoline_87
+    .quad splitscreen_vtrampoline_88
+    .quad splitscreen_vtrampoline_89
+    .quad splitscreen_vtrampoline_90
+    .quad splitscreen_vtrampoline_91
+    .quad splitscreen_vtrampoline_92
+    .quad splitscreen_vtrampoline_93
+    .quad splitscreen_vtrampoline_94
+    .quad splitscreen_vtrampoline_95
+    .quad splitscreen_vtrampoline_96
+    .quad splitscreen_vtrampoline_97
+    .quad splitscreen_vtrampoline_98
+    .quad splitscreen_vtrampoline_99
+    .quad splitscreen_vtrampoline_100
+    .quad splitscreen_vtrampoline_101
+    .quad splitscreen_vtrampoline_102
+    .quad splitscreen_vtrampoline_103
+    .quad splitscreen_vtrampoline_104
+    .quad splitscreen_vtrampoline_105
+    .quad splitscreen_vtrampoline_106
+    .quad splitscreen_vtrampoline_107
+    .quad splitscreen_vtrampoline_108
+    .quad splitscreen_vtrampoline_109
+    .quad splitscreen_vtrampoline_110
+    .quad splitscreen_vtrampoline_111
+    .quad splitscreen_vtrampoline_112
+    .quad splitscreen_vtrampoline_113
+    .quad splitscreen_vtrampoline_114
+    .quad splitscreen_vtrampoline_115
+    .quad splitscreen_vtrampoline_116
+    .quad splitscreen_vtrampoline_117
+    .quad splitscreen_vtrampoline_118
+    .quad splitscreen_vtrampoline_119
+    .quad splitscreen_vtrampoline_120
+    .quad splitscreen_vtrampoline_121
+    .quad splitscreen_vtrampoline_122
+    .quad splitscreen_vtrampoline_123
+    .quad splitscreen_vtrampoline_124
+    .quad splitscreen_vtrampoline_125
+    .quad splitscreen_vtrampoline_126
+    .quad splitscreen_vtrampoline_127
+    .quad splitscreen_vtrampoline_128
+    .quad splitscreen_vtrampoline_129
+    .quad splitscreen_vtrampoline_130
+    .quad splitscreen_vtrampoline_131
+    .quad splitscreen_vtrampoline_132
+    .quad splitscreen_vtrampoline_133
+    .quad splitscreen_vtrampoline_134
+    .quad splitscreen_vtrampoline_135
+    .quad splitscreen_vtrampoline_136
+    .quad splitscreen_vtrampoline_137
+    .quad splitscreen_vtrampoline_138
+    .quad splitscreen_vtrampoline_139
+    .quad splitscreen_vtrampoline_140
+    .quad splitscreen_vtrampoline_141
+    .quad splitscreen_vtrampoline_142
+    .quad splitscreen_vtrampoline_143
+    .quad splitscreen_vtrampoline_144
+    .quad splitscreen_vtrampoline_145
+    .quad splitscreen_vtrampoline_146
+    .quad splitscreen_vtrampoline_147
+    .quad splitscreen_vtrampoline_148
+    .quad splitscreen_vtrampoline_149
+    .quad splitscreen_vtrampoline_150
+    .quad splitscreen_vtrampoline_151
+    .quad splitscreen_vtrampoline_152
+    .quad splitscreen_vtrampoline_153
+    .quad splitscreen_vtrampoline_154
+    .quad splitscreen_vtrampoline_155
+    .quad splitscreen_vtrampoline_156
+    .quad splitscreen_vtrampoline_157
+    .quad splitscreen_vtrampoline_158
+    .quad splitscreen_vtrampoline_159
+    .quad splitscreen_vtrampoline_160
+    .quad splitscreen_vtrampoline_161
+    .quad splitscreen_vtrampoline_162
+    .quad splitscreen_vtrampoline_163
+    .quad splitscreen_vtrampoline_164
+    .quad splitscreen_vtrampoline_165
+    .quad splitscreen_vtrampoline_166
+    .quad splitscreen_vtrampoline_167
+    .quad splitscreen_vtrampoline_168
+    .quad splitscreen_vtrampoline_169
+    .quad splitscreen_vtrampoline_170
+    .quad splitscreen_vtrampoline_171
+    .quad splitscreen_vtrampoline_172
+    .quad splitscreen_vtrampoline_173
+    .quad splitscreen_vtrampoline_174
+    .quad splitscreen_vtrampoline_175
+    .quad splitscreen_vtrampoline_176
+    .quad splitscreen_vtrampoline_177
+    .quad splitscreen_vtrampoline_178
+    .quad splitscreen_vtrampoline_179
+    .quad splitscreen_vtrampoline_180
+    .quad splitscreen_vtrampoline_181
+    .quad splitscreen_vtrampoline_182
+    .quad splitscreen_vtrampoline_183
+    .quad splitscreen_vtrampoline_184
+    .quad splitscreen_vtrampoline_185
+    .quad splitscreen_vtrampoline_186
+    .quad splitscreen_vtrampoline_187
+    .quad splitscreen_vtrampoline_188
+    .quad splitscreen_vtrampoline_189
+    .quad splitscreen_vtrampoline_190
+    .quad splitscreen_vtrampoline_191
+    .quad splitscreen_vtrampoline_192
+    .quad splitscreen_vtrampoline_193
+    .quad splitscreen_vtrampoline_194
+    .quad splitscreen_vtrampoline_195
+    .quad splitscreen_vtrampoline_196
+    .quad splitscreen_vtrampoline_197
+    .quad splitscreen_vtrampoline_198
+    .quad splitscreen_vtrampoline_199
+    .quad splitscreen_vtrampoline_200
+    .quad splitscreen_vtrampoline_201
+    .quad splitscreen_vtrampoline_202
+    .quad splitscreen_vtrampoline_203
+    .quad splitscreen_vtrampoline_204
+    .quad splitscreen_vtrampoline_205
+    .quad splitscreen_vtrampoline_206
+    .quad splitscreen_vtrampoline_207
+    .quad splitscreen_vtrampoline_208
+    .quad splitscreen_vtrampoline_209
+    .quad splitscreen_vtrampoline_210
+    .quad splitscreen_vtrampoline_211
+    .quad splitscreen_vtrampoline_212
+    .quad splitscreen_vtrampoline_213
+    .quad splitscreen_vtrampoline_214
+    .quad splitscreen_vtrampoline_215
+    .quad splitscreen_vtrampoline_216
+    .quad splitscreen_vtrampoline_217
+    .quad splitscreen_vtrampoline_218
+    .quad splitscreen_vtrampoline_219
+    .quad splitscreen_vtrampoline_220
+    .quad splitscreen_vtrampoline_221
+    .quad splitscreen_vtrampoline_222
+    .quad splitscreen_vtrampoline_223
+    .quad splitscreen_vtrampoline_224
+    .quad splitscreen_vtrampoline_225
+    .quad splitscreen_vtrampoline_226
+    .quad splitscreen_vtrampoline_227
+    .quad splitscreen_vtrampoline_228
+    .quad splitscreen_vtrampoline_229
+    .quad splitscreen_vtrampoline_230
+    .quad splitscreen_vtrampoline_231
+    .quad splitscreen_vtrampoline_232
+    .quad splitscreen_vtrampoline_233
+    .quad splitscreen_vtrampoline_234
+    .quad splitscreen_vtrampoline_235
+    .quad splitscreen_vtrampoline_236
+    .quad splitscreen_vtrampoline_237
+    .quad splitscreen_vtrampoline_238
+    .quad splitscreen_vtrampoline_239
+    .quad splitscreen_vtrampoline_240
+    .quad splitscreen_vtrampoline_241
+    .quad splitscreen_vtrampoline_242
+    .quad splitscreen_vtrampoline_243
+    .quad splitscreen_vtrampoline_244
+    .quad splitscreen_vtrampoline_245
+    .quad splitscreen_vtrampoline_246
+    .quad splitscreen_vtrampoline_247
+    .quad splitscreen_vtrampoline_248
+    .quad splitscreen_vtrampoline_249
+    .quad splitscreen_vtrampoline_250
+    .quad splitscreen_vtrampoline_251
+    .quad splitscreen_vtrampoline_252
+    .quad splitscreen_vtrampoline_253
+    .quad splitscreen_vtrampoline_254
+    .quad splitscreen_vtrampoline_255
+    .quad splitscreen_vtrampoline_256
+    .quad splitscreen_vtrampoline_257
+    .quad splitscreen_vtrampoline_258
+    .quad splitscreen_vtrampoline_259
+    .quad splitscreen_vtrampoline_260
+    .quad splitscreen_vtrampoline_261
+    .quad splitscreen_vtrampoline_262
+    .quad splitscreen_vtrampoline_263
+    .quad splitscreen_vtrampoline_264
+    .quad splitscreen_vtrampoline_265
+    .quad splitscreen_vtrampoline_266
+    .quad splitscreen_vtrampoline_267
+    .quad splitscreen_vtrampoline_268
+    .quad splitscreen_vtrampoline_269
+    .quad splitscreen_vtrampoline_270
+    .quad splitscreen_vtrampoline_271
+    .quad splitscreen_vtrampoline_272
+    .quad splitscreen_vtrampoline_273
+    .quad splitscreen_vtrampoline_274
+    .quad splitscreen_vtrampoline_275
+    .quad splitscreen_vtrampoline_276
+    .quad splitscreen_vtrampoline_277
+    .quad splitscreen_vtrampoline_278
+    .quad splitscreen_vtrampoline_279
+    .quad splitscreen_vtrampoline_280
+    .quad splitscreen_vtrampoline_281
+    .quad splitscreen_vtrampoline_282
+    .quad splitscreen_vtrampoline_283
+    .quad splitscreen_vtrampoline_284
+    .quad splitscreen_vtrampoline_285
+    .quad splitscreen_vtrampoline_286
+    .quad splitscreen_vtrampoline_287
+    .quad splitscreen_vtrampoline_288
+    .quad splitscreen_vtrampoline_289
+    .quad splitscreen_vtrampoline_290
+    .quad splitscreen_vtrampoline_291
+    .quad splitscreen_vtrampoline_292
+    .quad splitscreen_vtrampoline_293
+    .quad splitscreen_vtrampoline_294
+    .quad splitscreen_vtrampoline_295
+    .quad splitscreen_vtrampoline_296
+    .quad splitscreen_vtrampoline_297
+    .quad splitscreen_vtrampoline_298
+    .quad splitscreen_vtrampoline_299
+    .quad splitscreen_vtrampoline_300
+    .quad splitscreen_vtrampoline_301
+    .quad splitscreen_vtrampoline_302
+    .quad splitscreen_vtrampoline_303
+    .quad splitscreen_vtrampoline_304
+    .quad splitscreen_vtrampoline_305
+    .quad splitscreen_vtrampoline_306
+    .quad splitscreen_vtrampoline_307
+    .quad splitscreen_vtrampoline_308
+    .quad splitscreen_vtrampoline_309
+    .quad splitscreen_vtrampoline_310
+    .quad splitscreen_vtrampoline_311
+    .quad splitscreen_vtrampoline_312
+    .quad splitscreen_vtrampoline_313
+    .quad splitscreen_vtrampoline_314
+    .quad splitscreen_vtrampoline_315
+    .quad splitscreen_vtrampoline_316
+    .quad splitscreen_vtrampoline_317
+    .quad splitscreen_vtrampoline_318
+    .quad splitscreen_vtrampoline_319
+    .quad splitscreen_vtrampoline_320
+    .quad splitscreen_vtrampoline_321
+    .quad splitscreen_vtrampoline_322
+    .quad splitscreen_vtrampoline_323
+    .quad splitscreen_vtrampoline_324
+    .quad splitscreen_vtrampoline_325
+    .quad splitscreen_vtrampoline_326
+    .quad splitscreen_vtrampoline_327
+    .quad splitscreen_vtrampoline_328
+    .quad splitscreen_vtrampoline_329
+    .quad splitscreen_vtrampoline_330
+    .quad splitscreen_vtrampoline_331
+    .quad splitscreen_vtrampoline_332
+    .quad splitscreen_vtrampoline_333
+    .quad splitscreen_vtrampoline_334
+    .quad splitscreen_vtrampoline_335
+    .quad splitscreen_vtrampoline_336
+    .quad splitscreen_vtrampoline_337
+    .quad splitscreen_vtrampoline_338
+    .quad splitscreen_vtrampoline_339
+    .quad splitscreen_vtrampoline_340
+    .quad splitscreen_vtrampoline_341
+    .quad splitscreen_vtrampoline_342
+    .quad splitscreen_vtrampoline_343
+    .quad splitscreen_vtrampoline_344
+    .quad splitscreen_vtrampoline_345
+    .quad splitscreen_vtrampoline_346
+    .quad splitscreen_vtrampoline_347
+    .quad splitscreen_vtrampoline_348
+    .quad splitscreen_vtrampoline_349
+    .quad splitscreen_vtrampoline_350
+    .quad splitscreen_vtrampoline_351
+    .quad splitscreen_vtrampoline_352
+    .quad splitscreen_vtrampoline_353
+    .quad splitscreen_vtrampoline_354
+    .quad splitscreen_vtrampoline_355
+    .quad splitscreen_vtrampoline_356
+    .quad splitscreen_vtrampoline_357
+    .quad splitscreen_vtrampoline_358
+    .quad splitscreen_vtrampoline_359
+    .quad splitscreen_vtrampoline_360
+    .quad splitscreen_vtrampoline_361
+    .quad splitscreen_vtrampoline_362
+    .quad splitscreen_vtrampoline_363
+    .quad splitscreen_vtrampoline_364
+    .quad splitscreen_vtrampoline_365
+    .quad splitscreen_vtrampoline_366
+    .quad splitscreen_vtrampoline_367
+    .quad splitscreen_vtrampoline_368
+    .quad splitscreen_vtrampoline_369
+    .quad splitscreen_vtrampoline_370
+    .quad splitscreen_vtrampoline_371
+    .quad splitscreen_vtrampoline_372
+    .quad splitscreen_vtrampoline_373
+    .quad splitscreen_vtrampoline_374
+    .quad splitscreen_vtrampoline_375
+    .quad splitscreen_vtrampoline_376
+    .quad splitscreen_vtrampoline_377
+    .quad splitscreen_vtrampoline_378
+    .quad splitscreen_vtrampoline_379
+    .quad splitscreen_vtrampoline_380
+    .quad splitscreen_vtrampoline_381
+    .quad splitscreen_vtrampoline_382
+    .quad splitscreen_vtrampoline_383
+    .quad splitscreen_vtrampoline_384
+    .quad splitscreen_vtrampoline_385
+    .quad splitscreen_vtrampoline_386
+    .quad splitscreen_vtrampoline_387
+    .quad splitscreen_vtrampoline_388
+    .quad splitscreen_vtrampoline_389
+    .quad splitscreen_vtrampoline_390
+    .quad splitscreen_vtrampoline_391
+    .quad splitscreen_vtrampoline_392
+    .quad splitscreen_vtrampoline_393
+    .quad splitscreen_vtrampoline_394
+    .quad splitscreen_vtrampoline_395
+    .quad splitscreen_vtrampoline_396
+    .quad splitscreen_vtrampoline_397
+    .quad splitscreen_vtrampoline_398
+    .quad splitscreen_vtrampoline_399
+    .quad splitscreen_vtrampoline_400
+    .quad splitscreen_vtrampoline_401
+    .quad splitscreen_vtrampoline_402
+    .quad splitscreen_vtrampoline_403
+    .quad splitscreen_vtrampoline_404
+    .quad splitscreen_vtrampoline_405
+    .quad splitscreen_vtrampoline_406
+    .quad splitscreen_vtrampoline_407
+    .quad splitscreen_vtrampoline_408
+    .quad splitscreen_vtrampoline_409
+    .quad splitscreen_vtrampoline_410
+    .quad splitscreen_vtrampoline_411
+    .quad splitscreen_vtrampoline_412
+    .quad splitscreen_vtrampoline_413
+    .quad splitscreen_vtrampoline_414
+    .quad splitscreen_vtrampoline_415
+    .quad splitscreen_vtrampoline_416
+    .quad splitscreen_vtrampoline_417
+    .quad splitscreen_vtrampoline_418
+    .quad splitscreen_vtrampoline_419
+    .quad splitscreen_vtrampoline_420
+    .quad splitscreen_vtrampoline_421
+    .quad splitscreen_vtrampoline_422
+    .quad splitscreen_vtrampoline_423
+    .quad splitscreen_vtrampoline_424
+    .quad splitscreen_vtrampoline_425
+    .quad splitscreen_vtrampoline_426
+    .quad splitscreen_vtrampoline_427
+    .quad splitscreen_vtrampoline_428
+    .quad splitscreen_vtrampoline_429
+    .quad splitscreen_vtrampoline_430
+    .quad splitscreen_vtrampoline_431
+    .quad splitscreen_vtrampoline_432
+    .quad splitscreen_vtrampoline_433
+    .quad splitscreen_vtrampoline_434
+    .quad splitscreen_vtrampoline_435
+    .quad splitscreen_vtrampoline_436
+    .quad splitscreen_vtrampoline_437
+    .quad splitscreen_vtrampoline_438
+    .quad splitscreen_vtrampoline_439
+    .quad splitscreen_vtrampoline_440
+    .quad splitscreen_vtrampoline_441
+    .quad splitscreen_vtrampoline_442
+    .quad splitscreen_vtrampoline_443
+    .quad splitscreen_vtrampoline_444
+    .quad splitscreen_vtrampoline_445
+    .quad splitscreen_vtrampoline_446
+    .quad splitscreen_vtrampoline_447
+    .quad splitscreen_vtrampoline_448
+    .quad splitscreen_vtrampoline_449
+    .quad splitscreen_vtrampoline_450
+    .quad splitscreen_vtrampoline_451
+    .quad splitscreen_vtrampoline_452
+    .quad splitscreen_vtrampoline_453
+    .quad splitscreen_vtrampoline_454
+    .quad splitscreen_vtrampoline_455
+    .quad splitscreen_vtrampoline_456
+    .quad splitscreen_vtrampoline_457
+    .quad splitscreen_vtrampoline_458
+    .quad splitscreen_vtrampoline_459
+    .quad splitscreen_vtrampoline_460
+    .quad splitscreen_vtrampoline_461
+    .quad splitscreen_vtrampoline_462
+    .quad splitscreen_vtrampoline_463
+    .quad splitscreen_vtrampoline_464
+    .quad splitscreen_vtrampoline_465
+    .quad splitscreen_vtrampoline_466
+    .quad splitscreen_vtrampoline_467
+    .quad splitscreen_vtrampoline_468
+    .quad splitscreen_vtrampoline_469
+    .quad splitscreen_vtrampoline_470
+    .quad splitscreen_vtrampoline_471
+    .quad splitscreen_vtrampoline_472
+    .quad splitscreen_vtrampoline_473
+    .quad splitscreen_vtrampoline_474
+    .quad splitscreen_vtrampoline_475
+    .quad splitscreen_vtrampoline_476
+    .quad splitscreen_vtrampoline_477
+    .quad splitscreen_vtrampoline_478
+    .quad splitscreen_vtrampoline_479
+    .quad splitscreen_vtrampoline_480
+    .quad splitscreen_vtrampoline_481
+    .quad splitscreen_vtrampoline_482
+    .quad splitscreen_vtrampoline_483
+    .quad splitscreen_vtrampoline_484
+    .quad splitscreen_vtrampoline_485
+    .quad splitscreen_vtrampoline_486
+    .quad splitscreen_vtrampoline_487
+    .quad splitscreen_vtrampoline_488
+    .quad splitscreen_vtrampoline_489
+    .quad splitscreen_vtrampoline_490
+    .quad splitscreen_vtrampoline_491
+    .quad splitscreen_vtrampoline_492
+    .quad splitscreen_vtrampoline_493
+    .quad splitscreen_vtrampoline_494
+    .quad splitscreen_vtrampoline_495
+    .quad splitscreen_vtrampoline_496
+    .quad splitscreen_vtrampoline_497
+    .quad splitscreen_vtrampoline_498
+    .quad splitscreen_vtrampoline_499
+    .quad splitscreen_vtrampoline_500
+    .quad splitscreen_vtrampoline_501
+    .quad splitscreen_vtrampoline_502
+    .quad splitscreen_vtrampoline_503
+    .quad splitscreen_vtrampoline_504
+    .quad splitscreen_vtrampoline_505
+    .quad splitscreen_vtrampoline_506
+    .quad splitscreen_vtrampoline_507
+    .quad splitscreen_vtrampoline_508
+    .quad splitscreen_vtrampoline_509
+    .quad splitscreen_vtrampoline_510
+    .quad splitscreen_vtrampoline_511
+    .quad splitscreen_vtrampoline_512
+    .quad splitscreen_vtrampoline_513
+    .quad splitscreen_vtrampoline_514
+    .quad splitscreen_vtrampoline_515
+    .quad splitscreen_vtrampoline_516
+    .quad splitscreen_vtrampoline_517
+    .quad splitscreen_vtrampoline_518
+    .quad splitscreen_vtrampoline_519
+    .quad splitscreen_vtrampoline_520
+    .quad splitscreen_vtrampoline_521
+    .quad splitscreen_vtrampoline_522
+    .quad splitscreen_vtrampoline_523
+    .quad splitscreen_vtrampoline_524
+    .quad splitscreen_vtrampoline_525
+    .quad splitscreen_vtrampoline_526
+    .quad splitscreen_vtrampoline_527
+    .quad splitscreen_vtrampoline_528
+    .quad splitscreen_vtrampoline_529
+    .quad splitscreen_vtrampoline_530
+    .quad splitscreen_vtrampoline_531
+    .quad splitscreen_vtrampoline_532
+    .quad splitscreen_vtrampoline_533
+    .quad splitscreen_vtrampoline_534
+    .quad splitscreen_vtrampoline_535
+    .quad splitscreen_vtrampoline_536
+    .quad splitscreen_vtrampoline_537
+    .quad splitscreen_vtrampoline_538
+    .quad splitscreen_vtrampoline_539
+    .quad splitscreen_vtrampoline_540
+    .quad splitscreen_vtrampoline_541
+    .quad splitscreen_vtrampoline_542
+    .quad splitscreen_vtrampoline_543
+    .quad splitscreen_vtrampoline_544
+    .quad splitscreen_vtrampoline_545
+    .quad splitscreen_vtrampoline_546
+    .quad splitscreen_vtrampoline_547
+    .quad splitscreen_vtrampoline_548
+    .quad splitscreen_vtrampoline_549
+    .quad splitscreen_vtrampoline_550
+    .quad splitscreen_vtrampoline_551
+    .quad splitscreen_vtrampoline_552
+    .quad splitscreen_vtrampoline_553
+    .quad splitscreen_vtrampoline_554
+    .quad splitscreen_vtrampoline_555
+    .quad splitscreen_vtrampoline_556
+    .quad splitscreen_vtrampoline_557
+    .quad splitscreen_vtrampoline_558
+    .quad splitscreen_vtrampoline_559
+    .quad splitscreen_vtrampoline_560
+    .quad splitscreen_vtrampoline_561
+    .quad splitscreen_vtrampoline_562
+    .quad splitscreen_vtrampoline_563
+    .quad splitscreen_vtrampoline_564
+    .quad splitscreen_vtrampoline_565
+    .quad splitscreen_vtrampoline_566
+    .quad splitscreen_vtrampoline_567
+    .quad splitscreen_vtrampoline_568
+    .quad splitscreen_vtrampoline_569
+    .quad splitscreen_vtrampoline_570
+    .quad splitscreen_vtrampoline_571
+    .quad splitscreen_vtrampoline_572
+    .quad splitscreen_vtrampoline_573
+    .quad splitscreen_vtrampoline_574
+    .quad splitscreen_vtrampoline_575
+    .quad splitscreen_vtrampoline_576
+    .quad splitscreen_vtrampoline_577
+    .quad splitscreen_vtrampoline_578
+    .quad splitscreen_vtrampoline_579
+    .quad splitscreen_vtrampoline_580
+    .quad splitscreen_vtrampoline_581
+    .quad splitscreen_vtrampoline_582
+    .quad splitscreen_vtrampoline_583
+    .quad splitscreen_vtrampoline_584
+    .quad splitscreen_vtrampoline_585
+    .quad splitscreen_vtrampoline_586
+    .quad splitscreen_vtrampoline_587
+    .quad splitscreen_vtrampoline_588
+    .quad splitscreen_vtrampoline_589
+    .quad splitscreen_vtrampoline_590
+    .quad splitscreen_vtrampoline_591
+    .quad splitscreen_vtrampoline_592
+    .quad splitscreen_vtrampoline_593
+    .quad splitscreen_vtrampoline_594
+    .quad splitscreen_vtrampoline_595
+    .quad splitscreen_vtrampoline_596
+    .quad splitscreen_vtrampoline_597
+    .quad splitscreen_vtrampoline_598
+    .quad splitscreen_vtrampoline_599
+
+    .section .note.GNU-stack, "", %progbits
