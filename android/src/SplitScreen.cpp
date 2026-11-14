@@ -852,6 +852,54 @@ void probe() {
             }
         }
     }
+    // The pause menu's buttons: their names ("button.menu_...") and the code that uses them (the pause menu sets up
+    // a handler for each name, as the Windows version does for its Split screen button). In the background: it reads
+    // all of the game's code.
+    std::thread([game = *game] {
+        std::vector<std::pair<uintptr_t, std::string>> names;
+        for (auto const& seg : game.segments) {
+            if (!seg.read || seg.write) continue;
+            auto const* begin = reinterpret_cast<char const*>(seg.start);
+            size_t      size  = seg.end - seg.start;
+            for (size_t at = 0; at + 12 <= size && names.size() < 40;) {
+                auto const* hit = static_cast<char const*>(memmem(begin + at, size - at, "button.menu_", 12));
+                if (!hit) break;
+                at = size_t(hit - begin) + 1;
+                if (hit > begin && hit[-1] != '\0') continue;
+                names.push_back({reinterpret_cast<uintptr_t>(hit), std::string(hit, strnlen(hit, 64))});
+            }
+        }
+        for (auto& [addr, name] : names) note("pause: string +0x{:X} {}", addr - game.base, name);
+        // code that loads one of them (adrp xN; add xN, xN, #lo12)
+        std::map<uintptr_t, std::string> wanted;
+        for (auto& [addr, name] : names)
+            if (name == "button.menu_continue" || name == "button.menu_quit" || name == "button.menu_settings"
+                || name == "button.menu_resume" || name == "button.menu_exit")
+                wanted[addr] = name;
+        int dumped = 0;
+        for (auto const& seg : game.segments) {
+            if (!seg.exec || wanted.empty()) continue;
+            auto const* code = reinterpret_cast<uint32_t const*>(seg.start);
+            size_t      n    = (seg.end - seg.start) / 4;
+            for (size_t i = 0; i + 1 < n && dumped < 6; ++i) {
+                uint32_t op = code[i];
+                if ((op & 0x9F000000) != 0x90000000) continue; // adrp
+                int       rd   = op & 31;
+                uint32_t  next = code[i + 1];
+                if ((next & 0xFFC00000) != 0x91000000 || int(next & 31) != rd || int((next >> 5) & 31) != rd) continue;
+                uintptr_t pc   = seg.start + 4 * i;
+                int64_t   imm  = (int64_t(((op >> 5) & 0x7FFFF) << 2 | ((op >> 29) & 3)) << 43) >> 31;
+                uintptr_t addr = (pc & ~uintptr_t(0xFFF)) + imm + ((next >> 10) & 0xFFF);
+                auto it = wanted.find(addr);
+                if (it == wanted.end()) continue;
+                note("pause: {} used at +0x{:X}", it->second, pc - game.base);
+                dumpCode(game, fmt::format("pause{}", dumped).c_str(), pc - 0x100, 0x200,
+                         [](std::string const& l) { note("{}", l); });
+                ++dumped;
+            }
+        }
+        note("pause: search done");
+    }).detach();
     // which Android input functions the game imports (native input queue, Paddleboat controller library, ...)
     {
         auto imports = importedSymbols(*game);
