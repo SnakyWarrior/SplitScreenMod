@@ -688,6 +688,22 @@ bool hookClientLeave(Module const& game) {
 
 // The Split screen menu, on Select (View / Back) of a controller that plays. The added player's sub client id is its
 // controller number (1-3).
+using PauseEventFn = uint64_t (*)(void*, void*);
+PauseEventFn     gPauseEvent = nullptr;
+std::atomic<int> gPauseEventsLogged{0};
+
+uint64_t pauseEventDetour(void* self, void* event) {
+    uint32_t words[8] = {};
+    std::memcpy(words, event, sizeof words);
+    uint64_t result = gPauseEvent(self, event);
+    if (words[0] != 5 && gPauseEventsLogged < 300) {
+        ++gPauseEventsLogged;
+        note("pause: event {} [{:08X} {:08X} {:08X} {:08X} {:08X} {:08X} {:08X}] -> {} (screen {})", words[0], words[1],
+             words[2], words[3], words[4], words[5], words[6], words[7], result, self);
+    }
+    return result;
+}
+
 void enableJoining(Module const& game) {
     static Module copy = game;
     gGameModule        = &copy;
@@ -772,10 +788,14 @@ void enableJoining(Module const& game) {
     if (ok) traceVtable(game, vt, count, 0, "MinecraftGame", [](std::string const& l) { note("{}", l); });
     // The pause menu (its Split screen button) and the game's join prompt: which of their functions run, to find
     // how the Windows version's button and prompt work here.
+    // PauseScreenController virtual 4 gets the screen's events (0.9.9 log: type 5 with two floats is the pointer
+    // moving): every other event is logged, to find the Split screen button's press.
     for (auto const& c : findClasses(game, "21PauseScreenController"))
-        if (c.name == "21PauseScreenController" && !c.vtables.empty())
-            traceVtable(game, c.vtables.front(), std::min<size_t>(countSlots(game, c.vtables.front(), 400), 150), 420,
-                        "PauseScreenController", [](std::string const& l) { note("{}", l); }, 40);
+        if (c.name == "21PauseScreenController" && !c.vtables.empty() && countSlots(game, c.vtables.front(), 400) > 4) {
+            gPauseEvent = reinterpret_cast<PauseEventFn>(c.vtables.front()[4]);
+            writeSlot(&c.vtables.front()[4], reinterpret_cast<uintptr_t>(&pauseEventDetour));
+            note("pause: watching the pause menu's events");
+        }
     size_t listenerBase = 575;
     for (auto const& c : findClasses(game, "SplitscreenJoinListener"))
         for (auto* lvt : c.vtables) {
