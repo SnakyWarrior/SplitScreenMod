@@ -47,6 +47,9 @@ void onLostPlayerTakenOver(std::function<void(int controller)> handler);
 // Whether a connected device plays as controller number `controller`.
 bool controllerConnected(int controller);
 
+// The controller number that pressed a button last (0: player 1, also for touch).
+int lastPresser();
+
 // While `blocked`, the controller's buttons and sticks reach nobody (its player is leaving).
 void blockController(int controller, bool blocked);
 

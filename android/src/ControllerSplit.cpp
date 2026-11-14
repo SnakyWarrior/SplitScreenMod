@@ -255,6 +255,7 @@ std::atomic<int> gEventsLogged{0};
 std::atomic<int> gKeysToLog{0}; // after a swap: which keys each controller presses
 std::atomic<bool> gBlocked[kMaxControllers] = {};
 std::atomic<int>  gUnassignedPresses{0};
+std::atomic<int>  gLastPresser{0};
 
 uint64_t dispatchDetour(uint64_t a0, uint64_t a1, uint64_t variant, uint64_t a3, uint64_t a4, uint64_t a5, uint64_t a6,
                         uint64_t a7) {
@@ -293,6 +294,9 @@ uint64_t dispatchDetour(uint64_t a0, uint64_t a1, uint64_t variant, uint64_t a3,
         runDueTasks();
         return 0;
     }
+    // who used a menu last: the controller that pressed a button, or player 1 (touch, keyboard)
+    if (padEvent && keyDown && controller >= 0) gLastPresser = controller;
+    else if (!padEvent && index >= 0) gLastPresser = 0;
     if (padEvent && index == 0) {
         std::lock_guard lock(gDevicesMutex);
         if (keyDown) gHeld[head[0]].insert(keyCode);
@@ -456,6 +460,8 @@ bool controllerConnected(int controller) {
         if (c == controller) return true;
     return false;
 }
+
+int lastPresser() { return gLastPresser; }
 
 void blockController(int controller, bool blocked) {
     if (controller >= 0 && controller < kMaxControllers) gBlocked[controller] = blocked;
