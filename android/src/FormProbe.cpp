@@ -176,7 +176,17 @@ struct Pending {
 std::map<int, Pending> gPending; // sub client -> its form
 uint32_t               gNextFormId = 0x5C5C0001;
 
+std::atomic<bool> gCloseWanted[4] = {};
+
 void maybeSendMenu(void const* source, int sub) {
+    if (sub >= 0 && sub < 4 && gCloseWanted[sub].exchange(false)) {
+        {
+            std::lock_guard lock(gSeenMutex);
+            gPending.erase(sub);
+        }
+        sendCloseForm(source, uint32_t(sub));
+        return;
+    }
     uint32_t                 formId = 0;
     std::string              json;
     std::function<void(int)> expired;
@@ -326,6 +336,10 @@ bool menuOpen(int sub) {
         return false;
     }
     return true;
+}
+
+void closeMenu(int sub) {
+    if (sub >= 0 && sub < 4) gCloseWanted[sub] = true;
 }
 
 void cancelMenu(int sub) {

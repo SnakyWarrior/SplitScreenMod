@@ -99,6 +99,12 @@ void showMenu(int who, std::string const& text, std::vector<std::string> const& 
 }
 
 std::atomic<int> gFreshSub{-1}; // a player that just joined and still has to be asked about
+
+// When the players or their controllers change, every open Split screen menu is closed and opened again with what is
+// true now (the Windows version's refreshSettings). `gSettingsOpen`: player -> when their menu opened.
+std::mutex                                           gSettingsMutex;
+std::map<int, std::chrono::steady_clock::time_point> gSettingsOpen, gReopenAt;
+std::string                                          gLastState;
 std::mutex       gMissingMutex;
 std::map<int, std::chrono::steady_clock::time_point> gMissingSince; // sub -> when its controller went
 
@@ -252,7 +258,15 @@ void onSettingsButton(int who) {
     pictures.emplace_back();
 
     note("menus: player {} opens the Split screen menu", who + 1);
+    {
+        std::lock_guard lock(gSettingsMutex);
+        gSettingsOpen[who] = std::chrono::steady_clock::now();
+    }
     showMenu(who, "", buttons, pictures, [items, who, myPad](int pick) {
+        {
+            std::lock_guard lock(gSettingsMutex);
+            gSettingsOpen.erase(who);
+        }
         if (pick < 0 || pick >= int(items.size())) return;
         auto players = game::players();
         auto item    = items[pick];
@@ -307,6 +321,11 @@ void onControllerConnected(int sub) {
 
 void onPlayerLeft(int sub) {
     cancelMenu(sub);
+    {
+        std::lock_guard lock(gSettingsMutex);
+        gSettingsOpen.erase(sub);
+        gReopenAt.erase(sub);
+    }
     int fresh = sub;
     gFreshSub.compare_exchange_strong(fresh, -1);
     std::lock_guard lock(gMissingMutex);
@@ -315,6 +334,35 @@ void onPlayerLeft(int sub) {
 
 void checkControllers() {
     auto now = std::chrono::steady_clock::now();
+    // refresh the open Split screen menus when who plays (with or without a controller) changed
+    {
+        std::string state;
+        for (auto [sub, controller] : game::players()) state += fmt::format("{}:{} ", sub, game::hasController(controller));
+        std::vector<int> reopen;
+        {
+            std::lock_guard lock(gSettingsMutex);
+            bool changed = !gLastState.empty() && state != gLastState;
+            gLastState   = state;
+            if (changed)
+                for (auto it = gSettingsOpen.begin(); it != gSettingsOpen.end();) {
+                    if (now - it->second < std::chrono::seconds(1)) { // already up to date
+                        ++it;
+                        continue;
+                    }
+                    note("settings: refreshing player {}'s menu", it->first + 1);
+                    closeMenu(it->first);
+                    gReopenAt[it->first] = now + std::chrono::milliseconds(800);
+                    it                   = gSettingsOpen.erase(it);
+                }
+            for (auto it = gReopenAt.begin(); it != gReopenAt.end();)
+                if (it->second <= now) {
+                    reopen.push_back(it->first);
+                    it = gReopenAt.erase(it);
+                } else
+                    ++it;
+        }
+        for (int sub : reopen) onSettingsButton(sub);
+    }
     for (auto [sub, controller] : game::players()) {
         if (sub == 0 || sub == gFreshSub) continue;
         bool            has = game::hasController(controller);

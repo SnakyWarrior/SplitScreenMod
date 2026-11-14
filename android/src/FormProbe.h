@@ -22,6 +22,9 @@ void showForm(int sub, std::string const& title, std::string const& content, std
               std::vector<std::string> const& pictures, std::function<void(int)> done, int timeoutSeconds = 0,
               int timeoutAnswer = -1);
 
+// Closes player `sub`'s menu on their screen (at their next tick); its answer is ignored.
+void closeMenu(int sub);
+
 // Forgets player `sub`'s menu (the player leaves); its answer, if one still comes, is ignored.
 void cancelMenu(int sub);
 
