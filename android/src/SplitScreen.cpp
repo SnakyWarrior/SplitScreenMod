@@ -731,7 +731,12 @@ uint64_t pauseEventDetour(void* self, void* event) {
         uint64_t closed = gPauseEvent(self, event);
         note("pause: Split screen button event [{:08X} {:08X} {:08X} {:08X} {:08X}] -> {}", words[1], words[2],
              words[3], words[4], words[5], closed);
-        if ((words[4] & 0xFF) == 1) {
+        // A press with a controller closes the pause menu at its first event (state 2) and sends no more, a touch at
+        // the second (state 1): whichever closes it (or is the second) starts the menu, once.
+        static std::atomic<int64_t> lastAt{0};
+        int64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::steady_clock::now().time_since_epoch()).count();
+        if (((words[4] & 0xFF) == 1 || closed != 0) && nowMs - lastAt.exchange(nowMs) > 700) {
             // what pressed it (at +12): button.menu_select is a touch (player 1's), button.menu_ok a controller's A
             // (the controller that pressed a button last)
             int who = words[3] == kTouchPress ? 0 : lastPresser();
@@ -845,38 +850,14 @@ void enableJoining(Module const& game) {
             // 41, 43 and 50 are asked for property names (std::string "#...") every frame (0.10.7 log: 41
             // "#gamepad_helper_visible", 43 "#edu_keyboard_helper_visible"). Replacing them with a plain function
             // crashed the pause menu (0.10.7-0.10.9): they are only traced by the register-saving trampolines (the
-            // names asked), and the code that registers such a binding (the Windows version's bindBool) is searched
-            // by the FNV hash of "#gamepad_helper_visible".
-            for (size_t slot : {41, 43, 50}) {
-                traceVtable(game, c.vtables.front() + slot, 1, 420 + slot, "PauseScreenController",
-                            [](std::string const& l) { note("{}", l); });
-                traceNames(420 + slot);
-            }
-            std::thread([game] {
-                constexpr uint32_t kHash = 0xC79036F3; // FNV-1a of "#gamepad_helper_visible"
-                int                hits  = 0;
-                for (auto const& seg : game.segments) {
-                    if (!seg.exec) continue;
-                    auto const* code = reinterpret_cast<uint32_t const*>(seg.start);
-                    size_t      n    = (seg.end - seg.start) / 4;
-                    for (size_t i = 0; i + 4 < n && hits < 3; ++i) {
-                        uint32_t op = code[i];
-                        if ((op & 0xFFE0001F) != (0x52800000u | (kHash & 0xFFFF) << 5 | (op & 31))) continue;
-                        if ((op & 0xFFFFFFE0) != (0x52800000u | (kHash & 0xFFFF) << 5)) continue;
-                        int rd = op & 31;
-                        for (int k = 1; k < 4; ++k)
-                            if (code[i + k] == (0x72A00000u | (kHash >> 16) << 5 | uint32_t(rd))) {
-                                uintptr_t at = seg.start + 4 * i;
-                                note("pause: the hash of #gamepad_helper_visible is built at +0x{:X}", at - game.base);
-                                dumpCode(game, fmt::format("hash{}", hits).c_str(), at - 0x200, 0x400,
-                                         [](std::string const& l) { note("{}", l); });
-                                ++hits;
-                                break;
-                            }
-                    }
-                }
-                note("pause: hash search done ({} hit(s))", hits);
-            }).detach();
+            // names asked, with their answers).
+            size_t pauseSlots = std::min<size_t>(countSlots(game, c.vtables.front(), 400), 54);
+            traceVtable(game, c.vtables.front(), pauseSlots, 420, "PauseScreenController",
+                        [](std::string const& l) { note("{}", l); });
+            for (size_t slot = 0; slot < pauseSlots; ++slot) traceNames(420 + slot);
+            watchResults(game, c.vtables.front(), {41, 43, 50}, "PauseScreenController",
+                         [](std::string const& l) { note("{}", l); });
+            logResults(80);
         }
     size_t listenerBase = 575;
     for (auto const& c : findClasses(game, "SplitscreenJoinListener"))

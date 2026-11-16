@@ -118,7 +118,7 @@ extern "C" void splitscreen_on_vcall(uint64_t slot, uint64_t* regs, uint64_t ret
     using namespace splitscreen;
     if (gNamed[slot].load(std::memory_order_relaxed)) {
         auto name = stringAt(regs[1]);
-        if (!name.empty()) {
+        if (!name.empty() && name[0] == '#') {
             std::lock_guard lock(gNamesMutex);
             if (gNamesSeen.insert(fmt::format("{}:{}", slot, name)).second && gNamesSeen.size() < 400)
                 gLog(fmt::format("trace: {} virtual {} called with name \"{}\" from {} (w2={} w3={})", gNames[slot],
