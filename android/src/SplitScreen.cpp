@@ -717,6 +717,8 @@ uint64_t pauseEventDetour(void* self, void* event) {
         uint32_t resume = kResumeButton;
         std::memcpy(static_cast<uint8_t*>(event) + 8, &resume, sizeof resume);
         uint64_t closed = gPauseEvent(self, event);
+        note("pause: Split screen button event [{:08X} {:08X} {:08X} {:08X} {:08X}] -> {}", words[1], words[2],
+             words[3], words[4], words[5], closed);
         if ((words[4] & 0xFF) == 1) {
             // what pressed it (at +12): button.menu_select is a touch (player 1's), button.menu_ok a controller's A
             // (the controller that pressed a button last)
@@ -828,6 +830,12 @@ void enableJoining(Module const& game) {
             gPauseEvent = reinterpret_cast<PauseEventFn>(c.vtables.front()[4]);
             writeSlot(&c.vtables.front()[4], reinterpret_cast<uintptr_t>(&pauseEventDetour));
             note("pause: watching the pause menu's events");
+            // 41, 43 and 50 are asked for property names (std::string "#...") every frame (0.9.11 log): the names
+            // tell which is which, the Windows version's bindBool is how its Split screen button hides alone
+            for (size_t slot : {41, 43, 50}) traceNames(420 + slot);
+            for (uintptr_t at : {0xA89A5ACul, 0xA89A2F8ul, 0xA7C8C00ul})
+                dumpCode(game, fmt::format("bind{:X}", at).c_str(), game.base + at - 0x180, 0x240,
+                         [](std::string const& l) { note("{}", l); });
         }
     size_t listenerBase = 575;
     for (auto const& c : findClasses(game, "SplitscreenJoinListener"))
