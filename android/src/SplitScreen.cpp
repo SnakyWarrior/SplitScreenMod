@@ -711,22 +711,22 @@ constexpr uint32_t kResumeButton      = fnv1a("button.menu_continue");
 uint64_t pauseEventDetour(void* self, void* event) {
     uint32_t words[8] = {};
     std::memcpy(words, event, sizeof words);
-    if (words[0] == 1 && words[2] == kSplitScreenButton) { // type, (padding), hash, (?), state
-        if ((words[4] & 0xFF) != 1) return 0;
-        // what pressed it (at +12): button.menu_select is a touch (player 1's), button.menu_ok a controller's A (the
-        // controller that pressed a button last)
-        int who = words[3] == kTouchPress ? 0 : lastPresser();
-        note("pause menu: Split screen pressed by player {}", who + 1);
-        // Alone, there is no Split screen menu (on Windows the button is not even there): the button takes player 1's
-        // controller away if they have one (the Windows version's free-controller button), else it does nothing.
-        runOnInputThread([who] {
-            if (game::players().size() > 1) menus::onSettingsButton(who);
-            else if (game::hasController(0)) menus::onFreeFirstController();
-        }, std::chrono::milliseconds(300));
-        // the pause menu closes the way Resume closes it: the press is handed on as button.menu_continue
+    if (words[0] == 1 && words[2] == kSplitScreenButton) { // type, (padding), hash, source, state
+        // The press is handed on as Resume's, in every state (a press with a controller comes as state 2 and then 1,
+        // and the game only closes the pause menu when it saw both): the pause menu closes the way Resume closes it.
         uint32_t resume = kResumeButton;
         std::memcpy(static_cast<uint8_t*>(event) + 8, &resume, sizeof resume);
-        return gPauseEvent(self, event);
+        uint64_t closed = gPauseEvent(self, event);
+        if ((words[4] & 0xFF) == 1) {
+            // what pressed it (at +12): button.menu_select is a touch (player 1's), button.menu_ok a controller's A
+            // (the controller that pressed a button last)
+            int who = words[3] == kTouchPress ? 0 : lastPresser();
+            note("pause menu: Split screen pressed by player {}", who + 1);
+            // Alone and without a controller there is nothing to show; alone with one, only the button that takes
+            // it away (the Windows version's free-controller button); with others, the Split screen menu.
+            runOnInputThread([who] { menus::onSettingsButton(who); }, std::chrono::milliseconds(300));
+        }
+        return closed;
     }
     uint64_t result = gPauseEvent(self, event);
     if (words[0] != 5 && words[0] != 8 && gPauseEventsLogged < 60) {

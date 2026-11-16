@@ -217,10 +217,12 @@ void onFreeFirstController() {
     tell(0, tr("splitscreen.tell.pressStart"));
 }
 
-// The Split screen menu: the players, to switch to or remove. There is none when player 1 plays alone.
+// The Split screen menu: the players, to switch to or remove. Player 1 alone gets only the button that takes their
+// controller away (if they have one), as on Windows.
 void onSettingsButton(int who) {
     auto players = game::players();
-    if (players.size() < 2) return;
+    // Alone: nothing to show, except the button that takes player 1's controller away when they have one.
+    if (players.size() < 2 && !game::hasController(0)) return;
     if (!players.contains(who) || gFreshSub == who) return;
     if (menuOpen(who)) return;
     int  myPad = players.at(who);
