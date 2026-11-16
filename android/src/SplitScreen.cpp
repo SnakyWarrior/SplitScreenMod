@@ -634,7 +634,16 @@ void findOptions() {
                 if (object < start + 8 && at + offset < kDirectionName) continue;
                 if (!readMemory(object + kDirectionName - 8, &vtable, 8)) continue;
                 ++found;
-                if (inGame(vtable)) {
+                // The real Options: its option's back pointer (+760) points at the Options' registry (object+8) and
+                // the registry has a vtable in the game (0.11.3: the first match was a stale copy: its pointer was 0).
+                uint64_t back = 0, registryVtable = 0;
+                readMemory(object + 760, &back, 8);
+                readMemory(object + 8, &registryVtable, 8);
+                bool real = inGame(vtable) && back == object + 8 && inGame(registryVtable);
+                note("layout: candidate {} (vtable {}, back pointer {}, registry vtable {}): {}", reinterpret_cast<void*>(object),
+                     reinterpret_cast<void*>(vtable), reinterpret_cast<void*>(back), reinterpret_cast<void*>(registryVtable),
+                     real ? "the options" : "no");
+                if (real) {
                     gOptions = object;
                     note("layout: the options are in the heap at {} (the direction is {})", reinterpret_cast<void*>(object),
                          *reinterpret_cast<int32_t*>(object + kDirectionValue));
