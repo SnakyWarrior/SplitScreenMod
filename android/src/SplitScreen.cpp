@@ -975,6 +975,48 @@ void probe() {
         }
         note("pause: search done");
     }).detach();
+    // The split screen layout option ("splitScreenDirection", options.splitscreen.vertical/horizontal): the code that
+    // refers to its name (the option's registration in the game's Options), to find where its value is kept
+    // (the Windows version calls Options::setSplitscreenDirection).
+    std::thread([game = *game] {
+        for (char const* needle : {"splitScreenDirection", "options.splitscreen.vertical"}) {
+            std::vector<uintptr_t> strings;
+            for (auto const& seg : game.segments) {
+                if (!seg.read || seg.write) continue;
+                auto const* begin = reinterpret_cast<char const*>(seg.start);
+                size_t      size  = seg.end - seg.start;
+                for (size_t at = 0; at + strlen(needle) <= size;) {
+                    auto const* hit = static_cast<char const*>(memmem(begin + at, size - at, needle, strlen(needle)));
+                    if (!hit) break;
+                    at = size_t(hit - begin) + 1;
+                    if ((hit == begin || hit[-1] == '\0') && hit[strlen(needle)] == '\0')
+                        strings.push_back(reinterpret_cast<uintptr_t>(hit));
+                }
+            }
+            int hits = 0;
+            for (auto const& seg : game.segments) {
+                if (!seg.exec || strings.empty()) continue;
+                auto const* code = reinterpret_cast<uint32_t const*>(seg.start);
+                size_t      n    = (seg.end - seg.start) / 4;
+                for (size_t i = 0; i + 1 < n && hits < 4; ++i) {
+                    uint32_t op = code[i];
+                    if ((op & 0x9F000000) != 0x90000000) continue; // adrp
+                    int      rd   = op & 31;
+                    uint32_t next = code[i + 1];
+                    if ((next & 0xFFC00000) != 0x91000000 || int(next & 31) != rd || int((next >> 5) & 31) != rd) continue;
+                    uintptr_t pc   = seg.start + 4 * i;
+                    int64_t   imm  = (int64_t(((op >> 5) & 0x7FFFF) << 2 | ((op >> 29) & 3)) << 43) >> 31;
+                    uintptr_t addr = (pc & ~uintptr_t(0xFFF)) + imm + ((next >> 10) & 0xFFF);
+                    if (std::find(strings.begin(), strings.end(), addr) == strings.end()) continue;
+                    note("layout: \"{}\" is used at +0x{:X}", needle, pc - game.base);
+                    dumpCode(game, fmt::format("layout{}{}", needle[0] == 's' ? "a" : "b", hits).c_str(), pc - 0x180, 0x300,
+                             [](std::string const& l) { note("{}", l); });
+                    ++hits;
+                }
+            }
+            note("layout: search for \"{}\" done ({} string(s), {} use(s))", needle, strings.size(), hits);
+        }
+    }).detach();
     // which Android input functions the game imports (native input queue, Paddleboat controller library, ...)
     {
         auto imports = importedSymbols(*game);
