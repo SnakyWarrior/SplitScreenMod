@@ -1001,7 +1001,9 @@ void enableJoining(Module const& game) {
             size_t n = std::min<size_t>(countSlots(game, lvt, 400), 600 - listenerBase);
             if (!n) continue;
             note("join: tracing {} ({} slots)", c.name, n);
-            traceVtable(game, lvt, n, listenerBase, "SplitscreenJoinListener", [](std::string const& l) { note("{}", l); });
+            // every call logged (the first 200): does the game's own join input reach it when a free controller
+            // presses Start ("startJoins": false in config.json leaves Start to the game)?
+            traceVtable(game, lvt, n, listenerBase, "SplitscreenJoinListener", [](std::string const& l) { note("{}", l); }, 200);
             listenerBase += n;
         }
 }
