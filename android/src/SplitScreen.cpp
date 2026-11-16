@@ -573,10 +573,8 @@ bool isOptions(uintptr_t p) {
 // The options are a member of a member of the client or of MinecraftGame (the object with the option at +736 was not
 // directly in the client, 0.11.1 log): two levels of pointers are searched, once.
 void findOptions() {
-    // The layout choice is off by default: the option's value is found and written (0.11.6 log) but the game does not
-    // lay the screens out differently, as its settings are told through the option's own function and not only by
-    // the value (see "layoutMenu" in config.json).
-    static bool enabled = configFlag("layoutMenu", false);
+    // The layout choice ("layoutMenu" in config.json turns it off) needs the game's Options.
+    static bool enabled = configFlag("layoutMenu", true);
     if (!enabled || gOptions.load()) return;
     static std::atomic<bool> searched{false};
     void* roots[2] = {gClientBySub[0].load(), gMinecraftGame.load()};
@@ -706,11 +704,18 @@ int splitDirection() {
     return p ? *reinterpret_cast<int32_t*>(p + kDirectionValue) : -1;
 }
 
+// The value goes through the option's own Option::load(std::string const&) (Itanium vtable slot 3, after the two
+// destructors and save), the way the options file is read: that sets it and tells the game, which lays the screens out
+// again. Writing the int alone changed nothing on screen (0.11.6).
 void setSplitDirection(int direction) {
     uintptr_t p = gOptions.load();
     if (!p) return;
-    note("layout: direction {} -> {}", *reinterpret_cast<int32_t*>(p + kDirectionValue), direction);
-    *reinterpret_cast<int32_t*>(p + kDirectionValue) = direction;
+    auto  option = p + kDirectionName - 8;
+    auto* vtable = *reinterpret_cast<uintptr_t**>(option);
+    note("layout: direction {} -> {} through the option's load", *reinterpret_cast<int32_t*>(p + kDirectionValue), direction);
+    using Load = void (*)(uintptr_t, std::string const&);
+    reinterpret_cast<Load>(vtable[3])(option, std::to_string(direction));
+    note("layout: the direction is now {}", *reinterpret_cast<int32_t*>(p + kDirectionValue));
 }
 
 void requestLeave(int sub) {
