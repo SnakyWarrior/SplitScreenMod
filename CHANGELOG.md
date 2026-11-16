@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The game's own settings show their split screen options: Video > Split Screen (top and bottom or side by side), the split screen HUD opacity and player names.
+
+### Removed
+
+- The short messages above the hotbar after menu choices.
+
 ## [1.4.0] - 2026-11-11
 
 ### Added
