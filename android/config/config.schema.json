@@ -24,8 +24,8 @@
     },
     "layoutMenu": {
       "type": "boolean",
-      "title": "Layout choice in the Split screen menu (does not work yet)",
-      "description": "Shows top and bottom / side by side in the Split screen menu. The value is written to the game's option, but the game does not lay the screens out differently yet."
+      "title": "Layout choice in the Split screen menu",
+      "description": "Shows top and bottom / side by side in the Split screen menu."
     },
     "startJoins": {
       "type": "boolean",
