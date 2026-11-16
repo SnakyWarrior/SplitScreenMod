@@ -11,7 +11,6 @@
 #include <filesystem>
 #include <functional>
 #include <map>
-#include <set>
 #include <string>
 #include <vector>
 
@@ -31,11 +30,8 @@ void moveController(int from, int to);
 void handOver(int sub, int from, int to);
 // Player 1 goes back to the touch screen; its controller waits for Start.
 void freeFirstController();
-// The new player `sub` leaves and its controller joins as the saved player `saved`.
+// The new player `sub` leaves and its controller joins as the local player `saved` (2-4) instead.
 void joinAsSaved(int sub, int saved);
-// The players 2-4 who have played in the open world (kept by the mod per world), and adding one.
-std::set<int> savedPlayers();
-void          rememberPlayer(int sub);
 // The split screen layout: 0 top and bottom, 1 side by side; -1 when the game's options are not known.
 int  splitDirection();
 void setSplitDirection(int direction);

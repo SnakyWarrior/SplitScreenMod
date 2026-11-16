@@ -120,16 +120,15 @@ void offerPicker(int owner, bool fresh) {
         int  value; // controller (TakeOver)
         int  sub;
     };
-    // One button per player in player order (player 1 first): this controller's own player and players without a
-    // controller. (The Windows version also lists saved players who are not playing.)
+    // One button per player in player order (player 1 first): this controller's own player, players without a
+    // controller, and for a new controller the other local players who are not playing.
     std::vector<Choice> choices{{Kind::Keep, 0, owner}};
     for (auto [sub, other] : players)
         if (sub != owner && !game::hasController(other)) choices.push_back({Kind::TakeOver, other, sub});
-    // a new controller can also be one of this world's saved players who are not playing (as on Windows); its own
-    // new player is "New player" unless it is a saved one itself
-    auto saved = game::savedPlayers();
+    // a new controller can also be any of the account's other local players who are not playing (as on Windows): a
+    // player who never played in this world starts as a new one
     if (fresh)
-        for (int sub : saved)
+        for (int sub = 1; sub <= 3; ++sub)
             if (sub != owner && !players.contains(sub)) choices.push_back({Kind::Saved, sub, sub});
     std::stable_sort(choices.begin(), choices.end(), [](Choice const& a, Choice const& b) { return a.sub < b.sub; });
     std::vector<std::string> buttons;
@@ -138,8 +137,7 @@ void offerPicker(int owner, bool fresh) {
     for (int i = 0; i < int(choices.size()); ++i) {
         auto& c      = choices[i];
         bool  hasPad = c.kind == Kind::Keep && !fresh; // only this controller's own player has one in this list
-        bool newOne = c.kind == Kind::Keep && fresh && !saved.contains(c.sub);
-        buttons.push_back(newOne ? tr("splitscreen.newPlayer") : localName(c.sub));
+        buttons.push_back(localName(c.sub));
         pictures.push_back(hasPad ? badge(c.sub) : kNameTag);
         toChoice.push_back(i);
         // the stand-in of a new controller is not really playing yet
@@ -169,8 +167,6 @@ void offerPicker(int owner, bool fresh) {
             return game::requestLeave(owner);
         }
         pick = pick >= 0 && pick < int(toChoice.size()) ? toChoice[pick] : -1;
-        if (fresh && (pick == keep || pick < 0 || pick >= int(choices.size()))) // kept: the stand-in is the chosen player
-            game::rememberPlayer(owner);
         if (pick == keep || pick < 0 || pick >= int(choices.size())) return; // closed, or kept
         auto& choice = choices[pick];
         switch (choice.kind) {
