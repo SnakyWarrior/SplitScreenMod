@@ -21,6 +21,7 @@
 #include "Menus.h"
 
 
+#include <dirent.h>
 #include <dlfcn.h>
 #include <sys/uio.h>
 #include <unistd.h>
@@ -210,6 +211,8 @@ std::set<int> gPlaying;
 // one there crashed the game)
 std::set<int> gLeaving;
 std::map<int, std::pair<int, int>> gHandOvers; // leaving player -> (its controller, where that goes) once it is gone
+std::map<int, int>                 gJoinAfter; // leaving player -> the saved player its controller joins as, once it is gone
+void                               joinController(int controller);
 
 void forgetPlayers(char const* why, int sub) {
     std::optional<std::pair<int, int>> handOver;
@@ -220,6 +223,15 @@ void forgetPlayers(char const* why, int sub) {
         if (auto it = gHandOvers.find(sub); it != gHandOvers.end()) {
             handOver = it->second;
             gHandOvers.erase(it);
+        }
+        if (auto it = gJoinAfter.find(sub); it != gJoinAfter.end()) {
+            int target = it->second;
+            gJoinAfter.erase(it);
+            runOnInputThread([sub, target] {
+                blockController(sub, false);
+                if (target != sub) swapControllers(sub, target); // the controller takes the saved player's number
+                joinController(target);
+            }, std::chrono::seconds(1));
         }
     }
     note("join: {}({}): player {} is gone", why, sub, sub + 1);
@@ -742,6 +754,66 @@ void handOver(int sub, int from, int to) {
     }
     note("menus: player {} leaves, then controller {} plays as controller {}", sub + 1, from, to);
     requestLeave(sub);
+}
+
+// The new player chose a saved player who is not playing: it leaves, and its controller joins as that one.
+void joinAsSaved(int sub, int saved) {
+    {
+        std::lock_guard lock(gPlayingMutex);
+        gJoinAfter[sub] = saved;
+    }
+    note("menus: player {} leaves, then its controller joins as saved player {}", sub + 1, saved + 1);
+    requestLeave(sub);
+}
+
+// Which players have played in the open world, kept per world in the mod's data folder (the game has no list of the
+// saved split screen players it can be asked for). The world is the folder of the files the game has open:
+// ".../minecraftWorlds/<id>/db/...".
+std::string openWorld() {
+    std::string world;
+    if (DIR* dir = opendir("/proc/self/fd")) {
+        while (auto* entry = readdir(dir)) {
+            char target[512] = {};
+            auto link        = std::string("/proc/self/fd/") + entry->d_name;
+            if (readlink(link.c_str(), target, sizeof target - 1) <= 0) continue;
+            std::string_view path(target);
+            auto             at = path.find("minecraftWorlds/");
+            if (at == std::string_view::npos) continue;
+            auto rest = path.substr(at + 16);
+            world     = std::string(rest.substr(0, rest.find('/')));
+            break;
+        }
+        closedir(dir);
+    }
+    return world;
+}
+
+std::filesystem::path savedPlayersFile() {
+    auto world = openWorld();
+    if (world.empty()) return {};
+    return SplitScreenMod::instance().getSelf().getModDir() / "data" / ("players-" + world + ".txt");
+}
+
+std::set<int> savedPlayers() {
+    std::set<int> out;
+    auto          file = savedPlayersFile();
+    if (file.empty()) return out;
+    std::ifstream in(file);
+    for (int sub; in >> sub;)
+        if (sub >= 1 && sub <= 3) out.insert(sub);
+    return out;
+}
+
+void rememberPlayer(int sub) {
+    auto file = savedPlayersFile();
+    if (file.empty() || sub < 1 || sub > 3) return;
+    auto saved = savedPlayers();
+    if (!saved.insert(sub).second) return;
+    std::error_code ignored;
+    std::filesystem::create_directories(file.parent_path(), ignored);
+    std::ofstream out(file);
+    for (int s : saved) out << s << "\n";
+    note("menus: player {} is now a saved player of this world", sub + 1);
 }
 
 void freeFirstController() {

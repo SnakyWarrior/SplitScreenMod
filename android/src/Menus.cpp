@@ -114,7 +114,7 @@ void offerPicker(int owner, bool fresh) {
     if (!players.contains(owner)) return;
     int controller = players.at(owner);
 
-    enum class Kind { Keep, TakeOver, NewPlayer };
+    enum class Kind { Keep, TakeOver, Saved, NewPlayer };
     struct Choice {
         Kind kind;
         int  value; // controller (TakeOver)
@@ -125,6 +125,12 @@ void offerPicker(int owner, bool fresh) {
     std::vector<Choice> choices{{Kind::Keep, 0, owner}};
     for (auto [sub, other] : players)
         if (sub != owner && !game::hasController(other)) choices.push_back({Kind::TakeOver, other, sub});
+    // a new controller can also be one of this world's saved players who are not playing (as on Windows); its own
+    // new player is "New player" unless it is a saved one itself
+    auto saved = game::savedPlayers();
+    if (fresh)
+        for (int sub : saved)
+            if (sub != owner && !players.contains(sub)) choices.push_back({Kind::Saved, sub, sub});
     std::stable_sort(choices.begin(), choices.end(), [](Choice const& a, Choice const& b) { return a.sub < b.sub; });
     std::vector<std::string> buttons;
     std::vector<std::string> pictures;
@@ -132,11 +138,12 @@ void offerPicker(int owner, bool fresh) {
     for (int i = 0; i < int(choices.size()); ++i) {
         auto& c      = choices[i];
         bool  hasPad = c.kind == Kind::Keep && !fresh; // only this controller's own player has one in this list
-        buttons.push_back(localName(c.sub));
+        bool newOne = c.kind == Kind::Keep && fresh && !saved.contains(c.sub);
+        buttons.push_back(newOne ? tr("splitscreen.newPlayer") : localName(c.sub));
         pictures.push_back(hasPad ? badge(c.sub) : kNameTag);
         toChoice.push_back(i);
         // the stand-in of a new controller is not really playing yet
-        buttons.push_back(c.kind == Kind::Keep && fresh ? "[tag:Not playing]"
+        buttons.push_back(c.kind == Kind::Saved || (c.kind == Kind::Keep && fresh) ? "[tag:Not playing]"
                           : c.kind == Kind::TakeOver    ? "[tag:No controller]"
                                                         : "[tag:Playing]");
         pictures.emplace_back();
@@ -150,7 +157,7 @@ void offerPicker(int owner, bool fresh) {
     }
     int const keep = int(std::find_if(choices.begin(), choices.end(), [](Choice const& c) { return c.kind == Kind::Keep; })
                          - choices.begin());
-    if (choices.size() < 2) {
+    if (choices.size() < 2 && !fresh) {
         if (fresh) gFreshSub = -1; // nobody else to be: the new player is who joined
         return;
     }
@@ -163,10 +170,13 @@ void offerPicker(int owner, bool fresh) {
         }
         pick = pick >= 0 && pick < int(toChoice.size()) ? toChoice[pick] : -1;
         if (fresh && (pick == keep || pick < 0 || pick >= int(choices.size()))) // kept: the stand-in is the chosen player
-            tell(owner, tr("splitscreen.tell.youAre", {localName(owner)}));
+            game::rememberPlayer(owner);
         if (pick == keep || pick < 0 || pick >= int(choices.size())) return; // closed, or kept
         auto& choice = choices[pick];
         switch (choice.kind) {
+        case Kind::Saved:
+            game::joinAsSaved(owner, choice.sub);
+            break;
         case Kind::TakeOver:
             // (fresh: the player made for this controller is not needed any more)
             if (fresh) game::handOver(owner, controller, choice.value);
