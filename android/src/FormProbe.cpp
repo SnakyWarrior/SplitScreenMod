@@ -78,35 +78,46 @@ using SendToClientFn = void (*)(void*, void const*, void const*, uint32_t);
 SendToClientFn    gSendToClient = nullptr;
 std::atomic<void*> gSender{nullptr};
 
-// Player 1's name: the packet the server sends player 1 as it enters the world (id 122, 1.26.60) has it as a
-// std::string at +0x190, after the world's name (0.13.2 log). Android gives the mod no other way to the account name.
-// shortcut: a fixed packet id and offset for 1.26.60; checked to be a printable text, else the menus say "Player N".
+// Player 1's name: in the packet the server sends player 1 as it enters the world, the account's name is the
+// std::string just before "UNASSIGNED_SYSTEM_ADDRESS" (0.13.2 log: the world's name, the player's name, that text,
+// 24 bytes apart). Android gives the mod no other way to the account name; anything else keeps "Player N".
 std::mutex  gNameMutex;
 std::string gFirstName;
 
-void readFirstName(void const* packet, uint32_t sub) {
-    if (sub != 0) return;
-    uintptr_t vptr = 0, getId = 0;
-    if (!safeRead(reinterpret_cast<uintptr_t>(packet), &vptr, 8) || !vptr || !safeRead(vptr + 16, &getId, 8) || !getId)
-        return;
-    if (reinterpret_cast<int (*)(void const*)>(getId)(packet) != 122) return;
-    uint8_t raw[24] = {};
-    if (!safeRead(reinterpret_cast<uintptr_t>(packet) + 0x190, raw, sizeof raw)) return;
-    std::string name;
-    if (!(raw[0] & 1)) name.assign(reinterpret_cast<char const*>(raw + 1), std::min<size_t>(raw[0] >> 1, 22));
+std::string stringAt(uint8_t const* raw) {
+    std::string text;
+    if (!(raw[0] & 1)) text.assign(reinterpret_cast<char const*>(raw + 1), std::min<size_t>(raw[0] >> 1, 22));
     else {
         uint64_t len = 0, ptr = 0;
         std::memcpy(&len, raw + 8, 8);
         std::memcpy(&ptr, raw + 16, 8);
         if (len && len <= 64) {
-            name.resize(len);
-            if (!safeRead(ptr & 0x00FFFFFFFFFFFFFFull, name.data(), len)) name.clear();
+            text.resize(len);
+            if (!safeRead(ptr & 0x00FFFFFFFFFFFFFFull, text.data(), len)) text.clear();
         }
     }
-    if (name.size() < 2 || !std::all_of(name.begin(), name.end(), [](char c) { return c >= 0x20 && c < 0x7F; })) return;
-    std::lock_guard lock(gNameMutex);
-    if (gFirstName != name) gLog(fmt::format("names: player 1 is {}", name));
-    gFirstName = name;
+    return text;
+}
+
+void readFirstName(void const* packet, uint32_t sub) {
+    if (sub != 0) return;
+    {
+        std::lock_guard lock(gNameMutex);
+        if (!gFirstName.empty()) return; // once (the account does not change while the game runs)
+    }
+    uint8_t raw[0x400] = {};
+    if (!safeRead(reinterpret_cast<uintptr_t>(packet), raw, sizeof raw)) return;
+    for (size_t at = 0x18; at + 24 <= sizeof raw; at += 8) {
+        if (stringAt(raw + at) != "UNASSIGNED_SYSTEM_ADDRESS") continue;
+        auto name = stringAt(raw + at - 0x18);
+        bool ok   = name.size() >= 2 && name.find(':') == std::string::npos
+              && std::all_of(name.begin(), name.end(), [](char c) { return c >= 0x20 && c < 0x7F; });
+        if (!ok) return;
+        std::lock_guard lock(gNameMutex);
+        gFirstName = name;
+        gLog(fmt::format("names: player 1 is {}", name));
+        return;
+    }
 }
 
 void sendToClientDetour(void* self, void const* id, void const* packet, uint32_t sub) {
