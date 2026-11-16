@@ -183,6 +183,45 @@ static AddPath addPath(void* ret) {
     return cache[outer] = path;
 }
 
+// The game's settings hide their split screen options (layout, HUD opacity, player names) on PC. Two callers ask:
+// the settings' builder context (IBuilderContext::supportsSplitScreen, a small virtual function: its address is in a
+// vtable) for the new settings, and the code that sets the old settings' "$can_splitscreen".
+static std::pair<uintptr_t, uintptr_t> imageSection(char const* name) {
+    auto base = gameBase();
+    auto nt   = reinterpret_cast<IMAGE_NT_HEADERS const*>(base + reinterpret_cast<IMAGE_DOS_HEADER const*>(base)->e_lfanew);
+    auto sec  = IMAGE_FIRST_SECTION(nt);
+    for (int i = 0; i < nt->FileHeader.NumberOfSections; ++i, ++sec)
+        if (std::strncmp(reinterpret_cast<char const*>(sec->Name), name, 8) == 0)
+            return {base + sec->VirtualAddress, base + sec->VirtualAddress + sec->Misc.VirtualSize};
+    return {0, 0};
+}
+
+static bool inVtable(uintptr_t fn) {
+    auto [begin, end] = imageSection(".rdata");
+    for (auto p = begin; p + 8 <= end; p += 8)
+        if (*reinterpret_cast<uintptr_t const*>(p) == fn) return true;
+    return false;
+}
+
+static bool loadsString(uint8_t const* body, size_t n, uintptr_t at, std::string_view text) {
+    static std::map<std::string_view, uintptr_t> found; // the string's address, searched once
+    if (!found.contains(text)) {
+        auto [begin, end] = imageSection(".rdata");
+        auto hit = std::search(reinterpret_cast<char const*>(begin), reinterpret_cast<char const*>(end), text.begin(), text.end());
+        found[text] = hit != reinterpret_cast<char const*>(end) && hit[text.size()] == 0 ? reinterpret_cast<uintptr_t>(hit) : 0;
+    }
+    if (!found[text]) return false;
+    for (size_t p = 0; p + 7 <= n; ++p) // lea r64, [rip+disp32]
+        if ((body[p] & 0xFB) == 0x48 && body[p + 1] == 0x8D && (body[p + 2] & 0xC7) == 0x05
+            && at + p + 7 + *reinterpret_cast<int32_t const*>(body + p + 3) == found[text])
+            return true;
+    return false;
+}
+
+static bool showsSettings(uint8_t const* body, size_t n, uintptr_t begin) {
+    return (n < 0x200 && inVtable(begin)) || loadsString(body, n, begin, "$can_splitscreen");
+}
+
 static bool autoAllow(void* ret) {
     enum Kind { Unknown, No, Yes, Gamepad };
     static std::map<void*, Kind> kinds; // callers run often; decide() holds the lock
@@ -193,9 +232,9 @@ static bool autoAllow(void* ret) {
         if (!fn) return false;
         auto body = reinterpret_cast<uint8_t const*>(begin);
         auto size = fn->EndAddress - fn->BeginAddress;
-        kind      = begin == gJoinFn || buildsJoinListener(body, size) ? Yes
-                  : testsGamepadKind(body, size)                      ? Gamepad
-                                                                      : No;
+        kind      = begin == gJoinFn || buildsJoinListener(body, size) || showsSettings(body, size, begin) ? Yes
+                  : testsGamepadKind(body, size)                                                 ? Gamepad
+                                                                                                 : No;
         if (kind == No && !gJoinFn) return false; // may be the join function, which is found in enable()
         kinds[ret] = kind;
     }
