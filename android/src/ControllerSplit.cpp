@@ -303,14 +303,19 @@ uint64_t dispatchDetour(uint64_t a0, uint64_t a1, uint64_t variant, uint64_t a3,
         if (keyDown) gHeld[head[0]].insert(keyCode);
         else gHeld[head[0]].erase(keyCode);
     }
-    // a press on a controller that plays nobody: the game's Join as Player prompt shows for a few seconds after it
+    // A press on a controller that plays nobody shows the game's Join as Player prompt for 4 s; Start while it shows
+    // joins (and closes it), as the game's own join listener does on Windows. (Android never hands a free controller
+    // to that listener: every controller goes to player 1.)
+    bool joinNow = false, freePad = false;
     if (padEvent && keyDown && controller > 0 && gPlayingFn) {
         auto playing = gPlayingFn();
-        if (std::find(playing.begin(), playing.end(), controller) == playing.end())
-            gFreePressAt = std::chrono::duration_cast<std::chrono::milliseconds>(
-                               std::chrono::steady_clock::now().time_since_epoch()
-            )
-                               .count();
+        freePad      = std::find(playing.begin(), playing.end(), controller) == playing.end();
+        if (freePad) {
+            auto now  = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+            bool open = gFreePressAt && now - gFreePressAt < 4000;
+            joinNow   = startDown && open;
+            gFreePressAt = joinNow ? 0 : now;
+        }
     }
     // the first presses of a controller that plays nobody: what the game does with them (its join prompt)
     if (padEvent && keyDown && controller > 0 && gPlayingFn && gUnassignedPresses < 6) {
@@ -337,7 +342,7 @@ uint64_t dispatchDetour(uint64_t a0, uint64_t a1, uint64_t variant, uint64_t a3,
     }
     if (gTookOverFn)
         for (int c : tookOver) gTookOverFn(c);
-    if (startDown && controller >= 1 && gStartPressed) gStartPressed(controller);
+    if (startDown && controller >= 1 && gStartPressed && (!freePad || joinNow)) gStartPressed(controller);
     if (selectDown && controller >= 0 && gSelectPressed) gSelectPressed(controller); // 0: a controller given to player 1
     runDueTasks();
     return result;
