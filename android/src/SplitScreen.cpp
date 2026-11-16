@@ -598,7 +598,52 @@ void findOptions() {
                 }
         }
     }
-    note("layout: the options were not found in the client or the game (2 levels)");
+    // Not reachable from them: the option's name (a short std::string inline in the object) is looked for in the
+    // process's writable memory, and the object kept if its first word (the option's vtable) points into the game.
+    note("layout: the options are not within 2 levels of the client or the game: searching the heap");
+    static constexpr char kName[] = "splitScreenDirection";
+    uint8_t               pattern[1 + sizeof kName - 1];
+    pattern[0] = (sizeof kName - 1) << 1;
+    std::memcpy(pattern + 1, kName, sizeof kName - 1);
+    auto inGame = [](uintptr_t value) {
+        if (!gGameModule) return false;
+        for (auto const& seg : gGameModule->segments)
+            if (value >= seg.start && value < seg.end) return true;
+        return false;
+    };
+    std::ifstream            maps("/proc/self/maps");
+    std::vector<uint8_t>     chunk(1 << 20);
+    size_t                   regions = 0, found = 0;
+    for (std::string line; std::getline(maps, line) && !gOptions.load();) {
+        uintptr_t start = 0, end = 0;
+        char      perms[8] = {};
+        if (sscanf(line.c_str(), "%lx-%lx %7s", &start, &end, perms) != 3) continue;
+        if (perms[0] != 'r' || perms[1] != 'w') continue;
+        if (line.find(".so") != std::string::npos || line.find("/dev/") != std::string::npos) continue;
+        ++regions;
+        for (uintptr_t at = start; at < end && !gOptions.load(); at += chunk.size() - 64) {
+            size_t size = std::min<size_t>(chunk.size(), end - at);
+            if (size < sizeof pattern || !readMemory(at, chunk.data(), size)) continue;
+            for (size_t i = 0; i + sizeof pattern <= size;) {
+                auto const* hit = static_cast<uint8_t const*>(memmem(chunk.data() + i, size - i, pattern, sizeof pattern));
+                if (!hit) break;
+                size_t   offset = size_t(hit - chunk.data());
+                i               = offset + 1;
+                uintptr_t object = at + offset - kDirectionName;
+                uint64_t  vtable = 0;
+                if (object < start + 8 && at + offset < kDirectionName) continue;
+                if (!readMemory(object + kDirectionName - 8, &vtable, 8)) continue;
+                ++found;
+                if (inGame(vtable)) {
+                    gOptions = object;
+                    note("layout: the options are in the heap at {} (the direction is {})", reinterpret_cast<void*>(object),
+                         *reinterpret_cast<int32_t*>(object + kDirectionValue));
+                    break;
+                }
+            }
+        }
+    }
+    if (!gOptions.load()) note("layout: the options were not found ({} region(s) searched, {} name match(es))", regions, found);
 }
 
 } // namespace
