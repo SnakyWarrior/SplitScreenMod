@@ -691,6 +691,43 @@ bool hookClientLeave(Module const& game) {
 
 // The Split screen menu, on Select (View / Back) of a controller that plays. The added player's sub client id is its
 // controller number (1-3).
+uintptr_t* gPauseVt = nullptr;
+using BindingFn     = uint64_t (*)(void*, void*, uint64_t, uint64_t);
+BindingFn gBindingOriginal[64] = {};
+std::mutex            gBindingMutex;
+std::set<std::string> gBindingSeen;
+
+std::string bindingName(void* str) { // a libc++ std::string
+    uint8_t raw[24];
+    std::memcpy(raw, str, sizeof raw);
+    if (raw[0] & 1) {
+        uint64_t len, data;
+        std::memcpy(&len, raw + 8, 8);
+        std::memcpy(&data, raw + 16, 8);
+        return len < 100 ? std::string(reinterpret_cast<char const*>(data), len) : std::string();
+    }
+    return std::string(reinterpret_cast<char const*>(raw + 1), raw[0] >> 1);
+}
+
+template <size_t Slot>
+uint64_t bindingDetour(void* self, void* name, uint64_t a2, uint64_t a3) {
+    uint64_t result = gBindingOriginal[Slot](self, name, a2, a3);
+    std::string n   = bindingName(name);
+    if (n.rfind("#", 0) == 0 && (n.find("split") != std::string::npos || gBindingSeen.size() < 150)) {
+        std::lock_guard lock(gBindingMutex);
+        if (gBindingSeen.insert(fmt::format("{}:{}:{}", Slot, n, result)).second)
+            note("pause: virtual {} asked \"{}\" -> {} (args {} {})", Slot, n, result, a2, a3);
+    }
+    return result;
+}
+
+template <size_t Slot>
+void hookBindingGetter() {
+    if (!gPauseVt) return;
+    gBindingOriginal[Slot] = reinterpret_cast<BindingFn>(gPauseVt[Slot]);
+    writeSlot(&gPauseVt[Slot], reinterpret_cast<uintptr_t>(&bindingDetour<Slot>));
+}
+
 using PauseEventFn = uint64_t (*)(void*, void*);
 PauseEventFn     gPauseEvent = nullptr;
 std::atomic<int> gPauseEventsLogged{0};
@@ -830,12 +867,13 @@ void enableJoining(Module const& game) {
             gPauseEvent = reinterpret_cast<PauseEventFn>(c.vtables.front()[4]);
             writeSlot(&c.vtables.front()[4], reinterpret_cast<uintptr_t>(&pauseEventDetour));
             note("pause: watching the pause menu's events");
-            // 41, 43 and 50 are asked for property names (std::string "#...") every frame (0.9.11 log): the names
-            // tell which is which, the Windows version's bindBool is how its Split screen button hides alone
-            for (size_t slot : {41, 43, 50}) traceNames(420 + slot);
-            for (uintptr_t at : {0xA89A5ACul, 0xA89A2F8ul, 0xA7C8C00ul})
-                dumpCode(game, fmt::format("bind{:X}", at).c_str(), game.base + at - 0x180, 0x240,
-                         [](std::string const& l) { note("{}", l); });
+            // 41, 43 and 50 are asked for property names (std::string "#...") every frame (0.9.11 log): the names and
+            // answers tell which is the "visible" question (the Windows version's bindBool), which is how its Split
+            // screen button hides when the player is alone.
+            gPauseVt = c.vtables.front();
+            hookBindingGetter<41>();
+            hookBindingGetter<43>();
+            hookBindingGetter<50>();
         }
     size_t listenerBase = 575;
     for (auto const& c : findClasses(game, "SplitscreenJoinListener"))
