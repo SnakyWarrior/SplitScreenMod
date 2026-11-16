@@ -41,6 +41,9 @@ void onSelectPressed(std::function<void(int controller)> handler);
 // whose controller is gone before it gets a free number.
 void setPlayingPlayers(std::function<std::vector<int>()> playing);
 
+// When a controller that plays nobody last pressed a button (steady clock, ms; 0: never).
+int64_t lastFreePress();
+
 // Called on the input thread when a new controller took over player `controller`, who had none.
 void onLostPlayerTakenOver(std::function<void(int controller)> handler);
 

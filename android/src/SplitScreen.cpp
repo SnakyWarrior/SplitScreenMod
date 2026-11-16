@@ -901,32 +901,19 @@ uint64_t pauseEventDetour(void* self, void* event) {
 }
 
 // The game's "Join as Player N" prompt (toast_screen's splitscreen_join_popup). Its controller asks one function each
-// frame whether to show it (on Windows it is true while the player's SplitscreenJoinListener waits for a controller).
-// On Android no free controller ever reaches that listener, so it never answers yes: it is told yes while a
-// controller is connected that plays nobody. Found from the code that names the popup: the call just before it whose
-// answer is masked to one bit (bl <check>; and wN, w0, #1).
+// frame whether to show it; on Windows it is yes for a few seconds after a controller without a player presses a
+// button, in a world. On Android no free controller ever reaches the game's join listener, so it never says yes:
+// it is told yes the same way (a press on a controller that plays nobody in the last 4 s, in a world). Found from the
+// code that names the popup: the call just before it whose answer is masked to one bit (bl <check>; and wN, w0, #1).
 using PromptVisibleFn = bool (*)(void*);
 PromptVisibleFn gPromptVisible = nullptr;
 
-bool freeControllerConnected() {
-    static std::atomic<int64_t> checkedAt{0};
-    static std::atomic<bool>    free{false};
-    auto now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
-    if (now - checkedAt.load() > 500) { // asked every frame: the controller list is read twice a second
-        checkedAt = now;
-        std::set<int> playing;
-        {
-            std::lock_guard lock(gPlayingMutex);
-            playing = gPlaying;
-        }
-        bool any = false;
-        for (int c = 1; c <= 3 && !any; ++c) any = !playing.contains(c) && controllerConnected(c);
-        free = any;
-    }
-    return free;
+bool promptVisibleDetour(void* self) {
+    if (gPromptVisible(self)) return true;
+    auto pressed = lastFreePress();
+    auto now     = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+    return pressed && now - pressed < 4000 && inWorld();
 }
-
-bool promptVisibleDetour(void* self) { return gPromptVisible(self) || freeControllerConnected(); }
 
 void hookJoinPrompt(Module const& game) {
     static constexpr char kName[] = "splitscreen_join_popup";

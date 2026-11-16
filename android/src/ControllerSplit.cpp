@@ -256,6 +256,7 @@ std::atomic<int> gKeysToLog{0}; // after a swap: which keys each controller pres
 std::atomic<bool> gBlocked[kMaxControllers] = {};
 std::atomic<int>  gUnassignedPresses{0};
 std::atomic<int>  gLastPresser{0};
+std::atomic<int64_t> gFreePressAt{0}; // when a controller that plays nobody last pressed a button (steady ms)
 
 uint64_t dispatchDetour(uint64_t a0, uint64_t a1, uint64_t variant, uint64_t a3, uint64_t a4, uint64_t a5, uint64_t a6,
                         uint64_t a7) {
@@ -301,6 +302,15 @@ uint64_t dispatchDetour(uint64_t a0, uint64_t a1, uint64_t variant, uint64_t a3,
         std::lock_guard lock(gDevicesMutex);
         if (keyDown) gHeld[head[0]].insert(keyCode);
         else gHeld[head[0]].erase(keyCode);
+    }
+    // a press on a controller that plays nobody: the game's Join as Player prompt shows for a few seconds after it
+    if (padEvent && keyDown && controller > 0 && gPlayingFn) {
+        auto playing = gPlayingFn();
+        if (std::find(playing.begin(), playing.end(), controller) == playing.end())
+            gFreePressAt = std::chrono::duration_cast<std::chrono::milliseconds>(
+                               std::chrono::steady_clock::now().time_since_epoch()
+            )
+                               .count();
     }
     // the first presses of a controller that plays nobody: what the game does with them (its join prompt)
     if (padEvent && keyDown && controller > 0 && gPlayingFn && gUnassignedPresses < 6) {
@@ -462,6 +472,8 @@ bool controllerConnected(int controller) {
 }
 
 int lastPresser() { return gLastPresser; }
+
+int64_t lastFreePress() { return gFreePressAt; }
 
 void blockController(int controller, bool blocked) {
     if (controller >= 0 && controller < kMaxControllers) gBlocked[controller] = blocked;
