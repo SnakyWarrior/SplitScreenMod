@@ -619,7 +619,11 @@ void findOptions() {
         char      perms[8] = {};
         if (sscanf(line.c_str(), "%lx-%lx %7s", &start, &end, perms) != 3) continue;
         if (perms[0] != 'r' || perms[1] != 'w') continue;
-        if (line.find(".so") != std::string::npos || line.find("/dev/") != std::string::npos) continue;
+        // (the game's own data segments are searched too: the Options may be a global, and the heap match was a
+        // temporary copy whose memory was reused, 0.11.5 log)
+        if (line.find("/dev/") != std::string::npos || line.find("libc++") != std::string::npos
+            || line.find("/apex/") != std::string::npos || line.find("/system/") != std::string::npos)
+            continue;
         ++regions;
         for (uintptr_t at = start; at < end && !gOptions.load(); at += chunk.size() - 64) {
             size_t size = std::min<size_t>(chunk.size(), end - at);
@@ -646,6 +650,16 @@ void findOptions() {
                      reinterpret_cast<void*>(vtable), reinterpret_cast<void*>(back), reinterpret_cast<void*>(registryVtable),
                      real ? "the options" : "no");
                 if (real) {
+                    std::this_thread::sleep_for(std::chrono::seconds(2)); // a temporary copy does not last
+                    uint64_t again = 0, againName = 0;
+                    readMemory(object + 760, &again, 8);
+                    readMemory(object + kDirectionName, &againName, 8);
+                    uint64_t nameNow = 0;
+                    std::memcpy(&nameNow, pattern, 8);
+                    if ((again & kAddress) != ((object + 8) & kAddress) || againName != nameNow) {
+                        note("layout: candidate {} did not last (a temporary copy)", reinterpret_cast<void*>(object));
+                        continue;
+                    }
                     gOptions = object;
                     note("layout: the options are in the heap at {} (the direction is {})", reinterpret_cast<void*>(object),
                          *reinterpret_cast<int32_t*>(object + kDirectionValue));
