@@ -43,6 +43,8 @@ void setTexts(std::filesystem::path const& pack, std::filesystem::path const& op
 // A controller with no player pressed Start (the game's "press Start to join").
 void onJoinRequest(int controller);
 // A player's controller pressed Select (View / Back): the Split screen menu (on Windows, the pause menu's button).
+// Player 1 alone with a controller: it goes back to the touch screen and the controller waits for Start.
+void onFreeFirstController();
 void onSettingsButton(int sub);
 // A connected controller was given to player `sub`, who had lost theirs.
 void onControllerConnected(int sub);

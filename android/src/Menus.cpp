@@ -212,9 +212,15 @@ void setTexts(std::filesystem::path const& pack, std::filesystem::path const& op
     gTexts = std::move(texts);
 }
 
-// The Split screen menu: the players, to switch to or remove.
+void onFreeFirstController() {
+    game::freeFirstController();
+    tell(0, tr("splitscreen.tell.pressStart"));
+}
+
+// The Split screen menu: the players, to switch to or remove. There is none when player 1 plays alone.
 void onSettingsButton(int who) {
     auto players = game::players();
+    if (players.size() < 2) return;
     if (!players.contains(who) || gFreshSub == who) return;
     if (menuOpen(who)) return;
     int  myPad = players.at(who);

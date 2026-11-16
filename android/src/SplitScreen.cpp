@@ -506,6 +506,9 @@ uint64_t leaveFlags(void* client) {
 
 void clientTickDetour(void* self, bool a, bool b) {
     int sub = gGetSubId ? int(gGetSubId(self) & 0xFF) : -1;
+    // The mod's delayed work (a player leaving once its menu closed, ...) also runs every frame, not only when a
+    // controller sends something: nobody had to press a button for the leave to happen (once per frame: player 1's).
+    if (sub == 0) runDueTasks();
     if (sub >= 1 && sub < 4 && gLeaveWanted[sub].exchange(false)) {
         // What the pause menu's Save & Leave calls (0.9.7 log: ClientInstance virtual 15 with true, true, right before
         // the game sets the leave bytes; the Windows version's requestLeaveGameAsync). Only setting the bytes
@@ -714,7 +717,12 @@ uint64_t pauseEventDetour(void* self, void* event) {
         // controller that pressed a button last)
         int who = words[3] == kTouchPress ? 0 : lastPresser();
         note("pause menu: Split screen pressed by player {}", who + 1);
-        runOnInputThread([who] { menus::onSettingsButton(who); }, std::chrono::milliseconds(300));
+        // Alone, there is no Split screen menu (on Windows the button is not even there): the button takes player 1's
+        // controller away if they have one (the Windows version's free-controller button), else it does nothing.
+        runOnInputThread([who] {
+            if (game::players().size() > 1) menus::onSettingsButton(who);
+            else if (game::hasController(0)) menus::onFreeFirstController();
+        }, std::chrono::milliseconds(300));
         // the pause menu closes the way Resume closes it: the press is handed on as button.menu_continue
         uint32_t resume = kResumeButton;
         std::memcpy(static_cast<uint8_t*>(event) + 8, &resume, sizeof resume);
