@@ -573,7 +573,11 @@ bool isOptions(uintptr_t p) {
 // The options are a member of a member of the client or of MinecraftGame (the object with the option at +736 was not
 // directly in the client, 0.11.1 log): two levels of pointers are searched, once.
 void findOptions() {
-    if (gOptions.load()) return;
+    // The layout choice is off by default: the option's value is found and written (0.11.6 log) but the game does not
+    // lay the screens out differently, as its settings are told through the option's own function and not only by
+    // the value (see "layoutMenu" in config.json).
+    static bool enabled = configFlag("layoutMenu", false);
+    if (!enabled || gOptions.load()) return;
     static std::atomic<bool> searched{false};
     void* roots[2] = {gClientBySub[0].load(), gMinecraftGame.load()};
     if (!roots[0] || !roots[1] || searched.exchange(true)) return;

@@ -22,6 +22,11 @@
       "title": "First controller plays player 1",
       "description": "Off: player 1 keeps the touch screen and every controller joins as a new player with Start. On: the first controller plays player 1."
     },
+    "layoutMenu": {
+      "type": "boolean",
+      "title": "Layout choice in the Split screen menu (does not work yet)",
+      "description": "Shows top and bottom / side by side in the Split screen menu. The value is written to the game's option, but the game does not lay the screens out differently yet."
+    },
     "startJoins": {
       "type": "boolean",
       "title": "Start joins directly",

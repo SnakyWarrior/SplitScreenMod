@@ -3,5 +3,6 @@
   "separateControllers": true,
   "forceSplitscreenJoin": true,
   "firstControllerIsPlayer1": false,
-  "startJoins": true
+  "startJoins": true,
+  "layoutMenu": false
 }
