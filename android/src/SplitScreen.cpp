@@ -22,6 +22,8 @@
 
 
 #include <dlfcn.h>
+#include <sys/uio.h>
+#include <unistd.h>
 
 #include <algorithm>
 #include <atomic>
@@ -550,6 +552,36 @@ void leaveSplitScreen(int sub) {
     gLeaveWanted[sub] = true;
 }
 
+// The game's Options object (found from player 1's client: the member that points to an object with the option
+// "splitScreenDirection" at +736, as the Options constructor lays it out in 1.26: the option's vtable at +728, its name
+// as a short std::string at +736, its value (int) at +768). 0: horizontal (top and bottom), 1: vertical (side by side).
+std::atomic<uintptr_t> gOptions{0};
+constexpr size_t       kDirectionName = 736, kDirectionValue = 768;
+
+bool readMemory(uintptr_t at, void* out, size_t size) {
+    iovec local{out, size}, remote{reinterpret_cast<void*>(at), size};
+    return process_vm_readv(getpid(), &local, 1, &remote, 1, 0) == ssize_t(size);
+}
+
+void findOptions() {
+    if (gOptions.load()) return;
+    void* client = gClientBySub[0].load();
+    if (!client) return;
+    static constexpr char kName[] = "splitScreenDirection";
+    for (size_t at = 0; at < 0x3000; at += 8) {
+        uintptr_t p = 0;
+        if (!readMemory(reinterpret_cast<uintptr_t>(client) + at, &p, 8) || p < 0x10000000) continue;
+        uint8_t raw[1 + sizeof kName - 1] = {};
+        if (!readMemory(p + kDirectionName, raw, sizeof raw)) continue;
+        if (raw[0] == ((sizeof kName - 1) << 1) && std::memcmp(raw + 1, kName, sizeof kName - 1) == 0) {
+            gOptions = p;
+            note("layout: the options are at client+0x{:X} ({}), the direction is {}", at, reinterpret_cast<void*>(p),
+                 *reinterpret_cast<int32_t*>(p + kDirectionValue));
+            return;
+        }
+    }
+}
+
 } // namespace
 
 void logLine(std::string const& line) { note("{}", line); }
@@ -574,6 +606,19 @@ std::map<int, int> players() {
 }
 
 bool hasController(int controller) { return controllerConnected(controller); }
+
+// -1 when the options are not known.
+int splitDirection() {
+    uintptr_t p = gOptions.load();
+    return p ? *reinterpret_cast<int32_t*>(p + kDirectionValue) : -1;
+}
+
+void setSplitDirection(int direction) {
+    uintptr_t p = gOptions.load();
+    if (!p) return;
+    note("layout: direction {} -> {}", *reinterpret_cast<int32_t*>(p + kDirectionValue), direction);
+    *reinterpret_cast<int32_t*>(p + kDirectionValue) = direction;
+}
 
 void requestLeave(int sub) {
     if (sub < 1 || sub > 3) return; // player 1 leaving is leaving the world
@@ -1236,6 +1281,17 @@ void watchControllers() {
     for (;;) {
         std::this_thread::sleep_for(std::chrono::seconds(1));
         menus::checkControllers();
+        findOptions();
+        // what changes around the direction when it is changed in the game's settings (to see it is the value)
+        if (uintptr_t p = gOptions.load()) {
+            static int32_t seen[8] = {-1, -1, -1, -1, -1, -1, -1, -1};
+            int32_t        now[8];
+            if (readMemory(p + kDirectionValue - 16, now, sizeof now) && std::memcmp(now, seen, sizeof now) != 0) {
+                std::memcpy(seen, now, sizeof now);
+                note("layout: options+760..: {} {} {} {} {} {} {} {}", now[0], now[1], now[2], now[3], now[4], now[5],
+                     now[6], now[7]);
+            }
+        }
         static int tick = 0;
         if (tick++ % 10 == 0) findGameFolder();
     }

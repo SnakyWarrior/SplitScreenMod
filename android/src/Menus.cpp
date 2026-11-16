@@ -227,16 +227,28 @@ void onSettingsButton(int who) {
     int  myPad = players.at(who);
 
     bool firstPad = game::hasController(0); // player 1's controller, if they have one (else they play on touch)
-    enum class Act { Swap, Kick, FreePad, Done, Nothing };
+    enum class Act { Horizontal, Vertical, Swap, Kick, FreePad, Done, Nothing };
     struct Item {
         Act act;
         int sub;
     };
     // The Windows version's menu also has the layout (top and bottom / side by side) and saved players who are not
     // playing (to switch to); not on Android yet.
-    std::vector<Item>        items{{Act::Nothing, -1}};
-    std::vector<std::string> buttons{"[h:Players]"};
-    std::vector<std::string> pictures{""};
+    std::vector<Item>        items;
+    std::vector<std::string> buttons;
+    std::vector<std::string> pictures;
+    // "Settings": the layout as two choices, the current one marked (the options are found while a world is open)
+    if (int direction = game::splitDirection(); direction >= 0) {
+        bool vertical = direction == 1;
+        items   = {{Act::Nothing, -1}, {Act::Nothing, -1}, {Act::Horizontal, -1}, {Act::Vertical, -1}};
+        buttons = {"[h:Settings]", "[h:Layout]", "[r:t]", "[r:s]"};
+        pictures = {"", "",
+                    vertical ? "textures/ui/ore-styled/radio/unselected" : "textures/ui/ore-styled/radio/selected",
+                    vertical ? "textures/ui/ore-styled/radio/selected" : "textures/ui/ore-styled/radio/unselected"};
+    }
+    items.push_back({Act::Nothing, -1});
+    buttons.push_back("[h:Players]");
+    pictures.emplace_back();
     for (auto [sub, controller] : players) {
         bool hasPad = game::hasController(controller);
         auto name   = localName(sub);
@@ -278,6 +290,10 @@ void onSettingsButton(int who) {
         auto players = game::players();
         auto item    = items[pick];
         switch (item.act) {
+        case Act::Horizontal:
+        case Act::Vertical:
+            game::setSplitDirection(item.act == Act::Vertical ? 1 : 0);
+            return; // the open menus are refreshed (the layout is part of their state)
         case Act::Swap: { // this controller plays as that player; theirs (if any) comes here
             if (item.sub == who || !players.contains(item.sub) || !players.contains(who)) return;
             bool iHavePad    = game::hasController(myPad);
@@ -345,6 +361,7 @@ void checkControllers() {
     {
         std::string state;
         for (auto [sub, controller] : game::players()) state += fmt::format("{}:{} ", sub, game::hasController(controller));
+        state += fmt::format("d{}", game::splitDirection());
         std::vector<int> reopen;
         {
             std::lock_guard lock(gSettingsMutex);

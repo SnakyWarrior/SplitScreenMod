@@ -30,6 +30,9 @@ void moveController(int from, int to);
 void handOver(int sub, int from, int to);
 // Player 1 goes back to the touch screen; its controller waits for Start.
 void freeFirstController();
+// The split screen layout: 0 top and bottom, 1 side by side; -1 when the game's options are not known.
+int  splitDirection();
+void setSplitDirection(int direction);
 // Adds a player for controller `controller`; the game gives it the first free sub client id. `joined` gets that id,
 // or -1 when no player was added.
 void join(int controller, std::function<void(int sub)> joined = {});
