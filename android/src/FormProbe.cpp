@@ -105,7 +105,7 @@ void readFirstName(void const* packet, uint32_t sub) {
         std::lock_guard lock(gNameMutex);
         if (!gFirstName.empty()) return; // once (the account does not change while the game runs)
     }
-    uint8_t raw[0x400] = {};
+    uint8_t raw[0x200] = {}; // (a longer read can run past the packet's memory and fail)
     if (!safeRead(reinterpret_cast<uintptr_t>(packet), raw, sizeof raw)) return;
     for (size_t at = 0x18; at + 24 <= sizeof raw; at += 8) {
         if (stringAt(raw + at) != "UNASSIGNED_SYSTEM_ADDRESS") continue;

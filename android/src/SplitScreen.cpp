@@ -211,6 +211,28 @@ std::set<int> gPlaying;
 std::set<int> gLeaving;
 std::map<int, std::pair<int, int>> gHandOvers; // leaving player -> (its controller, where that goes) once it is gone
 std::map<int, int>                 gJoinAfter; // leaving player -> the saved player its controller joins as, once it is gone
+// Which local player (sub client id) the next joining player becomes; -1 lets the game take the lowest free one.
+std::atomic<int> gWantedSub{-1};
+// MinecraftGame::tryGetIdForNewSubClient(controller, SubClientId& out, bool initialCheck): the first call in
+// canAddSplitscreenSubClient (as on Windows). It hands out the lowest free player; the chosen one is handed out instead.
+using TryGetSubIdFn = bool (*)(void*, int, uint8_t*, bool);
+TryGetSubIdFn gTryGetSubId = nullptr;
+bool          tryGetSubIdDetour(void* game, int controller, uint8_t* out, bool initialCheck) {
+    bool ok   = gTryGetSubId(game, controller, out, initialCheck);
+    int  want = gWantedSub;
+    if (ok && want > 0 && want <= 3 && *out != want) {
+        bool free;
+        {
+            std::lock_guard lock(gPlayingMutex);
+            free = !gPlaying.contains(want);
+        }
+        if (free) {
+            note("join: the new player is local player {} instead of {}", want + 1, *out + 1);
+            *out = uint8_t(want);
+        }
+    }
+    return ok;
+}
 void                               joinController(int controller);
 
 void forgetPlayers(char const* why, int sub) {
@@ -229,7 +251,9 @@ void forgetPlayers(char const* why, int sub) {
             runOnInputThread([sub, target] {
                 blockController(sub, false);
                 if (target != sub) swapControllers(sub, target); // the controller takes the saved player's number
+                gWantedSub = target;
                 joinController(target);
+                gWantedSub = -1;
             }, std::chrono::seconds(1));
         }
     }
@@ -1009,6 +1033,19 @@ void enableJoining(Module const& game) {
            && writeSlot(&vt[canAddSlot], reinterpret_cast<uintptr_t>(&canAddDetour))
            && writeSlot(&vt[anchor], reinterpret_cast<uintptr_t>(&addSubDetour));
     note("{}", ok ? "join: splitscreen joining turned on" : "join: ERROR: could not write the MinecraftGame vtable");
+    {
+        auto const* body = reinterpret_cast<uint32_t const*>(gCanAdd);
+        uintptr_t   pick = 0;
+        for (int i = 0; i < 24 && !pick; ++i)
+            if ((body[i] & 0xFC000000) == 0x94000000) // bl
+                pick = reinterpret_cast<uintptr_t>(body + i) + ((int64_t(body[i] & 0x3FFFFFF) << 38) >> 36);
+        if (!pick || !game.isCode(pick)) note("join: the sub id choice was not found (a new player is the lowest free one)");
+        else if (pl::memory::hook(reinterpret_cast<pl::memory::FuncPtr>(pick), reinterpret_cast<pl::memory::FuncPtr>(&tryGetSubIdDetour),
+                                  reinterpret_cast<pl::memory::FuncPtr*>(&gTryGetSubId))
+                 != 0)
+            note("join: ERROR: could not hook the sub id choice +0x{:X}", pick - game.base);
+        else note("join: sub id choice +0x{:X} hooked ({})", pick - game.base, describeFunction(game, pick));
+    }
     // virtuals 10 and 16 (queueSubclientRemoval, releaseClientSubId: IMinecraftGame.h 9 and 15, one slot later here
     // like getUserManager 52 -> 53)
     gQueueRemoval = reinterpret_cast<SubIdFn>(vt[10]);
