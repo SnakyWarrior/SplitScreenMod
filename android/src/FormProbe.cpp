@@ -78,58 +78,40 @@ using SendToClientFn = void (*)(void*, void const*, void const*, uint32_t);
 SendToClientFn    gSendToClient = nullptr;
 std::atomic<void*> gSender{nullptr};
 
-// The texts inside the packets the server sends to the local players (libc++ strings in the packet and one pointer
-// level below), each new one logged once with the packet's id: to find which packet carries the players' names.
-std::mutex            gTextsMutex;
-std::set<std::string> gTextsSeen;
+// Player 1's name: the packet the server sends player 1 as it enters the world (id 122, 1.26.60) has it as a
+// std::string at +0x190, after the world's name (0.13.2 log). Android gives the mod no other way to the account name.
+// shortcut: a fixed packet id and offset for 1.26.60; checked to be a printable text, else the menus say "Player N".
+std::mutex  gNameMutex;
+std::string gFirstName;
 
-void logPacketTexts(void const* packet, uint32_t sub) {
-    uintptr_t vptr = 0;
-    if (!safeRead(reinterpret_cast<uintptr_t>(packet), &vptr, 8) || !vptr) return;
-    using GetIdFn = int (*)(void const*);
-    uintptr_t getId = 0;
-    if (!safeRead(vptr + 16, &getId, 8) || !getId) return;
-    int id = reinterpret_cast<GetIdFn>(getId)(packet);
-    if (id == 100 || id == 144 /* PlayerAuthInput */) return;
-    auto scan = [&](uintptr_t at, size_t size, int depth, auto&& self) -> void {
-        std::vector<uint8_t> raw(size);
-        if (!safeRead(at, raw.data(), size)) return;
-        for (size_t i = 0; i + 24 <= size; i += 8) {
-            std::string text;
-            uint8_t     first = raw[i];
-            if (!(first & 1) && (first >> 1) >= 3 && (first >> 1) <= 22) // short string: size << 1, then the chars
-                text.assign(reinterpret_cast<char const*>(&raw[i + 1]), first >> 1);
-            else if (first & 1) { // long string: capacity | 1, size, pointer
-                uint64_t len = 0, ptr = 0;
-                std::memcpy(&len, &raw[i + 8], 8);
-                std::memcpy(&ptr, &raw[i + 16], 8);
-                if (len >= 3 && len <= 64 && ptr) {
-                    text.resize(len);
-                    if (!safeRead(ptr & 0x00FFFFFFFFFFFFFFull, text.data(), len)) text.clear(); // (heap tag byte off)
-                }
-            }
-            bool ok = !text.empty() && std::all_of(text.begin(), text.end(), [](char c) { return c >= 0x20 && c < 0x7F; })
-                   && std::any_of(text.begin(), text.end(), [](char c) { return std::isalpha(static_cast<unsigned char>(c)); });
-            if (ok) {
-                std::lock_guard lock(gTextsMutex);
-                if (gTextsSeen.size() < 400 && gTextsSeen.insert(fmt::format("{}:{}", id, text)).second)
-                    gLog(fmt::format("packet texts: packet {} to player {} at +0x{:X}{}: \"{}\"", id, sub + 1, i,
-                                     depth ? " (one pointer down)" : "", text));
-            }
-            if (depth == 0) { // one pointer level down (vectors, shared pointers)
-                uint64_t ptr = 0;
-                std::memcpy(&ptr, &raw[i], 8);
-                ptr &= 0x00FFFFFFFFFFFFFFull; // (heap tag byte off)
-                if (ptr > 0x10000000 && (ptr & 7) == 0) self(ptr, 0x200, 1, self);
-            }
+void readFirstName(void const* packet, uint32_t sub) {
+    if (sub != 0) return;
+    uintptr_t vptr = 0, getId = 0;
+    if (!safeRead(reinterpret_cast<uintptr_t>(packet), &vptr, 8) || !vptr || !safeRead(vptr + 16, &getId, 8) || !getId)
+        return;
+    if (reinterpret_cast<int (*)(void const*)>(getId)(packet) != 122) return;
+    uint8_t raw[24] = {};
+    if (!safeRead(reinterpret_cast<uintptr_t>(packet) + 0x190, raw, sizeof raw)) return;
+    std::string name;
+    if (!(raw[0] & 1)) name.assign(reinterpret_cast<char const*>(raw + 1), std::min<size_t>(raw[0] >> 1, 22));
+    else {
+        uint64_t len = 0, ptr = 0;
+        std::memcpy(&len, raw + 8, 8);
+        std::memcpy(&ptr, raw + 16, 8);
+        if (len && len <= 64) {
+            name.resize(len);
+            if (!safeRead(ptr & 0x00FFFFFFFFFFFFFFull, name.data(), len)) name.clear();
         }
-    };
-    scan(reinterpret_cast<uintptr_t>(packet), 0x200, 0, scan);
+    }
+    if (name.size() < 2 || !std::all_of(name.begin(), name.end(), [](char c) { return c >= 0x20 && c < 0x7F; })) return;
+    std::lock_guard lock(gNameMutex);
+    if (gFirstName != name) gLog(fmt::format("names: player 1 is {}", name));
+    gFirstName = name;
 }
 
 void sendToClientDetour(void* self, void const* id, void const* packet, uint32_t sub) {
     if (!gSender.exchange(self)) gLog(fmt::format("forms: the server's packet sender is {}", self));
-    logPacketTexts(packet, sub);
+    readFirstName(packet, sub);
     gSendToClient(self, id, packet, sub);
 }
 
@@ -373,6 +355,11 @@ void hookHandle(Found const& f, void* detour, HandleFn* original, char const* wh
 
 
 int64_t msSinceMenu(int sub) { return sub >= 0 && sub < 4 ? nowMs() - gLastFormAt[sub] : INT64_MAX; }
+
+std::string firstPlayerName() {
+    std::lock_guard lock(gNameMutex);
+    return gFirstName;
+}
 
 bool inWorld() {
     int64_t now = nowMs();

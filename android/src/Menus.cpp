@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <chrono>
 #include <fstream>
 #include <mutex>
@@ -81,10 +82,18 @@ constexpr auto kRemoveAfter  = std::chrono::seconds(20);
 std::string badge(int sub) { return fmt::format("textures/splitscreen/p{}_24", sub + 1); }
 
 // "Player 2": the game's local player names are not read on Android yet.
+// The names the game gives the local players, as on Windows: player 1 is the account's name, the others are that
+// name without its trailing digits and " (N)" ("SnakyWarrior251", "SnakyWarrior (1)"). "Player N" until it is known.
 std::string localName(int sub) {
-    std::string name = tr("splitscreen.tag.player1");
-    if (auto one = name.rfind('1'); one != std::string::npos) name.replace(one, 1, std::to_string(sub + 1));
-    return name;
+    auto first = firstPlayerName();
+    if (first.empty()) {
+        std::string name = tr("splitscreen.tag.player1");
+        if (auto one = name.rfind('1'); one != std::string::npos) name.replace(one, 1, std::to_string(sub + 1));
+        return name;
+    }
+    if (sub == 0) return first;
+    while (!first.empty() && std::isdigit(static_cast<unsigned char>(first.back()))) first.pop_back();
+    return fmt::format("{} ({})", first, sub);
 }
 
 // A short line above that player's hotbar, so they see what a menu choice did. Not on Android yet (the game's

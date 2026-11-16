@@ -33,6 +33,8 @@ int64_t msSinceMenu(int sub);
 
 // Whether player 1 is in a world (and has been for a few seconds: not while it loads).
 bool inWorld();
+// Player 1's name (the account's), or "" until it is known.
+std::string firstPlayerName();
 
 // Whether player `sub` has a menu open (or about to open).
 bool menuOpen(int sub);
