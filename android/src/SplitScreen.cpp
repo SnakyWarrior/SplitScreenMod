@@ -847,17 +847,9 @@ void enableJoining(Module const& game) {
             gPauseEvent = reinterpret_cast<PauseEventFn>(c.vtables.front()[4]);
             writeSlot(&c.vtables.front()[4], reinterpret_cast<uintptr_t>(&pauseEventDetour));
             note("pause: watching the pause menu's events");
-            // 41, 43 and 50 are asked for property names (std::string "#...") every frame (0.10.7 log: 41
-            // "#gamepad_helper_visible", 43 "#edu_keyboard_helper_visible"). Replacing them with a plain function
-            // crashed the pause menu (0.10.7-0.10.9): they are only traced by the register-saving trampolines (the
-            // names asked, with their answers).
-            size_t pauseSlots = std::min<size_t>(countSlots(game, c.vtables.front(), 400), 54);
-            traceVtable(game, c.vtables.front(), pauseSlots, 420, "PauseScreenController",
-                        [](std::string const& l) { note("{}", l); });
-            for (size_t slot = 0; slot < pauseSlots; ++slot) traceNames(420 + slot);
-            watchResults(game, c.vtables.front(), {41, 43, 50}, "PauseScreenController",
-                         [](std::string const& l) { note("{}", l); });
-            logResults(80);
+            // The pause menu's properties: its pack bindings ("#splitscreen_...") are never asked for (0.10.11 log:
+            // virtual 20 gets the names the screen's own controls use, none of ours), so the Android pack has none
+            // and its Split screen button is always there.
         }
     size_t listenerBase = 575;
     for (auto const& c : findClasses(game, "SplitscreenJoinListener"))

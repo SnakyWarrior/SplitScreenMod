@@ -1,0 +1,89 @@
+{
+  "namespace": "pause",
+
+  // Android: the Windows version's pause_screen.json with the Split screen button always shown (its bindings come from
+  // the Windows mod) and without the free-controller button. A square name-tag button in the row of small buttons
+  // under Save & Quit, styled like them. The mod handles "button.splitscreen_menu".
+  "smaller_buttons_panel/stacked_column": {
+    "modifications": [
+      {
+        "control_name": "fill_3",
+        "operation": "insert_before",
+        "value": [
+          {
+            "splitscreen_padding": {
+              "type": "panel",
+              "size": [ "2%", 0 ]
+            }
+          },
+          {
+            "splitscreen_small_button": {
+              "type": "input_panel",
+              "size": [ "100%c + 4px", 32 ],
+              "controls": [ { "splitscreen_btn@pause.splitscreen_button_small_with_tooltip": {} } ]
+            }
+          }
+        ]
+      }
+    ]
+  },
+
+  "splitscreen_icon": {
+    "type": "image",
+    "texture": "textures/items/name_tag",
+    "layer": 3,
+    "size": [ 16, 16 ]
+  },
+
+  "splitscreen_button_small@common_buttons.light_content_button": {
+    "$pressed_button_name": "button.splitscreen_menu",
+    "$focus_id": "icon_panel_main_focus",
+    "focus_change_down": "return_to_game",
+    "$button_tts_header": "splitscreen.title.menu",
+    "size": [ 24, 24 ],
+    "$button_content": "pause.splitscreen_icon",
+    "$pressed_alpha": 0.65
+  },
+
+  // the game's controller glyph, centered in the button
+  "splitscreen_free_icon": {
+    "type": "image",
+    "texture": "textures/ui/controller_glyph",
+    "layer": 3,
+    "size": [ 16, 16 ],
+    "anchor_from": "center",
+    "anchor_to": "center"
+  },
+
+  // alone in the world: take player 1's controller away so it can choose a player
+  "splitscreen_free_button_small@common_buttons.light_content_button": {
+    "$pressed_button_name": "button.splitscreen_free_controller",
+    "$default_button_texture": "textures/ui/button_red",
+    "$hover_button_texture": "textures/ui/button_red",
+    "$pressed_button_texture": "textures/ui/button_red_pressed",
+    "$focus_id": "icon_panel_main_focus",
+    "focus_change_down": "return_to_game",
+    "$button_tts_header": "splitscreen.pause.freeController",
+    "size": [ 24, 24 ],
+    "$button_content": "pause.splitscreen_free_icon",
+    "$pressed_alpha": 0.65
+  },
+
+  "splitscreen_free_button_small_with_tooltip": {
+    "type": "panel",
+    "size": [ 24, 24 ],
+    "controls": [
+      { "button@pause.splitscreen_free_button_small": {} },
+      { "tooltip_trigger@pause.icon_button_tooltip_trigger": { "$tooltip_text": "splitscreen.pause.freeController" } }
+    ]
+  },
+
+  "splitscreen_button_small_with_tooltip": {
+    "type": "panel",
+    "size": [ 24, 24 ],
+    "controls": [
+      { "button@pause.splitscreen_button_small": {} },
+      { "tooltip_trigger@pause.icon_button_tooltip_trigger": { "$tooltip_text": "splitscreen.title.menu" } }
+    ]
+  }
+}
