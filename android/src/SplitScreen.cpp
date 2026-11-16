@@ -691,57 +691,6 @@ bool hookClientLeave(Module const& game) {
 
 // The Split screen menu, on Select (View / Back) of a controller that plays. The added player's sub client id is its
 // controller number (1-3).
-uintptr_t* gPauseVt = nullptr;
-std::atomic<bool> gBindMany{false}, gBindPad{false}; // other players are in / player 1 has a controller
-using BindingFn     = uint64_t (*)(void*, void*, uint64_t, uint64_t);
-BindingFn gBindingOriginal[64] = {};
-std::mutex            gBindingMutex;
-std::set<std::string> gBindingSeen;
-
-std::string bindingName(void* str) { // a libc++ std::string
-    uint8_t raw[24];
-    std::memcpy(raw, str, sizeof raw);
-    if (raw[0] & 1) {
-        uint64_t len, data;
-        std::memcpy(&len, raw + 8, 8);
-        std::memcpy(&data, raw + 16, 8);
-        return len < 100 ? std::string(reinterpret_cast<char const*>(data), len) : std::string();
-    }
-    return std::string(reinterpret_cast<char const*>(raw + 1), raw[0] >> 1);
-}
-
-template <size_t Slot>
-uint64_t bindingDetour(void* self, void* name, uint64_t a2, uint64_t a3) {
-    uint64_t result = gBindingOriginal[Slot](self, name, a2, a3);
-    std::string n   = bindingName(name);
-    // The pause menu's Split screen buttons (the pack's bindings, answered as the Windows version's bindBool does):
-    // the Split screen button with other players, the free-controller button alone with a controller.
-    if (n.rfind("#splitscreen_", 0) == 0) {
-        // from values the 1-second loop keeps up to date: the UI asks every frame, and must not wait on the mod's
-        // locks or call Java from its thread
-        bool     many   = gBindMany.load(std::memory_order_relaxed);
-        bool     pad    = gBindPad.load(std::memory_order_relaxed);
-        uint64_t answer = n == "#splitscreen_many_players"      ? many
-                        : n == "#splitscreen_free_controller"   ? (!many && pad)
-                        : n == "#splitscreen_any_button"        ? (many || pad)
-                                                                 : result;
-        if (answer != result || n == "#splitscreen_any_button") result = answer;
-    }
-    if (n.rfind("#", 0) == 0 && (n.find("split") != std::string::npos || gBindingSeen.size() < 150)) {
-        std::lock_guard lock(gBindingMutex);
-        if (gBindingSeen.insert(fmt::format("{}:{}:{}", Slot, n, result)).second)
-            note("pause: virtual {} asked \"{}\" -> {} (args {} {})", Slot, n, result, a2, a3);
-    }
-    return result;
-}
-
-template <size_t Slot>
-void hookBindingGetter() {
-    if (!gPauseVt) return;
-    gBindingOriginal[Slot] = reinterpret_cast<BindingFn>(gPauseVt[Slot]);
-    writeSlot(&gPauseVt[Slot], reinterpret_cast<uintptr_t>(&bindingDetour<Slot>));
-}
-
 using PauseEventFn = uint64_t (*)(void*, void*);
 PauseEventFn     gPauseEvent = nullptr;
 std::atomic<int> gPauseEventsLogged{0};
@@ -893,13 +842,41 @@ void enableJoining(Module const& game) {
             gPauseEvent = reinterpret_cast<PauseEventFn>(c.vtables.front()[4]);
             writeSlot(&c.vtables.front()[4], reinterpret_cast<uintptr_t>(&pauseEventDetour));
             note("pause: watching the pause menu's events");
-            // 41, 43 and 50 are asked for property names (std::string "#...") every frame (0.9.11 log): the names and
-            // answers tell which is the "visible" question (the Windows version's bindBool), which is how its Split
-            // screen button hides when the player is alone.
-            gPauseVt = c.vtables.front();
-            hookBindingGetter<41>();
-            hookBindingGetter<43>();
-            hookBindingGetter<50>();
+            // 41, 43 and 50 are asked for property names (std::string "#...") every frame (0.10.7 log: 41
+            // "#gamepad_helper_visible", 43 "#edu_keyboard_helper_visible"). Replacing them with a plain function
+            // crashed the pause menu (0.10.7-0.10.9): they are only traced by the register-saving trampolines (the
+            // names asked), and the code that registers such a binding (the Windows version's bindBool) is searched
+            // by the FNV hash of "#gamepad_helper_visible".
+            for (size_t slot : {41, 43, 50}) {
+                traceVtable(game, c.vtables.front() + slot, 1, 420 + slot, "PauseScreenController",
+                            [](std::string const& l) { note("{}", l); });
+                traceNames(420 + slot);
+            }
+            std::thread([game] {
+                constexpr uint32_t kHash = 0xC79036F3; // FNV-1a of "#gamepad_helper_visible"
+                int                hits  = 0;
+                for (auto const& seg : game.segments) {
+                    if (!seg.exec) continue;
+                    auto const* code = reinterpret_cast<uint32_t const*>(seg.start);
+                    size_t      n    = (seg.end - seg.start) / 4;
+                    for (size_t i = 0; i + 4 < n && hits < 3; ++i) {
+                        uint32_t op = code[i];
+                        if ((op & 0xFFE0001F) != (0x52800000u | (kHash & 0xFFFF) << 5 | (op & 31))) continue;
+                        if ((op & 0xFFFFFFE0) != (0x52800000u | (kHash & 0xFFFF) << 5)) continue;
+                        int rd = op & 31;
+                        for (int k = 1; k < 4; ++k)
+                            if (code[i + k] == (0x72A00000u | (kHash >> 16) << 5 | uint32_t(rd))) {
+                                uintptr_t at = seg.start + 4 * i;
+                                note("pause: the hash of #gamepad_helper_visible is built at +0x{:X}", at - game.base);
+                                dumpCode(game, fmt::format("hash{}", hits).c_str(), at - 0x200, 0x400,
+                                         [](std::string const& l) { note("{}", l); });
+                                ++hits;
+                                break;
+                            }
+                    }
+                }
+                note("pause: hash search done ({} hit(s))", hits);
+            }).detach();
         }
     size_t listenerBase = 575;
     for (auto const& c : findClasses(game, "SplitscreenJoinListener"))
@@ -1244,8 +1221,6 @@ void watchControllers() {
     for (;;) {
         std::this_thread::sleep_for(std::chrono::seconds(1));
         menus::checkControllers();
-        gBindMany = game::players().size() > 1;
-        gBindPad  = game::hasController(0);
         static int tick = 0;
         if (tick++ % 10 == 0) findGameFolder();
     }
