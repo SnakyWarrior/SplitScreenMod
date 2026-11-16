@@ -900,6 +900,76 @@ uint64_t pauseEventDetour(void* self, void* event) {
     return result;
 }
 
+// The game's "Join as Player N" prompt (toast_screen's splitscreen_join_popup). Its controller asks one function each
+// frame whether to show it (on Windows it is true while the player's SplitscreenJoinListener waits for a controller).
+// On Android no free controller ever reaches that listener, so it never answers yes: it is told yes while a
+// controller is connected that plays nobody. Found from the code that names the popup: the call just before it whose
+// answer is masked to one bit (bl <check>; and wN, w0, #1).
+using PromptVisibleFn = bool (*)(void*);
+PromptVisibleFn gPromptVisible = nullptr;
+
+bool freeControllerConnected() {
+    static std::atomic<int64_t> checkedAt{0};
+    static std::atomic<bool>    free{false};
+    auto now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+    if (now - checkedAt.load() > 500) { // asked every frame: the controller list is read twice a second
+        checkedAt = now;
+        std::set<int> playing;
+        {
+            std::lock_guard lock(gPlayingMutex);
+            playing = gPlaying;
+        }
+        bool any = false;
+        for (int c = 1; c <= 3 && !any; ++c) any = !playing.contains(c) && controllerConnected(c);
+        free = any;
+    }
+    return free;
+}
+
+bool promptVisibleDetour(void* self) { return gPromptVisible(self) || freeControllerConnected(); }
+
+void hookJoinPrompt(Module const& game) {
+    static constexpr char kName[] = "splitscreen_join_popup";
+    std::vector<uintptr_t> strings;
+    for (auto const& seg : game.segments) {
+        if (!seg.read || seg.write) continue;
+        auto const* begin = reinterpret_cast<char const*>(seg.start);
+        size_t      size  = seg.end - seg.start;
+        for (size_t at = 0; at + sizeof kName <= size;) {
+            auto const* hit = static_cast<char const*>(memmem(begin + at, size - at, kName, sizeof kName));
+            if (!hit) break;
+            at = size_t(hit - begin) + 1;
+            if (hit == begin || hit[-1] == '\0') strings.push_back(reinterpret_cast<uintptr_t>(hit));
+        }
+    }
+    uintptr_t check = 0;
+    for (auto const& seg : game.segments) {
+        if (!seg.exec || strings.empty() || check) continue;
+        auto const* code = reinterpret_cast<uint32_t const*>(seg.start);
+        size_t      n    = (seg.end - seg.start) / 4;
+        for (size_t i = 64; i + 1 < n && !check; ++i) {
+            uint32_t op = code[i];
+            if ((op & 0x9F000000) != 0x90000000) continue; // adrp
+            int      rd   = op & 31;
+            uint32_t next = code[i + 1];
+            if ((next & 0xFFC00000) != 0x91000000 || int(next & 31) != rd || int((next >> 5) & 31) != rd) continue;
+            uintptr_t pc   = seg.start + 4 * i;
+            int64_t   imm  = (int64_t(((op >> 5) & 0x7FFFF) << 2 | ((op >> 29) & 3)) << 43) >> 31;
+            uintptr_t addr = (pc & ~uintptr_t(0xFFF)) + imm + ((next >> 10) & 0xFFF);
+            if (std::find(strings.begin(), strings.end(), addr) == strings.end()) continue;
+            for (size_t k = i - 1; k > i - 64 && !check; --k) // back to the visibility check
+                if ((code[k] & 0xFC000000) == 0x94000000 && (code[k + 1] & 0xFFFFFFE0) == 0x12000000)
+                    check = seg.start + 4 * k + ((int64_t(code[k] & 0x3FFFFFF) << 38) >> 36);
+        }
+    }
+    if (!check || !game.isCode(check)) return note("join: the Join as Player prompt's check was not found");
+    if (pl::memory::hook(reinterpret_cast<pl::memory::FuncPtr>(check), reinterpret_cast<pl::memory::FuncPtr>(&promptVisibleDetour),
+                         reinterpret_cast<pl::memory::FuncPtr*>(&gPromptVisible))
+        != 0)
+        return note("join: ERROR: could not hook the Join as Player prompt's check +0x{:X}", check - game.base);
+    note("join: the Join as Player prompt shows while a controller plays nobody (check +0x{:X})", check - game.base);
+}
+
 void enableJoining(Module const& game) {
     static Module copy = game;
     gGameModule        = &copy;
@@ -1270,7 +1340,10 @@ void probe() {
     note("turning split screen on (AppPlatform slot {})", slot);
     patchSlotEverywhere(*game, platforms, count, slot, allowSplitScreen, "allowSplitScreen");
     startFormProbe(*game, [](std::string const& l) { note("{}", l); });
-    if (configFlag("forceSplitscreenJoin", true)) enableJoining(*game);
+    if (configFlag("forceSplitscreenJoin", true)) {
+        enableJoining(*game);
+        hookJoinPrompt(*game);
+    }
     else note("forceSplitscreenJoin is off in config.json");
 }
 
