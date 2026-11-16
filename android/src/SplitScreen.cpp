@@ -639,7 +639,9 @@ void findOptions() {
                 uint64_t back = 0, registryVtable = 0;
                 readMemory(object + 760, &back, 8);
                 readMemory(object + 8, &registryVtable, 8);
-                bool real = inGame(vtable) && back == object + 8 && inGame(registryVtable);
+                // (heap pointers carry a tag in their top byte, 0xB4: compared without it)
+                constexpr uint64_t kAddress = 0x00FFFFFFFFFFFFFFull;
+                bool real = inGame(vtable) && (back & kAddress) == ((object + 8) & kAddress) && inGame(registryVtable);
                 note("layout: candidate {} (vtable {}, back pointer {}, registry vtable {}): {}", reinterpret_cast<void*>(object),
                      reinterpret_cast<void*>(vtable), reinterpret_cast<void*>(back), reinterpret_cast<void*>(registryVtable),
                      real ? "the options" : "no");
