@@ -692,6 +692,7 @@ bool hookClientLeave(Module const& game) {
 // The Split screen menu, on Select (View / Back) of a controller that plays. The added player's sub client id is its
 // controller number (1-3).
 uintptr_t* gPauseVt = nullptr;
+std::atomic<bool> gBindMany{false}, gBindPad{false}; // other players are in / player 1 has a controller
 using BindingFn     = uint64_t (*)(void*, void*, uint64_t, uint64_t);
 BindingFn gBindingOriginal[64] = {};
 std::mutex            gBindingMutex;
@@ -716,9 +717,10 @@ uint64_t bindingDetour(void* self, void* name, uint64_t a2, uint64_t a3) {
     // The pause menu's Split screen buttons (the pack's bindings, answered as the Windows version's bindBool does):
     // the Split screen button with other players, the free-controller button alone with a controller.
     if (n.rfind("#splitscreen_", 0) == 0) {
-        auto   players = game::players();
-        bool   many    = players.size() > 1;
-        bool   pad     = game::hasController(0);
+        // from values the 1-second loop keeps up to date: the UI asks every frame, and must not wait on the mod's
+        // locks or call Java from its thread
+        bool     many   = gBindMany.load(std::memory_order_relaxed);
+        bool     pad    = gBindPad.load(std::memory_order_relaxed);
         uint64_t answer = n == "#splitscreen_many_players"      ? many
                         : n == "#splitscreen_free_controller"   ? (!many && pad)
                         : n == "#splitscreen_any_button"        ? (many || pad)
@@ -1242,6 +1244,8 @@ void watchControllers() {
     for (;;) {
         std::this_thread::sleep_for(std::chrono::seconds(1));
         menus::checkControllers();
+        gBindMany = game::players().size() > 1;
+        gBindPad  = game::hasController(0);
         static int tick = 0;
         if (tick++ % 10 == 0) findGameFolder();
     }
