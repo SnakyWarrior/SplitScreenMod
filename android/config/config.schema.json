@@ -24,8 +24,8 @@
     },
     "layoutMenu": {
       "type": "boolean",
-      "title": "Layout choice in the Split screen menu",
-      "description": "Shows top and bottom / side by side in the Split screen menu."
+      "title": "Layout choice in the Split screen menu (experimental)",
+      "description": "Experimental, crashes: shows top and bottom / side by side in the Split screen menu. Use the game's Settings > Video > Split Screen instead."
     },
     "startJoins": {
       "type": "boolean",

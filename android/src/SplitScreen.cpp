@@ -573,8 +573,9 @@ bool isOptions(uintptr_t p) {
 // The options are a member of a member of the client or of MinecraftGame (the object with the option at +736 was not
 // directly in the client, 0.11.1 log): two levels of pointers are searched, once.
 void findOptions() {
-    // The layout choice ("layoutMenu" in config.json turns it off) needs the game's Options.
-    static bool enabled = configFlag("layoutMenu", true);
+    // The layout is chosen in the game's own settings (Video > Split Screen), which the mod makes available. The
+    // choice in the mod's menu ("layoutMenu" in config.json) is off: calling the option's load crashed (0.11.8).
+    static bool enabled = configFlag("layoutMenu", false);
     if (!enabled || gOptions.load()) return;
     static std::atomic<bool> searched{false};
     void* roots[2] = {gClientBySub[0].load(), gMinecraftGame.load()};
