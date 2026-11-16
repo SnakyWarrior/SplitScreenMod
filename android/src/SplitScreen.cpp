@@ -713,6 +713,18 @@ template <size_t Slot>
 uint64_t bindingDetour(void* self, void* name, uint64_t a2, uint64_t a3) {
     uint64_t result = gBindingOriginal[Slot](self, name, a2, a3);
     std::string n   = bindingName(name);
+    // The pause menu's Split screen buttons (the pack's bindings, answered as the Windows version's bindBool does):
+    // the Split screen button with other players, the free-controller button alone with a controller.
+    if (n.rfind("#splitscreen_", 0) == 0) {
+        auto   players = game::players();
+        bool   many    = players.size() > 1;
+        bool   pad     = game::hasController(0);
+        uint64_t answer = n == "#splitscreen_many_players"      ? many
+                        : n == "#splitscreen_free_controller"   ? (!many && pad)
+                        : n == "#splitscreen_any_button"        ? (many || pad)
+                                                                 : result;
+        if (answer != result || n == "#splitscreen_any_button") result = answer;
+    }
     if (n.rfind("#", 0) == 0 && (n.find("split") != std::string::npos || gBindingSeen.size() < 150)) {
         std::lock_guard lock(gBindingMutex);
         if (gBindingSeen.insert(fmt::format("{}:{}:{}", Slot, n, result)).second)
@@ -743,11 +755,23 @@ constexpr uint32_t fnv1a(std::string_view s) {
 }
 constexpr uint32_t kSplitScreenButton = fnv1a("button.splitscreen_menu");
 constexpr uint32_t kTouchPress        = fnv1a("button.menu_select");
+constexpr uint32_t kFreeControllerButton = fnv1a("button.splitscreen_free_controller");
 constexpr uint32_t kResumeButton      = fnv1a("button.menu_continue");
 
 uint64_t pauseEventDetour(void* self, void* event) {
     uint32_t words[8] = {};
     std::memcpy(words, event, sizeof words);
+    // the free-controller button (alone, with a controller): player 1's controller is taken away
+    if (words[0] == 1 && words[2] == kFreeControllerButton) {
+        uint32_t resume = kResumeButton;
+        std::memcpy(static_cast<uint8_t*>(event) + 8, &resume, sizeof resume);
+        uint64_t closed = gPauseEvent(self, event);
+        if ((words[4] & 0xFF) == 1) {
+            note("pause menu: free controller pressed");
+            runOnInputThread([] { menus::onFreeFirstController(); }, std::chrono::milliseconds(300));
+        }
+        return closed;
+    }
     if (words[0] == 1 && words[2] == kSplitScreenButton) { // type, (padding), hash, source, state
         // The press is handed on as Resume's, in every state (a press with a controller comes as state 2 and then 1,
         // and the game only closes the pause menu when it saw both): the pause menu closes the way Resume closes it.
