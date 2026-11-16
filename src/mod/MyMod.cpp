@@ -217,7 +217,7 @@ static bool decide(char const* name, void* ret, bool original) {
     auto& c   = gCfg[name];
     auto  rva = reinterpret_cast<uintptr_t>(ret) - gameBase();
     bool  res = autoAllow(ret) || original;
-    if (rva == 0x7463CCB || rva == 0x908E05) res = true; // experiment: the settings' split screen options
+    if (rva == 0x7463CCB || rva == 0x908E05 || rva == 0xCD27F) res = true; // experiment: the settings' split screen options
     if (c.seen.insert(rva).second) note("{} called from {:X}: game said {}, returning {}", name, rva, original, res);
     return res;
 }
