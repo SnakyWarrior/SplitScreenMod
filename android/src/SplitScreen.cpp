@@ -563,23 +563,42 @@ bool readMemory(uintptr_t at, void* out, size_t size) {
     return process_vm_readv(getpid(), &local, 1, &remote, 1, 0) == ssize_t(size);
 }
 
+bool isOptions(uintptr_t p) {
+    static constexpr char kName[] = "splitScreenDirection";
+    uint8_t               raw[1 + sizeof kName - 1] = {};
+    return p >= 0x10000000 && readMemory(p + kDirectionName, raw, sizeof raw) && raw[0] == ((sizeof kName - 1) << 1)
+        && std::memcmp(raw + 1, kName, sizeof kName - 1) == 0;
+}
+
+// The options are a member of a member of the client or of MinecraftGame (the object with the option at +736 was not
+// directly in the client, 0.11.1 log): two levels of pointers are searched, once.
 void findOptions() {
     if (gOptions.load()) return;
-    void* client = gClientBySub[0].load();
-    if (!client) return;
-    static constexpr char kName[] = "splitScreenDirection";
-    for (size_t at = 0; at < 0x3000; at += 8) {
-        uintptr_t p = 0;
-        if (!readMemory(reinterpret_cast<uintptr_t>(client) + at, &p, 8) || p < 0x10000000) continue;
-        uint8_t raw[1 + sizeof kName - 1] = {};
-        if (!readMemory(p + kDirectionName, raw, sizeof raw)) continue;
-        if (raw[0] == ((sizeof kName - 1) << 1) && std::memcmp(raw + 1, kName, sizeof kName - 1) == 0) {
-            gOptions = p;
-            note("layout: the options are at client+0x{:X} ({}), the direction is {}", at, reinterpret_cast<void*>(p),
-                 *reinterpret_cast<int32_t*>(p + kDirectionValue));
-            return;
+    static std::atomic<bool> searched{false};
+    void* roots[2] = {gClientBySub[0].load(), gMinecraftGame.load()};
+    if (!roots[0] || !roots[1] || searched.exchange(true)) return;
+    for (int r = 0; r < 2; ++r) {
+        for (size_t at = 0; at < 0x3000; at += 8) {
+            uintptr_t p = 0;
+            if (!readMemory(reinterpret_cast<uintptr_t>(roots[r]) + at, &p, 8) || p < 0x10000000) continue;
+            if (isOptions(p)) {
+                gOptions = p;
+                note("layout: the options are at {}+0x{:X} ({}), the direction is {}", r ? "game" : "client", at,
+                     reinterpret_cast<void*>(p), *reinterpret_cast<int32_t*>(p + kDirectionValue));
+                return;
+            }
+            uint64_t inner[0x100];
+            if (!readMemory(p, inner, sizeof inner)) continue;
+            for (size_t k = 0; k < 0x100; ++k)
+                if (inner[k] >= 0x10000000 && isOptions(inner[k])) {
+                    gOptions = inner[k];
+                    note("layout: the options are at {}+0x{:X}->+0x{:X} ({}), the direction is {}", r ? "game" : "client",
+                         at, k * 8, reinterpret_cast<void*>(inner[k]), *reinterpret_cast<int32_t*>(inner[k] + kDirectionValue));
+                    return;
+                }
         }
     }
+    note("layout: the options were not found in the client or the game (2 levels)");
 }
 
 } // namespace
